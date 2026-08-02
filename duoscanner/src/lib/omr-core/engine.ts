@@ -1,0 +1,355 @@
+import type { AnswerResult, OmrTemplate, Point, Rect, OmrQualityInfo } from './types';
+
+// OMR Core Engine — Algoritmo Principal
+
+// Declarar cv globally (OpenCV.js vai providenciar isso no enviroment que carregar)
+declare var cv: any;
+
+export class OmrEngine {
+    private debugMode: boolean = false;
+    private debugImages: Record<string, any> = {};
+
+    constructor(debug: boolean = false) {
+        this.debugMode = debug;
+    }
+
+    public getDebugImages() {
+        return this.debugImages;
+    }
+
+    private saveDebug(name: string, mat: any) {
+        if (this.debugMode && mat) {
+            this.debugImages[name] = mat.clone();
+        }
+    }
+
+    /**
+     * Pré-processamento: Gray -> Blur -> Threshold
+     */
+    public preprocess(mat: any): any {
+        let gray = new cv.Mat();
+        if (mat.type() === cv.CV_8UC4 || mat.channels() === 4) {
+            cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+        } else if (mat.channels() === 3) {
+            cv.cvtColor(mat, gray, cv.COLOR_RGB2GRAY);
+        } else {
+            mat.copyTo(gray);
+        }
+
+        this.saveDebug('01_gray', gray);
+
+        let blurred = new cv.Mat();
+        let ksize = new cv.Size(5, 5);
+        cv.GaussianBlur(gray, blurred, ksize, 0, 0, cv.BORDER_DEFAULT);
+
+        let thresh = new cv.Mat();
+        // Adaptive threshold funciona melhor em condições variáveis de iluminação
+        cv.adaptiveThreshold(blurred, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 51, 15);
+        this.saveDebug('02_thresh', thresh);
+
+        blurred.delete();
+        return { gray, thresh };
+    }
+
+    /**
+     * Encontrar 4 marcadores fiduciais pretos na imagem binária.
+     */
+    public findCornerMarkers(threshMat: any): Point[] {
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+        cv.findContours(threshMat, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+
+        let imgArea = threshMat.rows * threshMat.cols;
+        let candidates = [];
+
+        for (let i = 0; i < contours.size(); ++i) {
+            let cnt = contours.get(i);
+            let area = cv.contourArea(cnt);
+
+            // Ignorar muito pequenos ou muito grandes
+            if (area > imgArea * 0.05 || area < imgArea * 0.0001) {
+                continue;
+            }
+
+            let peri = cv.arcLength(cnt, true);
+            let approx = new cv.Mat();
+            cv.approxPolyDP(cnt, approx, 0.04 * peri, true);
+
+            if (approx.rows === 4) {
+                let rect = cv.boundingRect(approx);
+                let aspect = rect.width / rect.height;
+                // Quadrados têm aspect ratio próximo de 1
+                if (aspect >= 0.7 && aspect <= 1.3) {
+                    let M = cv.moments(cnt);
+                    if (M.m00 !== 0) {
+                        let cx = M.m10 / M.m00;
+                        let cy = M.m01 / M.m00;
+                        candidates.push({ x: cx, y: cy, area: area });
+                    }
+                }
+            }
+            approx.delete();
+        }
+
+        contours.delete();
+        hierarchy.delete();
+
+        // Ordenar candidatos por área decrescente
+        candidates.sort((a, b) => b.area - a.area);
+
+        if (candidates.length >= 4) {
+            // Pegar os 4 maiores que parecem com as caixas predefinidas
+            return this.orderCorners(candidates.slice(0, 4));
+        }
+
+        return [];
+    }
+
+    /**
+     * Ordenar pontos em: Top-Left, Top-Right, Bottom-Right, Bottom-Left
+     */
+    public orderCorners(pts: Point[]): Point[] {
+        if (pts.length !== 4) return pts;
+
+        // Sort by Y first
+        let sortedY = [...pts].sort((a, b) => a.y - b.y);
+        let top = sortedY.slice(0, 2);
+        let bottom = sortedY.slice(2, 4);
+
+        // Sort Top by X
+        top.sort((a, b) => a.x - b.x);
+        let tl = top[0];
+        let tr = top[1];
+
+        // Sort Bottom by X
+        bottom.sort((a, b) => a.x - b.x);
+        let bl = bottom[0];
+        let br = bottom[1];
+
+        return [tl, tr, br, bl];
+    }
+
+    /**
+     * Extrair o gabarito transformado para o espaço geométrico do Template usando homografia
+     */
+    public warp(mat: any, corners: Point[], templateWidth: number, templateHeight: number, templateCorners?: any): any {
+        if (!corners || corners.length !== 4) throw new Error("Four corners required for warping");
+
+        // Safely check undefined points
+        for (let i = 0; i < 4; i++) {
+            let pt = corners[i];
+            if (!pt || typeof pt.x === 'undefined' || typeof pt.y === 'undefined') {
+                throw new Error(`Corner ${i} is missing or has no X/Y`);
+            }
+        }
+
+        let p0 = corners[0] as Point;
+        let p1 = corners[1] as Point;
+        let p2 = corners[2] as Point;
+        let p3 = corners[3] as Point;
+
+        let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            p0.x, p0.y,
+            p1.x, p1.y,
+            p2.x, p2.y,
+            p3.x, p3.y
+        ]);
+
+        // Calculates the physical margins based on the A4 700px wrapper proportion
+        // In the original DOMPDF (794x1123), the wrapper is 700px centered -> (794-700)/2 = 47px margin (5.9% of width)
+        // Let's use 5.9% padding for X and 5.9% padding for Y dynamically regardless of the resolution (DPI)
+        let padX = templateWidth * 0.0592;
+        let padY = templateHeight * 0.0418; // 47 / 1123 = 4.18%
+
+        let dstP0 = { x: padX, y: padY };
+        let dstP1 = { x: templateWidth - padX, y: padY };
+        let dstP2 = { x: templateWidth - padX, y: templateHeight - padY };
+        let dstP3 = { x: padX, y: templateHeight - padY };
+
+        let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            dstP0.x, dstP0.y,
+            dstP1.x, dstP1.y,
+            dstP2.x, dstP2.y,
+            dstP3.x, dstP3.y
+        ]);
+
+        let M = cv.getPerspectiveTransform(srcTri, dstTri);
+        let warped = new cv.Mat();
+        let dsize = new cv.Size(templateWidth, templateHeight);
+
+        // Use BORDER_CONSTANT with white background padding if needed
+        let scalar = new cv.Scalar(255, 255, 255, 255);
+        cv.warpPerspective(mat, warped, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, scalar);
+
+        srcTri.delete();
+        dstTri.delete();
+        M.delete();
+
+        this.saveDebug('05_warped', warped);
+        return warped;
+    }
+
+    /**
+     * Ler as bolhas a partir da imagem alinhada e transformada em Preto e Branco
+     */
+    public readBubbles(warped: any, template: OmrTemplate, thresholds: any): AnswerResult[] {
+        // Garantir que a imagem warpada seja binária invertida
+        let gray = new cv.Mat();
+        if (warped.channels() > 1) {
+            cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
+        } else {
+            warped.copyTo(gray);
+        }
+
+        let thresh = new cv.Mat();
+        // Binarização local robusta para extrair as partes preenchidas (bolhas viram branco 255)
+        cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 51, 15);
+        this.saveDebug('06_warped_thresh', thresh);
+
+        let results: AnswerResult[] = [];
+        let tMark = thresholds?.mark ?? 0.45;
+        let tBlank = thresholds?.blank ?? 0.15;
+        let tUncLow = thresholds?.uncertain_low ?? 0.25;
+        let tUncHigh = thresholds?.uncertain_high ?? 0.40;
+
+        // Dynamic Configuration Proportions (based on 2480x3508 DOMPDF A4 wrapper proportions)
+        let W = thresh.cols;
+        let H = thresh.rows;
+        let startX = W * 0.14919;
+        let startY = H * 0.09492;
+        let colSpacing = W * 0.20725;
+        let rowSpacing = H * 0.03306;
+        let bubbleSize = W * 0.02016;
+        let optionSpacing = W * 0.02862;
+        let rPC = (template as any).rows_per_column ?? 15;
+
+        for (let q of template.questions) {
+            let num = q.question_number;
+            let options = q.option_labels_json || [];
+
+            let scores: Record<string, number> = {};
+            let boxes: Record<string, Rect> = {};
+
+            // Generate virtual ROIs
+            let col = Math.floor((num - 1) / rPC);
+            let row = (num - 1) % rPC;
+
+            let bX = startX + (col * colSpacing);
+            let bY = startY + (row * rowSpacing);
+
+            // Para cada alternativa da questão
+            for (let i = 0; i < options.length; i++) {
+                let opt = options[i];
+
+                let rX = Math.round(bX + (i * optionSpacing));
+                let rY = Math.round(bY);
+                let rwVal = Math.round(bubbleSize);
+                let rhVal = Math.round(bubbleSize);
+
+                boxes[opt] = { x: rX, y: rY, width: rwVal, height: rhVal } as Rect;
+
+                // Prevenir access violations
+                rX = Math.max(0, rX);
+                rY = Math.max(0, rY);
+
+                let rW = Math.min(thresh.cols - rX, rwVal);
+                let rH = Math.min(thresh.rows - rY, rhVal);
+
+                if (rW <= 0 || rH <= 0) {
+                    scores[opt] = 0;
+                    continue;
+                }
+
+                let roiRect = new cv.Rect(rX, rY, rW, rH);
+                let roiMat = thresh.roi(roiRect);
+                let nonZero = cv.countNonZero(roiMat);
+                let totalPixels = rW * rH;
+
+                scores[opt] = nonZero / totalPixels;
+                roiMat.delete();
+            }
+
+            // Classificar essa questão
+            let sortedOpts = Object.keys(scores).sort((a, b) => scores[b] - scores[a]);
+            let bestOpt = sortedOpts[0] ?? null;
+            let bestScore = bestOpt ? (scores[bestOpt] ?? 0) : 0;
+            let secondOpt = sortedOpts.length > 1 ? sortedOpts[1] : null;
+            let secondScore = secondOpt ? (scores[secondOpt] ?? 0) : 0;
+
+            let selected: string | null = null;
+            let status: AnswerResult['status'] = 'BLANK';
+
+            if (bestScore >= tMark) {
+                // Ao menos um marcado forte
+                if (secondScore >= tMark) {
+                    status = 'DOUBLE';
+                } else {
+                    selected = bestOpt ?? null;
+                    status = 'OK';
+                }
+            } else if (bestScore >= tUncLow) {
+                // Marcação muito fraca / Rasurada
+                if (bestScore <= tUncHigh) {
+                    status = 'UNCERTAIN';
+                    selected = bestOpt ?? null; // Retorna com ressalva
+                } else if (secondScore >= tUncLow) {
+                    status = 'DOUBLE'; // Rasura borradas em 2
+                } else {
+                    status = 'OK'; // Aceita como fraca mas única
+                    selected = bestOpt ?? null;
+                }
+            } else {
+                status = 'BLANK';
+            }
+
+            results.push({
+                q: num,
+                selected: selected,
+                status: status,
+                scores: scores,
+                boxes: boxes
+            });
+        }
+
+        gray.delete();
+        thresh.delete();
+
+        return results;
+    }
+
+    /**
+     * Calcula métricas de qualidade globais e define se precisa de revisão manual
+     */
+    public assessQuality(cornersFound: number, answersStatus: AnswerResult[]): OmrQualityInfo {
+        let issues: string[] = [];
+        let needsReview = false;
+
+        if (cornersFound < 4) {
+            issues.push(`Cantos incompletos: ${cornersFound}`);
+            needsReview = true;
+        }
+
+        let numDouble = 0;
+        let numUncertain = 0;
+
+        for (let a of answersStatus) {
+            if (a.status === 'DOUBLE') numDouble++;
+            if (a.status === 'UNCERTAIN') numUncertain++;
+        }
+
+        if (numDouble > 0) {
+            issues.push(`${numDouble} dupla(s) marcação`);
+        }
+        if (numUncertain > 0) {
+            issues.push(`${numUncertain} resposta(s) duvidosas/fracas`);
+            needsReview = true; // Força revisão se houver incerteza
+        }
+
+        return {
+            corners_found: cornersFound,
+            reprojection_error: 0.0, // Simplificação geométrica direta
+            issues: issues,
+            needs_review: needsReview
+        };
+    }
+}

@@ -1,0 +1,70 @@
+# Task Tracker — Gabarito Essential + Modos de Leitura + Config Hierárquica
+
+## Fase 1 — Fundação de Configuração (Platform) ✅
+- [x] Migration: `answer_sheet_types`
+- [x] Migration: `scan_modes`
+- [x] Migration: `config_rules`
+- [x] Migration: `config_audit_logs`
+- [x] Migration: `add_answer_sheet_type_and_version_to_exams`
+- [x] Seeder: `AnswerSheetTypeSeeder` (Essential + Detalhado)
+- [x] Seeder: `ScanModeSeeder` (Hybrid + Preloaded + QR Embedded)
+- [x] Model: `AnswerSheetType`
+- [x] Model: `ScanMode`
+- [x] Model: `ConfigRule`
+- [x] Model: `ConfigAuditLog`
+- [x] Service: `ConfigPrecedenceResolver`
+- [x] Service: `ConfigAuditService`
+- [x] Service: `QrCodeSigningService`
+- [x] DatabaseSeeder updated
+
+## Fase 2 — API v2 de Configuração (Platform) ✅
+- [x] Controller: `ConfigApiController` (all endpoints)
+- [x] Routes: `api.php` v2 routes
+- [x] Endpoint: `GET /api/v2/config/effective`
+- [x] Endpoint: `GET /api/v2/config/trace/{userId}`
+- [x] Endpoint: CRUD `config/rules`
+- [x] Endpoint: `GET /api/v2/config/audit`
+- [x] Endpoint: `GET /api/v2/answer-sheet-types`
+- [x] Endpoint: `GET /api/v2/scan-modes`
+- [x] Fixed User model organization_id references
+
+## Fase 3 — QR Code + Segurança (Platform) ✅
+- [x] QrCodeSigningService with HMAC-SHA256
+- [x] Per-organization key support
+- [x] Mode-specific payload building (preloaded/qr_embedded/hybrid)
+
+## Fase 4 — Duoscanner: Fundação (Mobile) ✅
+- [x] SQLite database layer (`src/db/database.ts`)
+- [x] Config store (`src/store/config-store.ts`)
+- [x] Config resolver (`src/lib/config-resolver.ts`)
+- [x] Updated QR parser v2 (`src/lib/qr-parser.ts`) — full v1 schema
+- [x] QR validator (`src/lib/qr-validator.ts`)
+- [x] SyncManager with retry + backoff (`src/services/sync-manager.ts`)
+- [x] Updated QRPayload types (gab, pts fields)
+- [x] Sync store: pendingCount + updatePendingCount
+- [x] UserOrganization model: role() relationship added
+
+## Fase 5 — Duoscanner: Gabarito Essential + Modos (Mobile) ✅
+- [x] Correction engine (`src/lib/correction-engine.ts`)
+- [x] Capture engine (`src/lib/capture-engine.ts`)
+- [x] Data strategy logic in config-resolver (use_cache/download/qr_fallback/error)
+- [x] Layout dimensions from config (Essential/Detailed)
+
+## Fase 6 — Duoscanner: Captura Automática + UX (Mobile) ✅
+- [x] Capture engine logic (evaluatePreCapture, shouldAutoCapture, getCaptureGuidance)
+- [x] CaptureOverlay component (corner guides, quality dots, score bar, auto-capture badge)
+- [x] ScanModeIndicator component (mode/sheet type/strategy pills)
+- [x] GuidanceOverlay component (real-time guidance messages)
+- [x] CorrectionSummaryCard component (stat blocks, score, percentage)
+- [x] Camera screen redesign (8-state machine, config-aware, auto-capture, overlays)
+- [x] Result screen redesign (correction engine, filter chips, SQLite persistence)
+
+## Fase 7 — Observabilidade + Painel Admin + Rollout ✅
+- [x] ConfigController (web controller — index, audit, simulate, CRUD rules)
+- [x] config/index.blade.php (rules management, precedence visualizer)
+- [x] config/audit.blade.php (timeline with diffs, action icons, change reasons)
+- [x] config/simulate.blade.php (precedence chain trace per user)
+- [x] Web routes registered (config.index, config.audit, config.simulate, rules CRUD)
+- [x] Sidebar navigation link added (Config OMR)
+- [x] ConfigAuditLog accessors (old_values, new_values, scope_type)
+- [ ] Feature flag for v2 rollout (deferred — can use env variable)

@@ -1,0 +1,99 @@
+export interface DetectedAnswer {
+  questionIndex: number;
+  questionId: number;
+  selectedOption: number | null; // 0=A, 1=B, 2=C, 3=D, 4=E
+  confidence: number; // 0.0 - 1.0
+}
+
+export interface ScanResult {
+  localId: string;
+  examId: number;
+  copyId: number | null;
+  validationHash: string;
+  imageUri: string;
+  detectedAnswers: Record<string, number | null>; // questionId -> selected option index
+  questionConfidences?: Record<string, number>;
+  confirmedAnswers: Record<string, number | null> | null;
+  studentId: number | null;
+  studentName: string | null;
+  confidenceScore: number;
+  score: number | null;
+  totalPoints: number | null;
+  status: 'processing' | 'review' | 'confirmed' | 'synced' | 'rejected';
+  createdAt: string;
+  syncedAt: string | null;
+  serverScanId: number | null;
+  // New v1 fields
+  layoutVersion?: number;
+  pageIndex?: number;
+  pageTotal?: number;
+  qStart?: number;
+  qEnd?: number;
+  sessionId?: string;
+}
+
+
+export interface GradingResult {
+  questionId: number;
+  questionNumber: number;
+  detectedOptionIndex: number | null;
+  originalOptionIndex: number | null;
+  correctOptionIndex: number | null;
+  isCorrect: boolean;
+  points: number;
+  confidence: number;
+}
+
+export interface QRPayload {
+  // v0 fields (always present)
+  e: number;   // exam_id
+  c: number;   // copy_id
+  h: string;   // validation_hash
+  p?: number;  // page_index (1-based)
+  pt?: number; // page_total
+  qs?: number; // question_start (global sequential)
+  qe?: number; // question_end   (global sequential)
+  // v1 fields
+  v?: number;    // layout_version (0 = legacy)
+  cols?: number; // number of bubble columns
+  rpp?: number;  // rows per page (per column)
+  chk?: string;  // HMAC checksum (12-char hex)
+  // v1+ embedded data fields (for qr_embedded and hybrid modes)
+  gab?: string;  // compact answer key: each digit = correct option index (0-4)
+  pts?: string;  // compact points: each char = weight (1-9)
+  // Parsed metadata (set by parser, not from QR)
+  legacyQr?: boolean;
+}
+
+/** Mark type returned by the bubble classifier for a single question */
+export type BubbleMarkType = 'answered' | 'blank' | 'multiple_marks' | 'ambiguous';
+
+/** Per-question OMR result including fill ratios for debugging */
+export interface QuestionOMRResult {
+  questionId: number;
+  markType: BubbleMarkType;
+  selectedOption: number | null; // null if blank/ambiguous/multiple
+  multipleOptions?: number[];     // set when markType='multiple_marks'
+  confidence: number;
+  fillRatios: number[];           // fill ratio per option A, B, C...
+}
+
+/** Status of a single page within a multi-sheet scan session */
+export type PageStatus = 'pending' | 'confirmed' | 'synced' | 'rejected';
+
+/** Tracks progress when scanning a multi-page answer sheet */
+export interface MultiPageProgress {
+  sessionId: string;   // UUID grouping all pages of one student's scan
+  examId: number;
+  copyId: number;
+  studentId: number | null;
+  totalPages: number;
+  pages: Record<number, {  // keyed by page_index (1-based)
+    status: PageStatus;
+    localScanId: string;
+    qStart: number;
+    qEnd: number;
+    answers: Record<string, number | null>;
+    confidences: Record<string, number>;
+  }>;
+}

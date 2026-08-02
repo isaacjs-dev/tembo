@@ -1,0 +1,314 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Esconde elementos com x-cloak até o Alpine inicializar (evita "flash" de conteúdo). */
+[x-cloak] { display: none !important; }
+
+/* ================================================================
+   TEMBO — Design System
+   Foundation layer: reusable component classes
+   ================================================================ */
+
+@layer base {
+    :root {
+        --tembo-sky-700: #1d78a6;
+        --tembo-sky-800: #155b80;
+        --tembo-sky-100: #dceff8;
+        --tembo-canvas: #f5fafd;
+        --tembo-border: #d7e6ee;
+        --tembo-ink: #173243;
+        --tembo-text: #405b69;
+    }
+
+    html {
+        @apply scroll-smooth;
+    }
+
+    body {
+        @apply antialiased text-duo-text;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    :focus-visible {
+        outline: 3px solid var(--tembo-sky-700);
+        outline-offset: 3px;
+    }
+
+    button:disabled,
+    [aria-disabled="true"] {
+        @apply cursor-not-allowed opacity-60;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        @apply text-duo-heading;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+            scroll-behavior: auto !important;
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+        }
+    }
+}
+
+@layer components {
+
+    /* ---- Buttons ---- */
+    .btn-primary {
+        @apply inline-flex min-h-11 items-center justify-center gap-2 bg-primary text-white font-extrabold px-6 py-3 rounded-xl border-b-4 border-primary-dark transition-all duration-150 hover:bg-primary-dark active:border-b-0 active:translate-y-1 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2;
+    }
+
+    .btn-secondary {
+        @apply inline-flex min-h-11 items-center justify-center gap-2 bg-white text-primary-dark font-extrabold px-6 py-3 rounded-xl border-2 border-primary/30 border-b-4 transition-all duration-150 hover:bg-primary-light hover:border-primary/50 active:border-b-2 active:translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2;
+    }
+
+    .btn-danger {
+        @apply inline-flex min-h-11 items-center justify-center gap-2 bg-red-600 text-white font-extrabold px-6 py-3 rounded-xl border-b-4 border-red-800 transition-all duration-150 hover:bg-red-700 active:border-b-0 active:translate-y-1 focus:outline-none focus:ring-2 focus:ring-red-400/40 focus:ring-offset-2;
+    }
+
+    .btn-ghost {
+        @apply inline-flex min-h-11 items-center justify-center gap-2 bg-transparent text-duo-text font-bold px-4 py-2 rounded-xl transition-all duration-150 hover:bg-primary-light hover:text-primary-dark focus:outline-none focus:ring-2 focus:ring-primary/30;
+    }
+
+    .btn-sm {
+        @apply px-4 py-2 text-sm;
+    }
+
+    .btn-lg {
+        @apply px-8 py-4 text-base;
+    }
+
+    .btn-icon {
+        @apply inline-flex size-11 items-center justify-center rounded-xl transition-all duration-150 text-gray-400 hover:text-primary-dark hover:bg-primary-light focus:outline-none focus:ring-2 focus:ring-primary/30;
+    }
+
+    /* Legacy aliases (backward compat) */
+    .duo-button-primary {
+        @apply btn-primary;
+    }
+
+    .duo-button-secondary {
+        @apply btn-secondary;
+    }
+
+    .duo-button-shadow {
+        @apply shadow-tactile hover:shadow-tactile-hover;
+    }
+
+    /* ---- Inputs ---- */
+    .input-field {
+        @apply block min-h-11 w-full px-4 py-3 bg-white border-2 border-control-border rounded-xl text-duo-heading font-medium placeholder:text-gray-400 hover:border-primary focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all duration-200;
+    }
+
+    .input-label {
+        @apply block text-sm font-bold text-duo-heading mb-1.5;
+    }
+
+    .input-icon-wrapper {
+        @apply relative;
+    }
+
+    .input-icon-wrapper .input-icon {
+        @apply absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 transition-colors;
+    }
+
+    .input-icon-wrapper:focus-within .input-icon {
+        @apply text-primary;
+    }
+
+    .input-icon-wrapper .input-field {
+        @apply pl-11;
+    }
+
+    /* ---- Cards ---- */
+    .card {
+        @apply bg-white rounded-2xl border border-duo-border shadow-card transition-all duration-200;
+    }
+
+    .card-hover {
+        @apply hover:shadow-card-hover hover:-translate-y-0.5;
+    }
+
+    .card-tactile {
+        @apply bg-white rounded-2xl border-2 border-duo-border border-b-4 transition-all duration-200;
+    }
+
+    /* ---- Badges ---- */
+    .badge {
+        @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold uppercase tracking-tight border;
+    }
+
+    .badge-success {
+        @apply bg-green-50 text-green-700 border-green-200;
+    }
+
+    .badge-warning {
+        @apply bg-yellow-50 text-yellow-700 border-yellow-200;
+    }
+
+    .badge-danger {
+        @apply bg-red-50 text-red-600 border-red-200;
+    }
+
+    .badge-info {
+        @apply bg-blue-50 text-blue-600 border-blue-200;
+    }
+
+    .badge-neutral {
+        @apply bg-gray-100 text-gray-600 border-gray-200;
+    }
+
+    .badge-primary {
+        @apply bg-primary/10 text-primary border-primary/20;
+    }
+
+    /* ---- Page Headers ---- */
+    .page-header {
+        @apply flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6;
+    }
+
+    .page-title {
+        @apply text-3xl font-extrabold text-duo-heading tracking-tight;
+    }
+
+    .breadcrumb {
+        @apply flex items-center gap-2 text-sm font-bold text-gray-400 mb-2;
+    }
+
+    .breadcrumb a {
+        @apply hover:text-primary transition-colors;
+    }
+
+    .breadcrumb .current {
+        @apply text-primary;
+    }
+
+    /* ---- Tables ---- */
+    .table-wrapper {
+        @apply card overflow-hidden;
+    }
+
+    .table-wrapper table {
+        @apply w-full text-left;
+    }
+
+    .table-wrapper thead {
+        @apply bg-background-light border-b-2 border-duo-border;
+    }
+
+    .table-wrapper th {
+        @apply px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider;
+    }
+
+    .table-wrapper tbody {
+        @apply divide-y-2 divide-duo-border;
+    }
+
+    .table-wrapper tbody tr {
+        @apply hover:bg-gray-50/50 transition-colors;
+    }
+
+    .table-wrapper td {
+        @apply px-6 py-4 text-sm;
+    }
+
+    /* ---- Alerts ---- */
+    .alert {
+        @apply p-4 rounded-xl border-l-4 border-y border-r font-bold flex items-center gap-3 shadow-sm;
+    }
+
+    .alert-success {
+        @apply bg-green-50 border-green-200 text-green-700;
+    }
+
+    .alert-warning {
+        @apply bg-yellow-50 border-yellow-200 text-yellow-800;
+    }
+
+    .alert-danger {
+        @apply bg-red-50 border-red-200 text-red-700;
+    }
+
+    .alert-info {
+        @apply bg-blue-50 border-blue-200 text-blue-700;
+    }
+
+    /* ---- Error List ---- */
+    .error-list {
+        @apply flex flex-col gap-1 p-3 bg-error-soft border border-red-200 rounded-xl text-error-text text-sm font-medium;
+    }
+
+    .error-list-item {
+        @apply flex items-center gap-3;
+    }
+
+    /* ---- Sidebar ---- */
+    .sidebar-item {
+        @apply flex min-h-11 items-center gap-4 px-4 py-3 rounded-xl border border-transparent transition-colors duration-150 font-bold text-gray-500 hover:bg-primary-light/70 hover:text-primary-dark;
+    }
+
+    .sidebar-item.active {
+        @apply bg-primary-light text-primary-dark border-primary/30 shadow-sm;
+    }
+
+    .sidebar-section-title {
+        @apply text-xs font-bold text-gray-400 uppercase tracking-widest pl-4 mb-2;
+    }
+
+    .sidebar-link {
+        @apply flex min-h-10 items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-500 transition-colors duration-150 hover:bg-primary-light/70 hover:text-primary-dark;
+    }
+
+    .sidebar-link.active {
+        @apply bg-primary-light text-primary-dark;
+    }
+
+    /* ---- KPI Stat Cards ---- */
+    .stat-card {
+        @apply card p-6 hover:shadow-card-hover transition-all duration-200;
+    }
+
+    .stat-card-icon {
+        @apply w-10 h-10 rounded-xl flex items-center justify-center;
+    }
+
+    .stat-card-value {
+        @apply text-2xl font-extrabold text-duo-heading mt-1;
+    }
+
+    .stat-card-label {
+        @apply text-sm font-medium text-gray-500;
+    }
+
+    .duo-card {
+        @apply card-tactile;
+    }
+
+    /* ---- Brand & Loading ---- */
+    .brand-wordmark {
+        @apply font-black tracking-tight text-duo-heading;
+    }
+
+    .brand-tagline {
+        @apply text-xs font-semibold text-gray-500;
+    }
+
+    .loading-state {
+        @apply flex items-center justify-center gap-3 rounded-xl border border-primary/20 bg-primary-light/60 p-5 font-bold text-primary-dark;
+    }
+
+    .loading-spinner {
+        @apply size-6 animate-spin rounded-full border-2 border-primary/25 border-t-primary;
+    }
+}

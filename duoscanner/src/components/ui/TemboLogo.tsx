@@ -1,0 +1,33 @@
+import React from 'react';
+import Svg, { Path, Rect } from 'react-native-svg';
+import { colors } from '@/theme/colors';
+
+interface TemboLogoProps {
+  size?: number;
+  backgroundColor?: string;
+}
+
+/** Shared Tembo elephant mark, matching the web application identity. */
+export function TemboLogo({ size = 48, backgroundColor = colors.primary }: TemboLogoProps) {
+  return (
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      accessibilityRole="image"
+      accessibilityLabel="Tembo"
+    >
+      <Rect width="48" height="48" rx="14" fill={backgroundColor} />
+      <Path
+        d="M13.25 14.75C9.8 14.75 7 17.8 7 21.55c0 3.36 2.25 6.15 5.2 6.7V18.1c0-1.17.38-2.27 1.05-3.35Zm21.5 0c.67 1.08 1.05 2.18 1.05 3.35v10.15c2.95-.55 5.2-3.34 5.2-6.7 0-3.75-2.8-6.8-6.25-6.8Z"
+        fill={colors.white}
+        opacity={0.7}
+      />
+      <Path
+        fillRule="evenodd"
+        d="M24 9.5c-6.33 0-11.45 4.16-11.45 10.62v4.48c0 5.6 3.67 9.12 8.57 9.86v2.18a3.63 3.63 0 0 0 7.25 0v-6.57h-3.45v6.57a.92.92 0 0 1-1.84 0v-5.35h.92c6.33 0 11.45-4.52 11.45-11.17S30.33 9.5 24 9.5Zm-4.15 11.15a1.55 1.55 0 1 0 0-3.1 1.55 1.55 0 0 0 0 3.1Zm8.3 0a1.55 1.55 0 1 0 0-3.1 1.55 1.55 0 0 0 0 3.1ZM18.9 25.3c1.35 1.22 3.05 1.84 5.1 1.84s3.75-.62 5.1-1.84l-1.58-1.78c-.94.8-2.1 1.2-3.52 1.2s-2.58-.4-3.52-1.2L18.9 25.3Z"
+        fill={colors.white}
+      />
+    </Svg>
+  );
+}

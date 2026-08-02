@@ -1,0 +1,53 @@
+# Local and production secrets (examples remain versioned)
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+**/auth.json
+
+# Dependencies and generated build state
+**/node_modules/
+**/vendor/
+**/.gradle/
+**/.expo/
+**/.kotlin/
+**/dist/
+**/web-build/
+**/build/
+**/public/build/
+**/public/hot
+**/public/storage
+
+# Databases, runtime data and diagnostics
+**/*.sqlite
+**/*.sqlite-*
+**/*.log
+**/.phpunit.result.cache
+**/.phpunit.cache/
+**/storage/framework/cache/**
+**/storage/framework/sessions/**
+**/storage/framework/views/**
+**/storage/logs/**
+
+# Signing material and private keys
+**/*.jks
+**/*.keystore
+**/*.p8
+**/*.p12
+**/*.pem
+**/*.key
+**/*.mobileprovision
+
+# IDE/OS state
+.claude/
+.vscode/
+**/.idea/
+**/.fleet/
+**/.nova/
+**/.zed/
+**/.DS_Store
+**/Thumbs.db
+
+# Generated release artifacts are distributed outside Git
+**/*.apk
+**/*.aab

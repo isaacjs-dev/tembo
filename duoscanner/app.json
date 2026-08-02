@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "Tembo Scanner",
+    "slug": "tembo-scanner",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "tembo-scanner",
+    "androidStatusBar": {
+      "backgroundColor": "#DCEFF8",
+      "barStyle": "dark-content"
+    },
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#DCEFF8"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.duoscanner.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "O Tembo Scanner precisa da câmera para digitalizar folhas de resposta e QR Codes."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#DCEFF8",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.duoscanner.app",
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
+      "allowBackup": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-camera",
+      "expo-sqlite"
+    ],
+    "extra": {
+      "apiBaseUrl": "https://tembo.aracruz.org/api/v1",
+      "webBaseUrl": "https://tembo.aracruz.org",
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "c2382c95-9522-4a42-91f1-86ba4437165a"
+      }
+    },
+    "owner": "isaacjs-st"
+  }
+}

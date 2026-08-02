@@ -1,0 +1,1261 @@
+# Especificação Técnica — Gabarito Essential, Modos de Leitura e Configuração Hierárquica
+
+> Documento gerado a partir da análise completa dos sistemas Platform (Laravel) e Duoscanner (React Native/Expo)
+
+---
+
+## 1. Entendimento do Escopo
+
+A solução é composta por dois sistemas integrados:
+
+- **Platform**: aplicação web Laravel responsável pela gestão, configuração, administração, auditoria e controle de toda a solução. É o sistema de governança de regras.
+- **Duoscanner**: aplicação mobile React Native (Expo SDK 55) responsável pela leitura física da folha de resposta, detecção de QR Code, leitura de marcações OMR, correção, persistência local e sincronização posterior.
+
+O objetivo principal é:
+
+1. **Manter** o modelo de gabarito existente (renomeado para "Gabarito Detalhado");
+2. **Criar** um novo modelo "Gabarito Essential" — mais simples, confiável e robusto — como padrão;
+3. **Implementar** três modos de leitura/correção no Duoscanner (Pré-carregado, QR Embutido, Híbrido);
+4. **Tornar** o modo Híbrido o padrão sugerido;
+5. **Centralizar** toda a governança de regras no Platform com hierarquia de precedência;
+6. **Redesenhar** o fluxo do Duoscanner para captura automática e single-shot;
+7. **Fortalecer** a operação offline-first com fila, retry e versionamento;
+8. **Implementar** auditoria, rastreabilidade e observabilidade ponta a ponta.
+
+### O que deve ser mantido
+- Separação entre Platform e Duoscanner como sistemas complementares
+- Modelo atual de gabarito (será renomeado para "Detalhado")
+- QR Code na folha de resposta
+- Sincronização mobile ↔ backend
+- Operação em cenários de conectividade instável
+
+### O que deve ser criado
+- Gabarito Essential (novo tipo padrão)
+- Sistema de configuração hierárquica com precedência
+- Três modos de leitura implementados e configuráveis
+- Captura automática single-shot no Duoscanner
+- Fila de sincronização com backoff exponencial
+- Auditoria e versionamento de regras no Platform
+
+### O que deve ser reorganizado
+- Separação clara entre camadas: configuração, regras, sincronização, leitura visual, correção, persistência local, observabilidade
+- Desacoplamento entre tipo de gabarito e modo de leitura
+- Eliminação de lógica duplicada entre Platform e Duoscanner
+
+### O que não pode acontecer
+- Remover o gabarito detalhado
+- Hardcodar tipo de gabarito ou modo de leitura no app
+- Exigir duas leituras manuais separadas
+- Depender exclusivamente de internet para correção
+- Deixar precedência de regras implícita
+- Misturar lógica administrativa com lógica visual de leitura
+
+---
+
+## 2. Diagnóstico dos Problemas Atuais
+
+### 2.1 Platform (Laravel)
+
+| Problema | Evidência | Impacto |
+|----------|-----------|---------|
+| **Tipo de gabarito hardcoded** | Não existe entidade `AnswerSheetType`. O `OmrTemplate` mistura geometria física com lógica de correção | Impossível alternar entre tipos de gabarito por configuração |
+| **Sem configuração hierárquica** | `InstitutionRole` tem permissões flat (`manage_omr`, `view_omr`). Não há `system_config`, `role_config`, `user_config` para gabarito/modo | Qualquer mudança de comportamento exige alteração de código |
+| **Sem versionamento de regras** | Não existe tabela de histórico de configuração com `effective_from`, `changed_by`, `previous_value` | Impossível auditar quem alterou o quê e quando |
+| **API sem endpoint de configuração** | `routes/api.php` só tem `auth`, `exams`, `omr/scans`. Não há `GET /api/v1/config/effective` | Duoscanner não sabe qual gabarito/modo usar |
+| **OmrGradingService duplica lógica** | Métodos `gradeAnswers()` e `grade()` repetem 80% do código de reverse-mapping e normalização | Manutenção e bugs duplicados |
+| **Sem validação de integridade do QR** | Falta HMAC no endpoint `ExamApiController@download` — o `validation_hash` existe mas não é assinado com chave secreta | QR Code adulterável |
+
+### 2.2 Duoscanner (React Native/Expo)
+
+| Problema | Evidência | Impacto |
+|----------|-----------|---------|
+| **Captura manual obrigatória** | `scan/camera.tsx` exige tap do usuário para capturar imagem | Lentidão, frustração operacional |
+| **Sem validação pré-captura** | Não há checagem automática de foco, iluminação, inclinação antes de capturar | Imagens ruim processadas → baixa confiança |
+| **QR parser ignora campos modernos** | `qr-parser.ts` não lê `v`, `cols`, `rpp`, `chk` do schema v1 | Perde metadata crítica para correção de perspectiva |
+| **Modo de leitura fixo (Pré-carregado)** | `exam-store.ts` só suporta download prévio. Não há modo QR-embutido nem híbrido | Sem flexibilidade |
+| **Sync sem retry com backoff** | `sync-service.ts` processa sequencialmente sem exponential backoff, sem limite de tentativas, sem dead-letter | Pode sobrecarregar servidor ou perder dados |
+| **Cache sem versionamento** | `exam-store.ts` armazena `downloadedAt` mas nunca compara com versão do servidor | Cache desatualizado usado sem detecção |
+| **Persistência via SecureStore** | `scan-store.ts` usa `expo-secure-store` que tem limite de 2KB por item no Android | Quebra silenciosa com muitos scans |
+| **Template registry hardcoded** | `template-registry.ts` tem apenas v0 e v1 com mesma geometria. Não recebe templates do servidor | Gabarito Essential não tem como ter layout diferente |
+| **Legacy fallback frágil** | `omr-processor.ts` lin.437-559 usa heurística de tamanho de arquivo JPEG (!) como fallback | Resultados aleatórios quando OpenCV fail |
+
+### 2.3 Integração Platform ↔ Duoscanner
+
+| Problema | Evidência | Impacto |
+|----------|-----------|---------|
+| **Sem contrato de configuração** | Não existe endpoint que retorne tipo de gabarito + modo de leitura efetivo para o user | App não sabe como operar |
+| **Sem versionamento de prova** | `ExamDownload` não tem campo `version` ou `updated_at` para cache invalidation | Cache stale |
+| **Sem idempotência explícita no upload** | `idempotency_key` existe no model mas a API não valida no `WHERE` do `updateOrCreate` | Potencial duplicação |
+| **QR Code sem HMAC** | Schema v1 define `chk` mas o `qr-parser.ts` não o valida | Segurança comprometida |
+
+---
+
+## 3. Arquitetura Proposta
+
+### 3.1 Visão Geral em Camadas
+
+```mermaid
+graph TB
+    subgraph Platform ["Platform (Laravel)"]
+        direction TB
+        CFG["Camada de Configuração<br/>ConfigController<br/>ConfigPrecedenceResolver"]
+        GOV["Camada de Governança<br/>AnswerSheetType<br/>ScanMode<br/>ConfigRule"]
+        API["Camada de API REST v2<br/>ConfigApi · ExamApi · OmrApi"]
+        SVC["Camada de Serviços<br/>OmrGradingService<br/>ConfigAuditService"]
+        DB["Banco de Dados<br/>answer_sheet_types · scan_modes<br/>config_rules · config_audit_logs"]
+    end
+    
+    subgraph Duoscanner ["Duoscanner (React Native)"]
+        direction TB
+        CFG_M["ConfigResolver<br/>(aplica regra efetiva)"]
+        SYN["SyncManager<br/>(fila + retry + backoff)"]
+        CAP["CaptureEngine<br/>(auto-capture + validação)"]
+        OMR["OMR Engine<br/>(fiducial + homography + bubbles)"]
+        COR["CorrectionEngine<br/>(aplica gabarito correto)"]
+        PER["Persistence Layer<br/>(SQLite + FileSystem)"]
+    end
+    
+    API -- "GET /config/effective" --> CFG_M
+    API -- "GET /exams/{id}/download" --> SYN
+    SYN -- "POST /omr/scans" --> API
+    CFG_M --> CAP
+    CAP --> OMR
+    OMR --> COR
+    COR --> PER
+    PER --> SYN
+```
+
+### 3.2 Responsabilidades
+
+#### Platform é responsável por:
+- Cadastrar e versionar tipos de gabarito (Detalhado, Essential)
+- Cadastrar e manter modos de leitura (Pré-carregado, QR Embutido, Híbrido)
+- Gerenciar configuração global e por nível (tipo de usuário, papel, função, permissão, usuário)
+- Resolver a regra efetiva para um dado usuário via `ConfigPrecedenceResolver`
+- Gerar e assinar QR Codes (com HMAC)
+- Receber e processar scans sincronizados
+- Auditar todas as alterações de configuração
+- Versionar provas e gabaritos para cache invalidation
+
+#### Duoscanner é responsável por:
+- Consumir a configuração efetiva via API e cachear localmente
+- Executar captura automática com validação de qualidade (foco, luz, inclinação)
+- Processar imagem single-shot (QR + marcações)
+- Aplicar correção conforme tipo de gabarito configurado
+- Persistir resultados localmente (SQLite)
+- Gerenciar fila de sincronização com retry + exponential backoff
+- Exibir estados claros ao usuário
+
+#### Contratos de integração:
+- Platform define as regras → Duoscanner as executa
+- O Duoscanner NUNCA decide autonomamente qual tipo de gabarito ou modo usar
+- O Duoscanner PODE operar offline com a última configuração cacheada
+- Toda correção feita offline é re-validada pelo Platform ao sincronizar
+
+---
+
+## 4. Regras de Negócio
+
+### 4.1 Tipo de gabarito NÃO determina modo de leitura
+São configurações independentes:
+- **Tipo de gabarito** → como a correção é calculada (quais campos, peso, tolerância)
+- **Modo de leitura** → como os dados da prova chegam ao app (pré-download, QR, híbrido)
+
+Ambos são configuráveis independentemente.
+
+### 4.2 Gabarito Essential é padrão, Detalhado é alternativa
+A instalação nova do sistema deve vir com:
+- `answer_sheet_types`: Essential (default=true), Detalhado (default=false)
+- Se nenhuma regra específica for encontrada, o sistema usa Essential
+
+### 4.3 Modo Híbrido é padrão sugerido
+- `scan_modes`: Híbrido (default=true), Pré-carregado (default=false), QR Embutido (default=false)
+
+---
+
+## 5. Modelo de Configuração e Precedência
+
+### 5.1 Nova tabela `config_rules`
+
+```sql
+CREATE TABLE config_rules (
+    id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    organization_id BIGINT UNSIGNED NOT NULL,
+    config_key      VARCHAR(50) NOT NULL,        -- 'answer_sheet_type' | 'scan_mode'
+    config_value    VARCHAR(100) NOT NULL,        -- 'essential' | 'detailed' | 'hybrid' | 'preloaded' | 'qr_embedded'
+    scope_type      ENUM('global','user_type','role','function','permission','user') NOT NULL,
+    scope_id        BIGINT UNSIGNED NULL,         -- NULL para global; user_id, role_id, etc.
+    priority        TINYINT UNSIGNED NOT NULL,    -- desnormalizado: 1=user, 2=permission, 3=role, 4=user_type, 5=global
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    effective_from  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    effective_until  TIMESTAMP NULL,
+    created_by      BIGINT UNSIGNED NOT NULL,
+    created_at      TIMESTAMP,
+    updated_at      TIMESTAMP,
+    
+    INDEX idx_scope_lookup (organization_id, config_key, scope_type, scope_id, is_active),
+    INDEX idx_priority (organization_id, config_key, priority),
+    FOREIGN KEY (organization_id) REFERENCES organizations(id),
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
+```
+
+### 5.2 Hierarquia de precedência
+
+A resolução é determinística e segue esta ordem (menor priority = maior prioridade):
+
+| Priority | scope_type   | scope_id          | Descrição |
+|----------|-------------|-------------------|-----------|
+| 1        | `user`      | `users.id`        | Configuração específica do usuário |
+| 2        | `permission`| `permission_key`  | Quem tem a permissão X |
+| 3        | `role`      | `institution_roles.id` | Quem tem o papel Y |
+| 4        | `user_type` | `'teacher'`/`'admin'` | Tipo de usuário |
+| 5        | `global`    | `NULL`            | Padrão da organização |
+
+#### Algoritmo de resolução (`ConfigPrecedenceResolver`)
+
+```php
+class ConfigPrecedenceResolver
+{
+    public function resolve(
+        int $organizationId,
+        int $userId,
+        string $configKey
+    ): ?string {
+        $user = User::with(['organizationPivot.role.permissions'])->find($userId);
+        $pivot = $user->organizationPivot($organizationId);
+        
+        // 1. Regra para o usuário específico
+        $rule = ConfigRule::where('organization_id', $organizationId)
+            ->where('config_key', $configKey)
+            ->where('scope_type', 'user')
+            ->where('scope_id', $userId)
+            ->where('is_active', true)
+            ->whereRaw('effective_from <= NOW()')
+            ->where(fn($q) => $q->whereNull('effective_until')->orWhereRaw('effective_until > NOW()'))
+            ->first();
+        if ($rule) return $rule->config_value;
+
+        // 2. Regra por permissão (pegar a de menor ID se houver múltiplas)
+        $userPermissions = $pivot->role->getPermissionKeys();
+        $rule = ConfigRule::where('organization_id', $organizationId)
+            ->where('config_key', $configKey)
+            ->where('scope_type', 'permission')
+            ->whereIn('scope_id', $userPermissions)
+            ->where('is_active', true)
+            ->whereRaw('effective_from <= NOW()')
+            ->where(fn($q) => $q->whereNull('effective_until')->orWhereRaw('effective_until > NOW()'))
+            ->orderBy('id')   // Determinístico: menor ID ganha
+            ->first();
+        if ($rule) return $rule->config_value;
+
+        // 3. Regra por papel/função
+        $rule = ConfigRule::where('organization_id', $organizationId)
+            ->where('config_key', $configKey)
+            ->where('scope_type', 'role')
+            ->where('scope_id', $pivot->institution_role_id)
+            ->where('is_active', true)
+            ->whereRaw('effective_from <= NOW()')
+            ->where(fn($q) => $q->whereNull('effective_until')->orWhereRaw('effective_until > NOW()'))
+            ->first();
+        if ($rule) return $rule->config_value;
+
+        // 4. Regra por tipo de usuário
+        $userType = $pivot->type ?? 'teacher';  // teacher, admin, coordinator
+        $rule = ConfigRule::where('organization_id', $organizationId)
+            ->where('config_key', $configKey)
+            ->where('scope_type', 'user_type')
+            ->where('scope_id', $userType)
+            ->where('is_active', true)
+            ->whereRaw('effective_from <= NOW()')
+            ->where(fn($q) => $q->whereNull('effective_until')->orWhereRaw('effective_until > NOW()'))
+            ->first();
+        if ($rule) return $rule->config_value;
+
+        // 5. Regra global
+        $rule = ConfigRule::where('organization_id', $organizationId)
+            ->where('config_key', $configKey)
+            ->where('scope_type', 'global')
+            ->where('is_active', true)
+            ->whereRaw('effective_from <= NOW()')
+            ->where(fn($q) => $q->whereNull('effective_until')->orWhereRaw('effective_until > NOW()'))
+            ->first();
+        if ($rule) return $rule->config_value;
+
+        // 6. Fallback do sistema
+        return $configKey === 'answer_sheet_type' ? 'essential' : 'hybrid';
+    }
+    
+    /**
+     * Retorna a regra efetiva + toda a cadeia de resolução (para painel admin).
+     */
+    public function resolveWithTrace(int $orgId, int $userId, string $configKey): array
+    {
+        // Similar ao resolve(), mas retorna todas as regras encontradas
+        // em cada nível e qual foi a vencedora
+    }
+}
+```
+
+### 5.3 Tabela de auditoria
+
+```sql
+CREATE TABLE config_audit_logs (
+    id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    organization_id BIGINT UNSIGNED NOT NULL,
+    config_rule_id  BIGINT UNSIGNED NULL,
+    action          ENUM('created','updated','deactivated','deleted') NOT NULL,
+    config_key      VARCHAR(50) NOT NULL,
+    old_value       JSON NULL,
+    new_value       JSON NOT NULL,
+    changed_by      BIGINT UNSIGNED NOT NULL,
+    change_reason   TEXT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_audit_org (organization_id, created_at),
+    FOREIGN KEY (organization_id) REFERENCES organizations(id),
+    FOREIGN KEY (changed_by) REFERENCES users(id)
+);
+```
+
+---
+
+## 6. Especificação dos Tipos de Gabarito
+
+### 6.1 Nova tabela `answer_sheet_types`
+
+```sql
+CREATE TABLE answer_sheet_types (
+    id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    organization_id BIGINT UNSIGNED NULL,           -- NULL = tipo sistêmico (Essential, Detalhado)
+    slug            VARCHAR(30) NOT NULL UNIQUE,     -- 'essential', 'detailed'
+    name            VARCHAR(100) NOT NULL,
+    description     TEXT NULL,
+    is_system       BOOLEAN NOT NULL DEFAULT FALSE, -- tipos nativos imutáveis
+    is_default      BOOLEAN NOT NULL DEFAULT FALSE,
+    layout_config   JSON NOT NULL,                  -- geometria da folha para rendering + leitura
+    grading_config  JSON NOT NULL,                  -- regras de correção específicas do tipo
+    version         INT UNSIGNED NOT NULL DEFAULT 1,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMP,
+    updated_at      TIMESTAMP
+);
+```
+
+### 6.2 Gabarito Detalhado
+
+```json
+{
+  "slug": "detailed",
+  "name": "Gabarito Detalhado",
+  "is_system": true,
+  "is_default": false,
+  "layout_config": {
+    "paper_size": "A4",
+    "orientation": "portrait",
+    "margins_mm": 10,
+    "max_questions": 60,
+    "columns": 4,
+    "rows_per_column": 15,
+    "max_options": 5,
+    "supports_vf": true,
+    "supports_essay_space": false,
+    "header_includes": ["student_name", "student_id", "class", "discipline"],
+    "fiducial_count": 4,
+    "fiducial_size_mm": 4.76,
+    "qr_position": "top_left",
+    "bubble_diameter_mm": 4.2,
+    "area_width_mm": 184.5,
+    "area_height_mm": 153.4,
+    "col_bubble_start_mm": [18.9, 62.4, 106.0, 149.5],
+    "col_bubble_end_mm": [43.5, 87.0, 130.6, 174.1],
+    "grid_top_offset_mm": 15.8,
+    "discipline_header_height_mm": 6.8
+  },
+  "grading_config": {
+    "blank_handling": "zero_points",
+    "multiple_marks_handling": "zero_points",
+    "partial_credit": false,
+    "confidence_threshold_auto_accept": 0.80,
+    "confidence_threshold_review": 0.60,
+    "confidence_threshold_rescan": 0.45
+  }
+}
+```
+
+### 6.3 Gabarito Essential (NOVO)
+
+```json
+{
+  "slug": "essential",
+  "name": "Gabarito Essential",
+  "is_system": true,
+  "is_default": true,
+  "layout_config": {
+    "paper_size": "A4",
+    "orientation": "portrait",
+    "margins_mm": 12,
+    "max_questions": 40,
+    "columns": 2,
+    "rows_per_column": 20,
+    "max_options": 5,
+    "supports_vf": true,
+    "supports_essay_space": false,
+    "header_includes": ["student_id"],
+    "fiducial_count": 4,
+    "fiducial_size_mm": 6.0,
+    "qr_position": "top_center",
+    "bubble_diameter_mm": 5.5,
+    "area_width_mm": 186.0,
+    "area_height_mm": 240.0,
+    "col_bubble_start_mm": [25.0, 110.0],
+    "col_bubble_end_mm": [85.0, 170.0],
+    "grid_top_offset_mm": 20.0,
+    "discipline_header_height_mm": 0
+  },
+  "grading_config": {
+    "blank_handling": "zero_points",
+    "multiple_marks_handling": "zero_points",
+    "partial_credit": false,
+    "confidence_threshold_auto_accept": 0.85,
+    "confidence_threshold_review": 0.65,
+    "confidence_threshold_rescan": 0.50
+  }
+}
+```
+
+**Diferenças-chave do Essential vs Detalhado:**
+
+| Aspecto | Detalhado | Essential |
+|---------|-----------|-----------|
+| Colunas | 4 | 2 |
+| Questões máx | 60 | 40 |
+| Diâmetro bolha | 4.2mm | 5.5mm |
+| Tamanho fiducial | 4.76mm | 6.0mm |
+| Cabeçalho | nome+id+turma+disciplina | apenas ID |
+| Altura útil | 153mm | 240mm |
+| QR Position | top_left | top_center |
+
+**Justificativa**: O Essential tem bolhas maiores (5.5mm vs 4.2mm) e fiduciais maiores (6mm vs 4.76mm), o que aumenta a taxa de detecção. Menos colunas (2 vs 4) aumentam o espaçamento lateral. Sem cabeçalho complexo elimina variação de `disciplineHeaderHeightMm`. QR centralizado melhora detecção em ângulos variados.
+
+---
+
+## 7. Especificação dos Três Modos de Leitura
+
+### 7.1 Nova tabela `scan_modes`
+
+```sql
+CREATE TABLE scan_modes (
+    id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    slug            VARCHAR(30) NOT NULL UNIQUE,     -- 'preloaded', 'qr_embedded', 'hybrid'
+    name            VARCHAR(100) NOT NULL,
+    description     TEXT NULL,
+    is_default      BOOLEAN NOT NULL DEFAULT FALSE,
+    requires_predownload BOOLEAN NOT NULL DEFAULT FALSE,
+    requires_qr_data     BOOLEAN NOT NULL DEFAULT FALSE,
+    offline_capable      BOOLEAN NOT NULL DEFAULT FALSE,
+    qr_payload_schema    JSON NULL,                  -- campos obrigatórios/opcionais do QR neste modo
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMP,
+    updated_at      TIMESTAMP
+);
+```
+
+### 7.2 Modo 1 — Pré-carregado (`preloaded`)
+
+**Fluxo:**
+1. Professor abre o app com internet → baixa provas (`GET /exams/{id}/download`)
+2. Dados ficam em SQLite local (questões, gabarito, alunos, copies)
+3. Professor pode ir a campo sem internet
+4. Ao escanear: QR Code identifica `exam_id + copy_id + validation_hash`
+5. App busca a prova no cache local, aplica correção localmente
+6. Resultado armazenado na fila de sync
+7. Quando online, sincroniza automaticamente
+
+**QR Code neste modo contém:**
+```json
+{
+  "e": 42,           // exam_id (obrigatório)
+  "c": 10,           // copy_id (obrigatório)
+  "h": "abc123",     // validation_hash (obrigatório)
+  "p": 1,            // página atual
+  "pt": 1,           // total de páginas
+  "v": 1,            // layout_version
+  "chk": "hmac..."   // HMAC-SHA256 checksum (obrigatório)
+}
+```
+
+**Limitação:** exige que a prova tenha sido baixada antes. Se a prova não estiver no cache, o app mostra erro claro.
+
+### 7.3 Modo 2 — QR Embutido (`qr_embedded`)
+
+**Fluxo:**
+1. Professor abre o app (com ou sem internet)
+2. Ao escanear: QR Code contém dados suficientes para identificar E corrigir
+3. O QR carrega gabarito compacto (respostas certas e pesos)
+4. App processa imagem: QR + bolhas em captura única
+5. Resultado armazenado localmente
+6. Sync quando online
+
+**QR Code neste modo contém:**
+```json
+{
+  "e": 42,
+  "c": 10,
+  "h": "abc123",
+  "p": 1,
+  "pt": 1,
+  "v": 1,
+  "qs": 1,            // questão início
+  "qe": 20,           // questão fim
+  "cols": 2,           // colunas
+  "rpp": 20,           // rows per column
+  "gab": "24013...",   // gabarito compacto: cada dígito = índice correto (0-4)
+  "pts": "1111...",    // pontos: cada char = peso (1-9)
+  "chk": "hmac..."
+}
+```
+
+**Tamanho estimado do QR:**
+- 40 questões × 1 dígito (gabarito) + 40 × 1 dígito (pontos) + overhead = ~200 bytes
+- QR Code versão 10 (57×57 módulos) suporta até 271 bytes em modo alfanumérico
+- Viável para até 50 questões
+
+**Limitação:** QR Code pode ficar grande para provas com muitas questões (>50). Para essas, o modo Híbrido é preferível.
+
+### 7.4 Modo 3 — Híbrido (`hybrid`) — PADRÃO SUGERIDO
+
+**Fluxo:**
+1. Se online: baixa provas automaticamente ao abrir o app (como modo Pré-carregado)
+2. QR Code contém dados de identificação + fallback mínimo
+3. Se a prova está em cache: usa cache (performance)
+4. Se a prova NÃO está em cache mas tem internet: baixa on-demand
+5. Se a prova NÃO está em cache e NÃO tem internet: usa dados do QR como contingência (fallback parcial)
+6. Sync quando online
+
+**QR Code neste modo contém:**
+```json
+{
+  "e": 42,
+  "c": 10,
+  "h": "abc123",
+  "p": 1,
+  "pt": 1,
+  "v": 1,
+  "qs": 1,
+  "qe": 20,
+  "cols": 2,
+  "rpp": 20,
+  "gab": "24013...",   // gabarito compacto para fallback
+  "chk": "hmac..."
+}
+```
+
+**Por que é o padrão recomendado:**
+- Combina o melhor dos dois mundos: performance do cache + resiliência do QR
+- Sempre funciona (online ou offline)
+- QR Code não precisa carregar pesos detalhados (usa peso=1 como fallback), mantendo QR menor
+- Cache provê dados completos quando disponível
+- Se o cache estiver desatualizado, o QR detecta a inconsistência via `validation_hash`
+
+### 7.5 Decisão de modo no Duoscanner
+
+```typescript
+interface EffectiveScanConfig {
+  answerSheetType: 'essential' | 'detailed';
+  scanMode: 'preloaded' | 'qr_embedded' | 'hybrid';
+  resolvedAt: string;
+  resolvedFrom: string; // 'user' | 'permission' | 'role' | 'user_type' | 'global' | 'system_default'
+}
+
+// No app, após login:
+const config = await api.get<EffectiveScanConfig>('/api/v2/config/effective');
+configStore.setEffective(config);
+```
+
+---
+
+## 8. Fluxo do Usuário no Duoscanner
+
+### 8.1 Fluxo passo a passo
+
+```mermaid
+stateDiagram-v2
+    [*] --> Login
+    Login --> Dashboard : autenticado
+    Dashboard --> ResolvingConfig : automático
+    ResolvingConfig --> ConfigReady : config cacheada ou carregada
+    ConfigReady --> SyncProvas : se online e modo != qr_embedded
+    SyncProvas --> Pronto
+    ConfigReady --> Pronto : se modo == qr_embedded
+    
+    Pronto --> Camera : "Iniciar Correção"
+    Camera --> Validando : auto-detecção
+    Validando --> Camera : foco ruim / luz baixa / inclinação / sem folha
+    Validando --> Captura : folha OK
+    Captura --> Processando : captura automática
+    
+    Processando --> QRDetection
+    QRDetection --> ProvaIdentificada : QR válido
+    QRDetection --> ErroQR : QR inválido
+    ErroQR --> Camera : retry
+    
+    ProvaIdentificada --> CorrecaoPerspectiva
+    CorrecaoPerspectiva --> LeituraBolhas
+    LeituraBolhas --> AplicaGabarito
+    AplicaGabarito --> Resultado
+    
+    Resultado --> RevisaoManual : confiança < 0.65
+    Resultado --> SalvamentLocal : confiança >= 0.65
+    RevisaoManual --> SalvamentLocal : confirmado
+    
+    SalvamentLocal --> FilaSync
+    FilaSync --> Sincronizado : online
+    FilaSync --> Pendente : offline
+    Pendente --> Sincronizado : internet retorna
+    
+    Sincronizado --> Pronto : próxima folha
+    Pendente --> Pronto : próxima folha
+```
+
+### 8.2 Validação pré-captura (guias visuais)
+
+O novo `CaptureEngine` deve validar em tempo real:
+
+```typescript
+interface PreCaptureValidation {
+  edgesDetected: boolean;       // Bordas da folha detectadas
+  markersDetected: boolean;     // ≥ 3 fiduciais localizados
+  orientationOk: boolean;       // Folha não está de ponta-cabeça
+  focusOk: boolean;             // Variância de Laplaciano > threshold
+  tiltOk: boolean;              // Inclinação < 15°
+  lightingOk: boolean;          // Brilho médio entre 80-220
+  qualityScore: number;         // 0-1, média ponderada dos fatores
+}
+
+// Captura automática quando qualityScore >= 0.75
+// Botão manual de fallback SEMPRE visível
+```
+
+### 8.3 Pós-processamento single-shot
+
+A mesma imagem capturada é processada para:
+1. Decodificar QR Code → identificar prova
+2. Validar HMAC do QR → segurança
+3. Detectar 4 fiduciais → homografia
+4. Corrigir perspectiva → imagem retificada
+5. Mapear grid de bolhas conforme template do `answerSheetType` ativo
+6. Classificar bolhas (Otsu threshold) → respostas
+7. Aplicar regra de correção → nota
+8. Gerar resultado imediato
+
+---
+
+## 9. Impactos no Platform
+
+### 9.1 Novas migrations (ordem)
+
+```
+2026_04_22_000001_create_answer_sheet_types_table.php
+2026_04_22_000002_create_scan_modes_table.php
+2026_04_22_000003_create_config_rules_table.php
+2026_04_22_000004_create_config_audit_logs_table.php
+2026_04_22_000005_seed_system_answer_sheet_types.php
+2026_04_22_000006_seed_system_scan_modes.php
+2026_04_22_000007_add_answer_sheet_type_to_exams.php
+2026_04_22_000008_add_version_to_exams.php
+```
+
+### 9.2 Novos Models
+
+- `AnswerSheetType` — tipos de gabarito
+- `ScanMode` — modos de leitura
+- `ConfigRule` — regras de configuração com escopo e prioridade
+- `ConfigAuditLog` — trilha de auditoria
+
+### 9.3 Novos Services
+
+- `ConfigPrecedenceResolver` — resolve a regra efetiva para um usuário
+- `ConfigAuditService` — registra todas as alterações em `config_audit_logs`
+- `QrCodeSigningService` — gera e valida HMAC dos QR Codes
+
+### 9.4 Novos Controllers
+
+- `ConfigApiController` — `GET /api/v2/config/effective`, `GET /api/v2/config/rules`, `POST/PUT/DELETE /api/v2/config/rules`
+- `AnswerSheetTypeController` — CRUD administrativo
+- `ScanModeController` — CRUD administrativo
+
+### 9.5 Novos Endpoints API v2
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `GET` | `/api/v2/config/effective` | Retorna a configuração efetiva do usuário autenticado |
+| `GET` | `/api/v2/config/rules` | Lista regras da organização (com filtros) |
+| `POST` | `/api/v2/config/rules` | Cria regra de configuração |
+| `PUT` | `/api/v2/config/rules/{id}` | Atualiza regra |
+| `DELETE` | `/api/v2/config/rules/{id}` | Desativa regra |
+| `GET` | `/api/v2/config/trace/{userId}` | Mostra cadeia de resolução para um usuário |
+| `GET` | `/api/v2/answer-sheet-types` | Lista tipos de gabarito |
+| `GET` | `/api/v2/scan-modes` | Lista modos de leitura |
+| `GET` | `/api/v2/exams/{id}/download` | Download com `version` + HMAC no QR |
+| `POST` | `/api/v2/omr/scans` | Upload de scan (usa `answer_sheet_type_slug` do payload) |
+
+### 9.6 Payload de `GET /api/v2/config/effective`
+
+```json
+{
+  "effective": {
+    "answer_sheet_type": "essential",
+    "answer_sheet_type_resolved_from": "global",
+    "scan_mode": "hybrid",
+    "scan_mode_resolved_from": "role"
+  },
+  "answer_sheet_type_config": {
+    "slug": "essential",
+    "layout_config": { "..." },
+    "grading_config": { "..." }
+  },
+  "scan_mode_config": {
+    "slug": "hybrid",
+    "requires_predownload": true,
+    "requires_qr_data": true,
+    "offline_capable": true
+  },
+  "resolved_at": "2026-04-22T00:00:00Z",
+  "config_version": 7
+}
+```
+
+### 9.7 Painel administrativo no Platform
+
+Novas telas web:
+
+1. **Tipos de Gabarito** — Lista, visualiza layout, ativa/desativa
+2. **Modos de Leitura** — Lista, ativa/desativa
+3. **Configurações Efetivas** — Tabela com `config_key`, `scope_type`, `config_value`, `effective_from`
+4. **Regras por Nível** — Formulário para adicionar regra em cada nível
+5. **Visualizador de Precedência** — Input: selecionar usuário → output: regra efetiva + toda a cadeia de resolução
+6. **Auditoria** — Timeline de alterações com `old_value`, `new_value`, `changed_by`, `change_reason`
+
+---
+
+## 10. Impactos no Duoscanner
+
+### 10.1 Novos stores
+
+- `config-store.ts` — armazena configuração efetiva + versão
+- Refatorar `exam-store.ts` para usar SQLite em vez de SecureStore
+
+### 10.2 Novos modules em `src/lib/`
+
+- `capture-engine.ts` — validação pré-captura (foco, luz, inclinação, bordas)
+- `correction-engine.ts` — aplica correção conforme tipo de gabarito
+- `qr-validator.ts` — valida HMAC do QR Code
+- `config-resolver.ts` — resolve qual template usar baseado na config efetiva
+- Refatorar `template-registry.ts` para receber templates do servidor via `answer_sheet_types.layout_config`
+
+### 10.3 Refatoração da sync
+
+- `sync-manager.ts` — substitui `sync-service.ts` com:
+  - Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, max 5min
+  - Max 10 tentativas antes de ir para dead-letter
+  - Deduplicação por `idempotency_key`
+  - Background sync quando app volta ao foreground
+  - NetInfo listener para sync automática ao reconectar
+
+### 10.4 Migração de persistência
+
+| Atual | Novo | Motivo |
+|-------|------|--------|
+| SecureStore (scans) | expo-sqlite | SecureStore tem limite de 2KB/item |
+| SecureStore (exams) | expo-sqlite | Idem |
+| SecureStore (syncQueue) | expo-sqlite | Idem |
+| MMKV (token) | MMKV (manter) | OK para dados pequenos |
+
+Schema SQLite local:
+
+```sql
+-- Provas baixadas
+CREATE TABLE local_exams (
+    exam_id INTEGER PRIMARY KEY,
+    data_json TEXT NOT NULL,
+    server_version INTEGER NOT NULL,
+    downloaded_at TEXT NOT NULL
+);
+
+-- Scans pendentes e histórico
+CREATE TABLE local_scans (
+    local_id TEXT PRIMARY KEY,
+    exam_id INTEGER NOT NULL,
+    copy_id INTEGER,
+    student_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'processing',
+    image_uri TEXT NOT NULL,
+    detected_answers TEXT,
+    confirmed_answers TEXT,
+    confidence_score REAL,
+    answer_sheet_type TEXT NOT NULL,
+    scan_mode TEXT NOT NULL,
+    idempotency_key TEXT UNIQUE NOT NULL,
+    session_id TEXT,
+    page_index INTEGER DEFAULT 1,
+    total_pages INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL,
+    synced_at TEXT,
+    server_scan_id INTEGER
+);
+
+-- Fila de sync com retry
+CREATE TABLE sync_queue (
+    local_id TEXT PRIMARY KEY,
+    retry_count INTEGER DEFAULT 0,
+    next_retry_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- Config efetiva cacheada
+CREATE TABLE local_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    config_version INTEGER NOT NULL,
+    cached_at TEXT NOT NULL
+);
+```
+
+---
+
+## 11. Impactos em UX/UI
+
+### 11.1 Duoscanner — Telas
+
+#### Tela Inicial (Dashboard)
+- Badge de status: "Online ✓" / "Offline ⚠"
+- Badge de sync: "3 pendentes"
+- Badge de config: "Essential • Híbrido"
+- Botão central FAB: "Iniciar Correção"
+- Lista recente de scans com seus status
+
+#### Tela de Câmera (redesenhada)
+- **Overlay visual**: moldura verde que fica vermelha quando fora de enquadramento
+- **Indicadores em tempo real**:
+  - 🔍 Foco: ✓/✗
+  - 💡 Iluminação: ✓/✗
+  - 📐 Inclinação: ✓/✗ (ângulo em graus)
+  - 📄 Folha: detectada/não detectada
+- **Barra de qualidade**: progresso 0-100% que preenche conforme os indicadores melhoram
+- **Captura automática** quando qualidade ≥ 75%
+- **Botão manual de captura** sempre visível como fallback
+- **Texto instrucional**: "Posicione a folha dentro da moldura"
+
+#### Tela de Resultado
+- Score circular grande (SVG)
+- Grid de respostas: corretas (verde), erradas (vermelho), brancas (cinza), revisão (amarelo)
+- Nível de confiança global
+- Botão "Revisar Manualmente" se confiança < threshold
+- Status de sync: "Sincronizado ✓" / "Salvo localmente, sincroniza ao conectar"
+
+### 11.2 Estados obrigatórios da interface
+
+| Estado | Visual | Ação |
+|--------|--------|------|
+| Carregando configuração | Spinner + "Carregando configurações..." | Automático |
+| Sincronizando provas | Progress bar + "Baixando prova X de Y" | Automático |
+| Sem internet | Banner amarelo topo "Modo Offline" | Informativo |
+| Cache desatualizado | Badge "⚠ Atualização disponível" | Toque para atualizar |
+| Câmera iniciando | Tela preta + spinner | Automático |
+| Buscando folha | Moldura pulsando azul | Automático |
+| Folha fora de enquadramento | Moldura vermelha + "Ajuste a posição" | Guia visual |
+| Baixa iluminação | Ícone sol + "Melhore a iluminação" | Texto overlay |
+| Fora de foco | Ícone lupa + "Mantenha o celular parado" | Texto overlay |
+| Inclinação excessiva | Ícone ângulo + "Endireite o celular" | Texto overlay |
+| QR Code inválido | Alert vermelho "QR Code não reconhecido" | Retry |
+| Prova não encontrada | Alert "Prova não disponível offline. Conecte-se para baixar" | Ação clara |
+| Leitura baixa confiança | Banner amarelo "Verificação necessária" | Botão "Revisar" |
+| Correção concluída | Tela de resultado verde | Próxima folha |
+| Salvo localmente | Badge "💾 Salvo, sincroniza ao conectar" | Informativo |
+| Sincronização pendente | Badge "⏳ 3 itens pendentes" | Informativo |
+| Sincronização concluída | Toast "✓ Sincronizado com sucesso" | 3s auto-dismiss |
+| Erro de envio | Alert vermelho com mensagem + "Tentará novamente" | Auto-retry |
+| Retry agendado | Badge "↻ Nova tentativa em 30s" | Informativo |
+| Conflito de versão | Alert "Versão da prova atualizada. Baixe a nova versão" | Botão "Atualizar" |
+| Revisão manual | Grid editável de respostas | Botões A-E por questão |
+
+---
+
+## 12. Persistência, Sincronização e Funcionamento Offline
+
+### 12.1 Dados baixados para uso offline
+
+| Dado | Tabela local | Fonte | Quando |
+|------|-------------|-------|--------|
+| Configuração efetiva | `local_config` | `GET /config/effective` | Login + cada foreground |
+| Provas + gabaritos + alunos | `local_exams` | `GET /exams/{id}/download` | Manual ou auto-sync |
+| Templates de gabarito | `local_config` (embutido na config) | Via `answer_sheet_type_config` | Com a config |
+| QR HMAC key | Não armazenada NO app | — | Validação fica no backend (modo hybrid usa hash local limitado) |
+
+### 12.2 Versionamento de cache
+
+```typescript
+// Ao baixar uma prova, salvar server_version
+// Ao abrir o app online, checar versão:
+const serverVersion = await api.get(`/exams/${examId}/version`);
+const localVersion = db.getExamVersion(examId);
+if (serverVersion > localVersion) {
+  // Notificar: "Atualização disponível para Prova X"
+  // Não forçar update, mas sugerir
+}
+```
+
+### 12.3 Fila de sincronização com backoff
+
+```typescript
+class SyncManager {
+  private readonly MAX_RETRIES = 10;
+  private readonly BASE_DELAY_MS = 1000;
+  private readonly MAX_DELAY_MS = 300_000; // 5 min
+
+  getNextDelay(retryCount: number): number {
+    const delay = Math.min(
+      this.BASE_DELAY_MS * Math.pow(2, retryCount),
+      this.MAX_DELAY_MS
+    );
+    // Jitter ±20%
+    return delay * (0.8 + Math.random() * 0.4);
+  }
+
+  async processQueue(): Promise<void> {
+    const items = await db.getSyncQueue();
+    for (const item of items) {
+      if (item.retryCount >= this.MAX_RETRIES) {
+        await db.moveToDeadLetter(item.localId);
+        continue;
+      }
+      if (new Date(item.nextRetryAt) > new Date()) continue;
+
+      try {
+        await this.uploadScan(item.localId);
+        await db.removeFromQueue(item.localId);
+      } catch (err) {
+        const nextDelay = this.getNextDelay(item.retryCount);
+        await db.updateQueueItem(item.localId, {
+          retryCount: item.retryCount + 1,
+          nextRetryAt: new Date(Date.now() + nextDelay).toISOString(),
+          lastError: err.message,
+        });
+      }
+    }
+  }
+}
+```
+
+### 12.4 Prevenção de duplicidade
+
+- Cada scan tem um `idempotency_key` = `UUID v4` gerado no momento da captura
+- O endpoint `POST /api/v2/omr/scans` faz `WHERE idempotency_key = ?` antes de inserir
+- Se já existe, retorna 200 com o scan existente (não cria duplicata)
+
+### 12.5 Resolução de conflito
+
+- Se a versão da prova local é diferente da versão no QR Code → flag `version_conflict`
+- Professor vê alerta: "Esta folha foi impressa com uma versão diferente da prova em cache"
+- Opções: "Usar dados do QR (fallback)" ou "Cancelar e atualizar prova"
+
+### 12.6 Idempotência das APIs
+
+| Endpoint | Estratégia |
+|----------|-----------|
+| `POST /omr/scans` | `idempotency_key` no body. Upsert by key. |
+| `PUT /omr/scans/{id}/confirm` | Operação idempotente (mesmo payload → mesmo resultado) |
+| `GET /config/effective` | Inclui `config_version`. Cliente compara com cache local. |
+| `GET /exams/{id}/download` | Inclui `version`. Cliente compara com `local_exams.server_version`. |
+
+---
+
+## 13. Segurança e Validações
+
+### 13.1 Autenticação
+- Sanctum token-based (mantém)
+- Token renovado a cada login, expira em 30 dias
+- Token armazenado em MMKV (não em SQLite)
+
+### 13.2 Autorização
+- `CheckOmrApiAccess` middleware (mantém)
+- Nova verificação: `answer_sheet_type` e `scan_mode` devem ser válidos para o user
+- Regra efetiva é verificada no backend ao receber o scan
+
+### 13.3 QR Code — HMAC
+
+```php
+class QrCodeSigningService
+{
+    public function sign(array $qrPayload): string
+    {
+        $key = config('app.omr_hmac_key'); // Chave secreta nunca vai para o app
+        $data = $qrPayload['e'] . '|' . $qrPayload['c'] . '|' . $qrPayload['h'] . '|' . ($qrPayload['p'] ?? 1);
+        return substr(hash_hmac('sha256', $data, $key), 0, 12);
+    }
+
+    public function verify(array $qrPayload): bool
+    {
+        $expected = $this->sign($qrPayload);
+        return hash_equals($expected, $qrPayload['chk'] ?? '');
+    }
+}
+```
+
+**Fluxo de segurança:**
+1. Platform gera QR com `chk` assinado
+2. App lê o QR mas NÃO valida o HMAC localmente (não tem a chave)
+3. Ao sincronizar, o backend valida o HMAC do QR que estava no scan
+4. Se inválido → scan rejeitado com log de auditoria
+
+> **Decisão pendente**: No modo `qr_embedded` offline puro, o app não pode validar o HMAC porque não tem a chave secreta. Alternativas: (A) Usar chave derivada por organização com rotação, sincronizada no login. (B) Aceitar que a validação é adiada até o sync. Recomendação: opção (B) com flag `hmac_verified: false` no scan local.
+
+### 13.4 Proteção contra reenvio duplicado
+- `idempotency_key` (UUID v4) gerado no app no momento da captura
+- Endpoint retorna 200 se já existe (não 409)
+
+### 13.5 Rastreabilidade
+Cada scan armazena:
+- `user_id` (quem escaneou)
+- `device_id` (fingerprint do dispositivo)
+- `answer_sheet_type` (qual gabarito foi usado)
+- `scan_mode` (qual modo de leitura)
+- `config_version` (qual versão da config estava ativa)
+- `app_version` (versão do Duoscanner)
+- `captured_at`, `synced_at`
+- `qr_hmac_verified` (boolean)
+
+---
+
+## 14. Critérios de Aceite
+
+| # | Critério | Verificação |
+|---|----------|-------------|
+| 1 | Existem dois tipos de gabarito: Detalhado e Essential | `answer_sheet_types` table tem 2 registros is_system=true |
+| 2 | Essential é o padrão | `answer_sheet_types` WHERE slug='essential' AND is_default=true |
+| 3 | Detalhado permanece acessível | `answer_sheet_types` WHERE slug='detailed' AND is_active=true |
+| 4 | Existem três modos de leitura | `scan_modes` table tem 3 registros |
+| 5 | Hybrid é padrão sugerido | `scan_modes` WHERE slug='hybrid' AND is_default=true |
+| 6 | Configuração por global funciona | `config_rules` com scope_type='global' → resolve corretamente |
+| 7 | Configuração por tipo de usuário funciona | `config_rules` com scope_type='user_type' → sobrescreve global |
+| 8 | Configuração por papel funciona | `config_rules` com scope_type='role' → sobrescreve user_type |
+| 9 | Configuração por permissão funciona | `config_rules` com scope_type='permission' → sobrescreve role |
+| 10 | Configuração por usuário funciona | `config_rules` com scope_type='user' → sobrescreve tudo |
+| 11 | Precedência resolvida corretamente | Endpoint `/config/trace/{userId}` mostra cadeia correta |
+| 12 | Duoscanner recebe config efetiva | `GET /config/effective` retorna tipo + modo corretos |
+| 13 | Modo preloaded funciona online | Download + scan + sync imediato |
+| 14 | Modo preloaded funciona offline | Cache local + scan + fila sync |
+| 15 | Modo QR embedded funciona | QR com gabarito + correção sem cache prévio |
+| 16 | Modo hybrid funciona com cache | Usa cache, QR para validação |
+| 17 | Modo hybrid funciona sem cache com internet | Baixa on-demand |
+| 18 | Modo hybrid funciona sem cache sem internet | Fallback QR |
+| 19 | Captura automática funciona | Camera auto-capture com qualityScore ≥ 0.75 |
+| 20 | Captura manual (fallback) funciona | Botão de captura sempre acessível |
+| 21 | QR + bolhas em captura única | Uma única foto processa ambos |
+| 22 | Resultado exibido imediatamente | < 3s após captura |
+| 23 | Revisão manual acessível | Tela de revisão com botões A-E |
+| 24 | Sync online automática | Ao voltar online, fila processada |
+| 25 | Fila offline persiste | Mesmo fechando o app, itens são mantidos |
+| 26 | Retry com backoff funciona | Tentativas espaçadas exponencialmente |
+| 27 | Idempotência funciona | Re-upload do mesmo scan não duplica |
+| 28 | Auditoria registrada | `config_audit_logs` preenchida a cada mudança |
+| 29 | UX mais simples que a atual | Menos taps, auto-capture, estados claros |
+| 30 | Erros de correção reduzidos | Essential tem taxa de confiança média > 85% |
+
+---
+
+## 15. Testes Obrigatórios
+
+### 15.1 Testes de Configuração e Precedência
+
+| ID | Teste | Tipo |
+|----|-------|------|
+| T01 | Criar regra global → resolver para usuário sem regras específicas → retorna global | Unit |
+| T02 | Criar regra global + regra user_type → resolver → retorna user_type | Unit |
+| T03 | Criar regra global + user_type + role → resolver → retorna role | Unit |
+| T04 | Criar regra global + user_type + role + permission → resolver → retorna permission | Unit |
+| T05 | Criar regra global + user_type + role + permission + user → resolver → retorna user | Unit |
+| T06 | Múltiplas regras no mesmo nível (duas permissões) → retorna a de menor ID | Unit |
+| T07 | Regra com `effective_until` expirada → não é considerada | Unit |
+| T08 | Regra com `is_active=false` → não é considerada | Unit |
+| T09 | Nenhuma regra configurada → retorna default do sistema (essential, hybrid) | Unit |
+| T10 | `config/trace` mostra todas as regras encontradas em cada nível | Integration |
+
+### 15.2 Testes de Gabarito
+
+| ID | Teste | Tipo |
+|----|-------|------|
+| T11 | Gabarito Essential existe como tipo sistêmico | DB Seed |
+| T12 | Gabarito Detalhado existe como tipo sistêmico | DB Seed |
+| T13 | Essential é default | DB Seed |
+| T14 | Correção com Essential usa layout Essential (2 colunas, bolhas 5.5mm) | Unit |
+| T15 | Correção com Detalhado usa layout Detalhado (4 colunas, bolhas 4.2mm) | Unit |
+| T16 | Alternância de gabarito por config rule funciona no mesmo sistema | Integration |
+
+### 15.3 Testes de Modos de Leitura
+
+| ID | Teste | Tipo |
+|----|-------|------|
+| T17 | Modo preloaded: download prévio + scan offline + sync | E2E |
+| T18 | Modo preloaded: prova não em cache → erro claro | E2E |
+| T19 | Modo QR embedded: scan sem cache prévio → dados do QR usados | E2E |
+| T20 | Modo QR embedded: QR com gabarito compacto → correção correta | Unit |
+| T21 | Modo hybrid: com cache → usa cache | E2E |
+| T22 | Modo hybrid: sem cache + online → baixa on-demand | E2E |
+| T23 | Modo hybrid: sem cache + offline → fallback QR | E2E |
+| T24 | Conflito de versão QR vs cache → alerta ao usuário | E2E |
+
+### 15.4 Testes de Captura e OMR
+
+| ID | Teste | Tipo |
+|----|-------|------|
+| T25 | Auto-capture dispara quando qualityScore ≥ 0.75 | Unit |
+| T26 | Auto-capture NÃO dispara com baixa luz (brilho < 80) | Unit |
+| T27 | Auto-capture NÃO dispara com folha inclinada > 15° | Unit |
+| T28 | Captura manual (fallback) sempre funciona | E2E |
+| T29 | QR Code decodificado da mesma imagem das bolhas | Integration |
+| T30 | HMAC inválido detectado no backend | Integration |
+| T31 | Template Essential: bolhas maiores → confiança média > 85% | Benchmark |
+
+### 15.5 Testes de Sincronização
+
+| ID | Teste | Tipo |
+|----|-------|------|
+| T32 | Scan online → sync imediata → status `synced` | E2E |
+| T33 | Scan offline → salvo localmente → sync ao reconectar | E2E |
+| T34 | Retry com backoff exponencial (1s, 2s, 4s...) | Unit |
+| T35 | Max 10 retries → dead-letter | Unit |
+| T36 | Idempotency: re-upload → não duplica | Integration |
+| T37 | Fila persiste após fechar e reabrir o app | E2E |
+| T38 | Background sync ao voltar ao foreground | E2E |
+
+### 15.6 Testes de Auditoria
+
+| ID | Teste | Tipo |
+|----|-------|------|
+| T39 | Criar regra → `config_audit_logs` com action='created' | Integration |
+| T40 | Atualizar regra → `config_audit_logs` com old_value e new_value | Integration |
+| T41 | Desativar regra → `config_audit_logs` com action='deactivated' | Integration |
+
+### 15.7 Testes de Integração Platform ↔ Duoscanner
+
+| ID | Teste | Tipo |
+|----|-------|------|
+| T42 | Login no app → `GET /config/effective` → config correta | E2E |
+| T43 | Admin muda regra no Platform → app atualiza ao fazer foreground | E2E |
+| T44 | Download de prova com versão → cache correto | E2E |
+| T45 | Scan feito no app → aparece no Platform como `source='mobile'` | E2E |
+| T46 | Recuperação pós-crash: scan parcialmente processado é recuperável | E2E |
+
+---
+
+## 16. Ordem de Implementação em Fases
+
+### Fase 1 — Fundação de Configuração (Platform) — 1 semana
+
+- [ ] Criar migrations: `answer_sheet_types`, `scan_modes`, `config_rules`, `config_audit_logs`
+- [ ] Criar seeders: Essential + Detalhado + 3 modos
+- [ ] Implementar model `ConfigRule` com scopes
+- [ ] Implementar `ConfigPrecedenceResolver`
+- [ ] Implementar `ConfigAuditService`
+- [ ] Criar testes T01-T10
+- **Dependência**: Nenhuma
+- **Risco**: Baixo
+
+### Fase 2 — API v2 de Configuração (Platform) — 1 semana
+
+- [ ] Criar `ConfigApiController` com endpoints de config efetiva
+- [ ] Criar `AnswerSheetTypeController` e `ScanModeController`
+- [ ] Endpoint `GET /api/v2/config/effective`
+- [ ] Endpoint `GET /api/v2/config/trace/{userId}`
+- [ ] Adicionar `answer_sheet_type_slug` ao payload de download de prova
+- [ ] Adicionar `version` ao Exam model e endpoint
+- [ ] Criar testes T11-T16, T42
+- **Dependência**: Fase 1
+- **Risco**: Baixo
+
+### Fase 3 — QR Code + Segurança (Platform) — 3-5 dias
+
+- [ ] Implementar `QrCodeSigningService` com HMAC
+- [ ] Atualizar geração de QR Code no PDF para incluir `chk`
+- [ ] Implementar schema de QR por modo (preloaded, qr_embedded, hybrid)
+- [ ] Atualizar `ExamApiController@download` para incluir QR com HMAC
+- [ ] Criar testes T30
+- **Dependência**: Fase 2
+- **Risco**: Médio (requer testar com folhas impressas existentes)
+
+### Fase 4 — Duoscanner: Fundação (Mobile) — 1.5 semana
+
+- [ ] Migrar persistência de SecureStore para expo-sqlite
+- [ ] Criar `config-store.ts` e `config-resolver.ts`
+- [ ] Implementar `SyncManager` com retry + backoff
+- [ ] Atualizar `qr-parser.ts` para ler todos os campos v1 (v, cols, rpp, chk, gab, pts)
+- [ ] Criar `qr-validator.ts`
+- [ ] Implementar versionamento de cache (`local_exams.server_version`)
+- [ ] Criar testes T32-T38
+- **Dependência**: Fase 2 (API v2 disponível)
+- **Risco**: Médio (migração de dados existentes)
+
+### Fase 5 — Duoscanner: Gabarito Essential + Modos (Mobile) — 2 semanas
+
+- [ ] Refatorar `template-registry.ts` para receber templates do servidor
+- [ ] Implementar `correction-engine.ts` com suporte a Essential e Detalhado
+- [ ] Implementar lógica dos 3 modos de leitura no fluxo de scan
+- [ ] Modo Pré-carregado: reusar lógica existente com melhorias
+- [ ] Modo QR Embutido: parse de `gab` e `pts` do QR
+- [ ] Modo Híbrido: lógica de decisão cache vs QR vs on-demand
+- [ ] Criar testes T17-T24
+- **Dependência**: Fase 3 (QR assinado) + Fase 4 (infra mobile)
+- **Risco**: Alto (lógica complexa de modos + fallback)
+
+### Fase 6 — Duoscanner: Captura Automática + UX (Mobile) — 1.5 semana
+
+- [ ] Implementar `capture-engine.ts` com validação pré-captura
+- [ ] Redesenhar tela de câmera com guias visuais
+- [ ] Implementar auto-capture (qualityScore ≥ 0.75)
+- [ ] Implementar todos os estados de interface (seção 11.2)
+- [ ] Criar tela de resultado redesenhada
+- [ ] Criar testes T25-T29
+- **Dependência**: Fase 5
+- **Risco**: Alto (UX sensível, requer testes em dispositivos reais)
+
+### Fase 7 — Observabilidade + Painel Admin + Rollout — 1 semana
+
+- [ ] Implementar painel administrativo de configuração no Platform (web)
+- [ ] Implementar visualizador de precedência
+- [ ] Implementar timeline de auditoria
+- [ ] Testes de integração E2E completos (T42-T46)
+- [ ] Rollout controlado: feature flag para habilitar v2 por organização
+- [ ] Documentação de migração
+- **Dependência**: Todas as fases anteriores
+- **Risco**: Médio
+
+---
+
+## Riscos, Dependências e Pontos a Validar
+
+### Riscos
+
+| Risco | Probabilidade | Impacto | Mitigação |
+|-------|--------------|---------|-----------|
+| QR Code Essential muito grande (>40 questões com gabarito embutido) | Média | Alto | Limitar a 50 questões no modo qr_embedded; usar hybrid como fallback |
+| Migração SecureStore → SQLite perde dados existentes | Baixa | Alto | Script de migração com backup antes |
+| Auto-capture falso positivo (captura imagem ruim) | Média | Médio | Threshold conservador (0.75); captura manual sempre disponível |
+| Latência do `GET /config/effective` no app | Baixa | Baixo | Cache com `config_version` para invalidação seletiva |
+| Conflito de versionamento entre prova no cache e folha impressa | Média | Alto | Alerta claro + opção de fallback QR |
+
+### Dependências
+
+- Fase 4-6 depende de Fase 1-3 (APIs prontas no Platform)
+- A geração de PDF do Gabarito Essential (novo layout Blade) é pré-requisito para testes end-to-end
+- Testes de câmera/OMR requerem dispositivos Android/iOS físicos
+
+### Pontos a validar antes da execução
+
+1. **Medidas físicas do Essential**: Imprimir protótipo e medir com régua posição exata dos fiduciais e bolhas. Atualizar `layout_config`.
+2. **Chave HMAC**: Definir estratégia de rotação e se o app terá chave derivada para validação local (decisão pendente na seção 13.3).
+3. **Limite de QR Code**: Testar se 50 questões cabem no QR Code versão 10 com o payload real.
+4. **Performance do SQLite**: Testar com 500+ scans locais para garantir que não degrada.
+5. **OpenCV.js no Hermes**: Confirmar que a engine continua estável com os novos templates.

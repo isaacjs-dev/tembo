@@ -1,0 +1,623 @@
+# Especificação Técnica — Módulo Instituição v2
+> Fonte de Verdade para desenvolvimento. Gerado em 2026-02-24.
+
+---
+
+## 1. Requisitos Refinados (RF/RN)
+
+### 1.1 Definições Terminológicas
+
+| Termo | Definição |
+|-------|-----------|
+| **Criar** | Cadastrar usuário novo no sistema (nunca existiu) |
+| **Vincular** | Associar usuário existente a uma instituição ou turma |
+| **Convidar** | Iniciar fluxo de vínculo que depende de aceite |
+| **Escopo Institucional** | Dados visíveis/manipuláveis limitados à instituição do usuário |
+| **Perfil Extra** | Usuário institucional (Coordenador, Pedagogo) com permissões personalizáveis |
+| **Código de Vínculo** | Identificador alfanumérico de 8 caracteres, único por usuário |
+| **Transferência de turma** | Mudança de proprietário de turma, sujeita a aceite |
+
+### 1.2 Regra Geral de Autorização (RN-G01)
+
+> Toda ação de criação, vínculo, compartilhamento, transferência e acesso deve respeitar simultaneamente:
+> **(a) perfil do usuário**, **(b) permissões configuradas**, **(c) plano ativo e seus limites**, **(d) escopo da instituição**.
+
+---
+
+### 1.3 Módulo A — Professores (Instituição)
+
+| ID | Requisito | Tipo |
+|----|-----------|------|
+| RF-A01 | Instituição pode **criar** professor novo (com senha) | RF |
+| RF-A02 | Instituição pode buscar professor existente por **e-mail** ou **código de vínculo** (8 chars) | RF |
+| RF-A03 | Se professor existir: bloquear cadastro duplicado, informar que já existe, oferecer **convite por e-mail** ou **vínculo por código** | RF |
+| RF-A04 | Se professor existir: **NÃO** criar nova senha | RN |
+| RF-A05 | Vínculo de professor existente depende de **aceite** do professor | RF |
+| RF-A06 | Professor pode estar vinculado a **múltiplas** instituições | RF |
+| RF-A07 | Ao vincular professor existente, sistema deve **verificar se já está vinculado** à mesma org | RN |
+
+**Caso de borda:**
+- Professor vinculado a outra org mas que NÃO pertence a nenhuma, pode ser convidado normalmente.
+- Professor que já está vinculado à mesma org → rejeitar com mensagem clara.
+
+---
+
+### 1.4 Módulo B — Alunos (Instituição)
+
+Aplica-se a **mesma lógica** do Módulo A, substituindo "professor" por "aluno" e `target_role` por [student](file:///d:/.dev/avaliation_on/platform/app/Models/Organization.php#60-64).
+
+| ID | Requisito | Tipo |
+|----|-----------|------|
+| RF-B01 | Instituição pode **criar** aluno novo (com senha) | RF |
+| RF-B02 | Instituição pode buscar aluno existente por **e-mail** ou **código de vínculo** | RF |
+| RF-B03 | Se aluno existir: bloquear cadastro, oferecer convite/código | RF |
+| RF-B04 | Se aluno existir: **NÃO** criar nova senha | RN |
+| RF-B05 | Vínculo de aluno existente depende de **aceite** | RF |
+| RF-B06 | Aluno pode estar vinculado a **múltiplas** instituições | RF |
+| RF-B07 | Aluno pode participar de múltiplas turmas | RF |
+
+---
+
+### 1.5 Módulo C — Convites e Fluxo de Aceite
+
+| ID | Requisito |
+|----|-----------|
+| RF-C01 | Tipos de convite: `org_teacher`, `org_student`, `class_enrollment`, `class_ownership_transfer` |
+| RF-C02 | Status: [pending](file:///d:/.dev/avaliation_on/platform/app/Models/Organization.php#70-74), `accepted`, `declined`, `canceled`, [expired](file:///d:/.dev/avaliation_on/platform/tests/Feature/PlanManagementTest.php#219-233) |
+| RF-C03 | Convites expirados não podem ser aceitos → reenvio obrigatório |
+| RF-C04 | Convite deve registrar: `inviter_id`, `invitee_email`/`invitee_user_id`, `organization_id`, `target_entity_id`, `invite_type`, `token`, `status`, `expires_at` |
+| RF-C05 | Aceite de convite gera log de auditoria |
+| RF-C06 | Convite pode ser cancelado pelo emissor enquanto pendente |
+| RF-C07 | Validade padrão: 7 dias (configurável) |
+| RF-C08 | Não pode existir convite pendente duplicado (mesma combinação email+tipo+entidade) |
+
+---
+
+### 1.6 Módulo D — Turmas
+
+| ID | Requisito |
+|----|-----------|
+| RF-D01 | Instituição visualiza turmas **próprias** e **compartilhadas** |
+| RF-D02 | Instituição cria turmas (respeitando `max_classes` do plano) |
+| RF-D03 | Edição de turma: apenas proprietário ou com permissão específica |
+| RF-D04 | Adição de aluno existente à turma → convite com aceite (`class_enrollment`) |
+| RF-D05 | Turma deve ter `owner_type/owner_id` (morphable: org ou user) |
+| RF-D06 | Turma pode ter lista de professores responsáveis (`class_teacher` pivot) |
+
+---
+
+### 1.7 Módulo E — Transferência de Propriedade de Turma
+
+| ID | Requisito |
+|----|-----------|
+| RF-E01 | Proprietário pode iniciar transferência para **outra instituição** ou **professor** |
+| RF-E02 | Transferência requer **aceite** do destinatário |
+| RF-E03 | Sem aceite → turma permanece com proprietário atual |
+| RF-E04 | Registrar histórico: `class_ownership_logs` (previous_owner, new_owner, transferred_at, initiated_by) |
+| RF-E05 | Destinatário deve ter capacidade (plano) para assumir a turma |
+| RF-E06 | Transferência é convite tipo `class_ownership_transfer` |
+
+---
+
+### 1.8 Módulo F — Questões e Avaliações
+
+| ID | Requisito |
+|----|-----------|
+| RF-F01 | Questões da instituição ficam disponíveis para professores **vinculados** (conforme permissões) |
+| RF-F02 | Professores podem compartilhar avaliações com a instituição |
+| RF-F03 | Instituição pode aplicar avaliações |
+| RF-F04 | Escopo institucional: professor vê apenas questões da(s) org(s) vinculada(s) |
+
+---
+
+### 1.9 Módulo G — Perfis Extras Institucionais
+
+| ID | Requisito |
+|----|-----------|
+| RF-G01 | Instituição cria perfis como Coordenador, Pedagogo, Secretário |
+| RF-G02 | Diferenciar **cargo/rótulo** de **permissões efetivas** |
+| RF-G03 | Permissões configuráveis em tela própria (checkbox por recurso) |
+| RF-G04 | Permissões limitadas ao **escopo da instituição** |
+| RF-G05 | Perfis extras **NÃO** podem: acessar configurações sensíveis, alterar senha da instituição |
+| RF-G06 | Perfil extra pode alterar **apenas** a própria senha e dados |
+| RF-G07 | Quantidade de perfis extras respeita limite do plano (`max_extra_profiles`) |
+
+---
+
+### 1.10 Módulo H — Billing
+
+| ID | Requisito |
+|----|-----------|
+| RF-H01 | Rota `institution/billing` deve funcionar corretamente |
+| RF-H02 | "Gerenciar Pagamento" abre painel com: plano atual, status, vencimento, valor |
+| RF-H03 | Oferecer: trocar plano, cancelar plano |
+| RF-H04 | Ações de billing registradas em log |
+| RF-H05 | Se gateway não integrado: exibir "Módulo em configuração" sem erro 500 |
+
+---
+
+### 1.11 Módulo I — Lixeira e Logs (Acesso Restrito)
+
+| ID | Requisito |
+|----|-----------|
+| RF-I01 | Rotas `institution/trash` e `institution/logs` funcionais tecnicamente |
+| RF-I02 | Por **padrão**, instituição **NÃO** tem acesso |
+| RF-I03 | Acesso concedido por configuração **explícita/manual** (global admin) |
+| RF-I04 | Com acesso: dados limitados ao **escopo** da instituição |
+| RF-I05 | Tentativa de acesso negado → registrar em audit_logs |
+
+---
+
+### 1.12 Módulo J — Código de Vínculo
+
+| ID | Requisito |
+|----|-----------|
+| RF-J01 | Código alfanumérico de **8 caracteres** (uppercase, sem ambíguos I/O/0/1) |
+| RF-J02 | Gerado automaticamente na criação do usuário |
+| RF-J03 | Único no sistema (campo `link_code` na tabela [users](file:///d:/.dev/avaliation_on/platform/app/Models/Organization.php#35-40)) |
+| RF-J04 | Validação de formato: `/^[A-Z2-9]{8}$/` |
+| RF-J05 | Busca e vinculação por código respeita permissões e aceite |
+
+---
+
+## 2. Modelagem e Arquitetura Técnica
+
+### 2.1 Diagrama de Entidades (ERD)
+
+```mermaid
+erDiagram
+    users ||--o{ user_organization : "N:N"
+    users ||--o{ invites : "inviter"
+    users ||--o{ invites : "invitee"
+    organizations ||--o{ user_organization : "N:N"
+    organizations ||--o{ invites : "org"
+    organizations ||--o{ school_classes : "owns"
+    organizations ||--o{ subscriptions : "has"
+    school_classes ||--o{ class_student : "N:N students"
+    school_classes ||--o{ class_teacher : "N:N teachers"
+    school_classes ||--o{ class_ownership_logs : "history"
+    plans ||--o{ plan_limits : "has"
+    plans ||--o{ plan_features : "has"
+    plans ||--o{ subscriptions : "plan"
+    organizations ||--o{ institution_roles : "has"
+    institution_roles ||--o{ institution_role_permissions : "has"
+```
+
+### 2.2 Novas Tabelas / Alterações
+
+#### [ALTER] [users](file:///d:/.dev/avaliation_on/platform/app/Models/Organization.php#35-40)
+```sql
+ALTER TABLE users ADD COLUMN link_code CHAR(8) UNIQUE;
+-- Gerar para existentes: UPDATE users SET link_code = generateUniqueCode()
+```
+
+#### [ALTER] [invites](file:///d:/.dev/avaliation_on/platform/app/Models/Organization.php#65-69)
+```sql
+ALTER TABLE invites ADD COLUMN invite_type ENUM('org_teacher','org_student','class_enrollment','class_ownership_transfer') DEFAULT 'org_teacher';
+ALTER TABLE invites ADD COLUMN invitee_user_id BIGINT UNSIGNED NULL;
+ALTER TABLE invites ADD COLUMN target_entity_type VARCHAR(50) NULL;
+ALTER TABLE invites ADD COLUMN target_entity_id BIGINT UNSIGNED NULL;
+ALTER TABLE invites MODIFY COLUMN status ENUM('pending','accepted','declined','canceled','expired') DEFAULT 'pending';
+-- target_entity: para convites de turma, aponta para school_class
+```
+
+#### [ALTER] `school_classes`
+```sql
+ALTER TABLE school_classes ADD COLUMN owner_type VARCHAR(50) DEFAULT 'organization';
+ALTER TABLE school_classes ADD COLUMN owner_id BIGINT UNSIGNED NULL;
+-- owner_type: 'organization' | 'user' (professor)
+```
+
+#### [NEW] `class_teacher`
+```sql
+CREATE TABLE class_teacher (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    school_class_id BIGINT UNSIGNED NOT NULL,
+    user_id BIGINT UNSIGNED NOT NULL,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(school_class_id, user_id)
+);
+```
+
+#### [NEW] `class_ownership_logs`
+```sql
+CREATE TABLE class_ownership_logs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    school_class_id BIGINT UNSIGNED NOT NULL,
+    previous_owner_type VARCHAR(50),
+    previous_owner_id BIGINT UNSIGNED,
+    new_owner_type VARCHAR(50),
+    new_owner_id BIGINT UNSIGNED,
+    initiated_by BIGINT UNSIGNED NOT NULL,
+    transferred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### [NEW] `institution_roles`
+```sql
+CREATE TABLE institution_roles (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    organization_id BIGINT UNSIGNED NOT NULL,
+    name VARCHAR(100) NOT NULL,       -- Coordenador, Pedagogo
+    slug VARCHAR(100) NOT NULL,
+    description TEXT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP, updated_at TIMESTAMP,
+    UNIQUE(organization_id, slug)
+);
+```
+
+#### [NEW] `institution_role_permissions`
+```sql
+CREATE TABLE institution_role_permissions (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    institution_role_id BIGINT UNSIGNED NOT NULL,
+    permission VARCHAR(100) NOT NULL,  -- 'manage_teachers', 'view_reports', etc.
+    UNIQUE(institution_role_id, permission)
+);
+```
+
+#### [ALTER] `user_organization`
+```sql
+ALTER TABLE user_organization ADD COLUMN institution_role_id BIGINT UNSIGNED NULL;
+-- Para perfis extras: role_in_org='staff' + institution_role_id aponta para o cargo
+```
+
+#### [ALTER] [organizations](file:///d:/.dev/avaliation_on/platform/app/Models/User.php#46-54)
+```sql
+ALTER TABLE organizations ADD COLUMN can_access_trash BOOLEAN DEFAULT FALSE;
+ALTER TABLE organizations ADD COLUMN can_access_logs BOOLEAN DEFAULT FALSE;
+```
+
+### 2.3 Serviços de Domínio
+
+```mermaid
+graph TD
+    A["TeacherController / StudentController"] --> B["UserFinderService"]
+    B -->|novo| C["UserCreatorService"]
+    B -->|existente| D["InviteManagerService v2"]
+    D --> E["UserLinkerService v2"]
+    E --> F["EffectivePlanResolver"]
+    
+    G["ClassController"] --> H["ClassOwnershipService"]
+    H --> D
+    
+    I["BillingController"] --> J["SubscriptionService"]
+    
+    K["InstitutionRoleService"] --> L["PermissionResolver"]
+```
+
+| Service | Responsabilidade |
+|---------|-----------------|
+| `UserFinderService` | Busca por email/código. Retorna `{found: bool, user?: User, suggestion: 'create'\|'invite'}` |
+| `UserCreatorService` | Cria usuário novo (com senha, link_code, role, org_id) |
+| [InviteManagerService](file:///d:/.dev/avaliation_on/platform/app/Services/InviteManagerService.php#11-116) (v2) | Envia convites de todos os tipos (org, turma, transferência). Valida limites e duplicatas |
+| [UserLinkerService](file:///d:/.dev/avaliation_on/platform/app/Services/UserLinkerService.php#10-119) (v2) | Aceita/recusa convites. Lida com vínculo org, enrollment em turma e transferência |
+| `ClassOwnershipService` | Inicia transferência, verifica capacidade do destinatário, processa aceite |
+| `InstitutionRoleService` | CRUD de cargos/permissões extras no escopo da org |
+| `SubscriptionService` | Troca de plano, cancelamento, status da assinatura |
+| `AccessGateService` | Valida acesso a trash/logs (verifica `can_access_*` na org) |
+
+### 2.4 Estratégia de Convites/Aceite
+
+```mermaid
+sequenceDiagram
+    participant Inst as Instituição
+    participant Sys as Sistema
+    participant Prof as Professor
+
+    Inst->>Sys: Buscar professor (email/código)
+    Sys-->>Inst: "Professor encontrado. Enviar convite?"
+    Inst->>Sys: Enviar convite (invite_type=org_teacher)
+    Sys->>Prof: Notificação (email + inbox interno)
+    Prof->>Sys: Aceitar convite
+    Sys->>Sys: DB::transaction { invite.accept(), pivot.create(), cache.purge() }
+    Sys-->>Prof: "Vínculo ativo com [Instituição]"
+    Sys-->>Inst: "Professor [nome] vinculado!"
+```
+
+### 2.5 Estratégia de Transferência de Turma
+
+```mermaid
+sequenceDiagram
+    participant Owner as Proprietário
+    participant Sys as Sistema
+    participant Dest as Destinatário
+
+    Owner->>Sys: Iniciar transferência (turma → destinatário)
+    Sys->>Sys: Verificar capacidade do destinatário (plano)
+    Sys->>Dest: Convite de transferência (class_ownership_transfer)
+    Dest->>Sys: Aceitar
+    Sys->>Sys: DB::transaction { class.owner = dest, log histórico, invite.accept() }
+    Sys-->>Owner: "Turma transferida com sucesso"
+```
+
+### 2.6 Autorização por Escopo
+
+| Camada | Mecanismo |
+|--------|-----------|
+| **Middleware** | `role:institution_admin\|teacher` (Spatie) |
+| **Gate/Policy** | Verifica `organization_id` do usuário vs recurso |
+| **TenantScope** | Global scope no Eloquent (`school_classes`, `questions`, `exams`) |
+| **Perfis Extras** | Middleware custom `institution_role` que verifica `institution_role_permissions` |
+| **Trash/Logs** | Middleware [can_access](file:///d:/.dev/avaliation_on/platform/tests/Feature/OMR/WebScanTest.php#41-47) verificando campos `can_access_trash/can_access_logs` na org |
+
+### 2.7 Código de Vínculo — Geração e Busca
+
+```php
+// Geração: Alphabet sem ambíguos (I, O, 0, 1)
+$alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+$code = '';
+for ($i = 0; $i < 8; $i++) {
+    $code .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+}
+// Índice único: users.link_code (CHAR(8) UNIQUE)
+// Validação: /^[A-HJ-NP-Z2-9]{8}$/
+```
+
+---
+
+## 3. Plano de Implementação por Fases
+
+### Fase 1 — Código de Vínculo + Buscar/Vincular Usuários (4-5 dias)
+
+| Item | Descrição | Risco |
+|------|-----------|-------|
+| 1.1 | Migration: `users.link_code` + gerar para existentes | Baixo |
+| 1.2 | `UserFinderService`: busca por email/código | Baixo |
+| 1.3 | Refatorar `TeacherController.store()`: detectar existente → convite | Médio |
+| 1.4 | Refatorar `StudentController.store()`: mesma lógica | Médio |
+| 1.5 | [InviteManagerService](file:///d:/.dev/avaliation_on/platform/app/Services/InviteManagerService.php#11-116) v2: add `invite_type`, `invitee_user_id`, `target_entity_*` | Baixo |
+| 1.6 | Migration [invites](file:///d:/.dev/avaliation_on/platform/app/Models/Organization.php#65-69): adicionar novos campos | Baixo |
+| 1.7 | Views: formulário unificado (criar/buscar/convidar) para professores e alunos | Médio |
+| 1.8 | Testes Feature: criar novo, buscar existente, convite, aceite, duplicata | Baixo |
+
+**Entrega:** Fluxo completo de criar vs vincular para professores e alunos.
+
+---
+
+### Fase 2 — Turmas, Compartilhamento e Transferência (3-4 dias)
+
+| Item | Descrição | Risco |
+|------|-----------|-------|
+| 2.1 | Migration: `school_classes` +`owner_type/owner_id`, `class_teacher`, `class_ownership_logs` | Baixo |
+| 2.2 | Convite tipo `class_enrollment` (aluno → turma) | Baixo |
+| 2.3 | Convite tipo `class_ownership_transfer` | Médio |
+| 2.4 | `ClassOwnershipService`: transferência com aceite | Médio |
+| 2.5 | Views: transferência de turma (modal/formulário) | Baixo |
+| 2.6 | Questões visíveis por professores vinculados (scope adjustment) | Médio |
+| 2.7 | Compartilhamento de avaliações professor ↔ instituição | Médio |
+| 2.8 | Testes Feature: enrollment, transferência, escopo de questões | Baixo |
+
+**Entrega:** Turmas com ownership morphable, transferência com aceite, escopo de questões.
+
+---
+
+### Fase 3 — Perfis Extras Institucionais (2-3 dias)
+
+| Item | Descrição | Risco |
+|------|-----------|-------|
+| 3.1 | Migrations: `institution_roles`, `institution_role_permissions`, `user_organization.institution_role_id` | Baixo |
+| 3.2 | `InstitutionRoleService`: CRUD de cargos + permissões | Baixo |
+| 3.3 | Middleware `InstitutionPermission`: verifica cargo + permissão | Médio |
+| 3.4 | Tela de gestão de cargos e permissões (checkbox matrix) | Baixo |
+| 3.5 | Limites por plano (`max_extra_profiles`) | Baixo |
+| 3.6 | Restrição de acesso a configs sensíveis | Baixo |
+| 3.7 | Testes: criação, permissões, limites, restrições | Baixo |
+
+**Entrega:** Perfis extras com cargos, permissões configuráveis e limites por plano.
+
+---
+
+### Fase 4 — Billing + Trash/Logs Restritos (2-3 dias)
+
+| Item | Descrição | Risco |
+|------|-----------|-------|
+| 4.1 | Corrigir `BillingController`: exibir plano atual, status, vencimento | Baixo |
+| 4.2 | Ações: trocar plano, cancelar plano (com confirmação) | Médio |
+| 4.3 | Fallback: "Módulo em configuração" se gateway ausente | Baixo |
+| 4.4 | Migration: `organizations.can_access_trash`, `organizations.can_access_logs` | Baixo |
+| 4.5 | Middleware `InstitutionAccess`: valida flags + loga acesso negado | Baixo |
+| 4.6 | Admin: toggle de acesso trash/logs por instituição | Baixo |
+| 4.7 | Testes: billing, trash/logs acesso negado/concedido | Baixo |
+
+**Entrega:** Billing funcional, trash/logs com acesso controlado.
+
+---
+
+### Fase 5 — Auditoria Completa e Hardening (1-2 dias)
+
+| Item | Descrição | Risco |
+|------|-----------|-------|
+| 5.1 | Garantir que todos os eventos do RF-L72 estejam logados | Baixo |
+| 5.2 | Ajustes de UX: mensagens, empty states, feedback visual | Baixo |
+| 5.3 | Testes de segurança: IDOR, escopo, escalação de permissão | Médio |
+| 5.4 | Testes E2E via browser | Baixo |
+
+**Entrega:** Sistema auditável e endurecido.
+
+---
+
+## 4. Telas e UX (Estrutura por Tela)
+
+### 4.1 Tela: Adicionar Professor/Aluno (Refatorada)
+
+| Campo | Detalhes |
+|-------|---------|
+| **Objetivo** | Criar OU vincular professor/aluno à instituição |
+| **Acesso** | [institution_admin](file:///d:/.dev/avaliation_on/platform/tests/Feature/Dashboard/DashboardAccessTest.php#33-46) |
+| **Fluxo** | 1) Input: email/código → 2) Buscar → 3) Se não encontrou: formulário de criação. Se encontrou: card com nome/foto + botão "Enviar Convite" |
+| **Campos (novo)** | Nome, Email, Senha, Status |
+| **Campos (existente)** | Somente botão "Enviar Convite" (por email) ou "Vincular por Código" |
+| **Validações** | Email format, código /^[A-HJ-NP-Z2-9]{8}$/, limite do plano |
+| **Mensagens** | Sucesso: "Convite enviado para [email]!" · Erro: "Usuário já vinculado à instituição" · "Limite atingido" |
+| **Estado vazio** | — |
+| **Navegação** | Entrada: sidebar → Professores/Alunos → "+ Adicionar" · Saída: voltar para lista |
+
+### 4.2 Tela: Convites Recebidos (Atualizada)
+
+| Campo | Detalhes |
+|-------|---------|
+| **Objetivo** | Listar convites pendentes e permitir aceitar/recusar |
+| **Acesso** | Qualquer autenticado |
+| **Campos** | Tipo (org_teacher, class_enrollment, etc.), Instituição/Turma de origem, Data, Status |
+| **Ações** | Aceitar, Recusar |
+| **Mensagens** | "Convite aceito! Agora você faz parte de [Instituição]." |
+
+### 4.3 Tela: Transferência de Turma
+
+| Campo | Detalhes |
+|-------|---------|
+| **Objetivo** | Iniciar transferência de propriedade de turma |
+| **Acesso** | Proprietário da turma (institution_admin ou professor com permissão) |
+| **Campos** | Select: destino (org ou professor) — busca por nome/email/código |
+| **Ações** | "Iniciar Transferência" → confirmação → convite enviado |
+| **Mensagens** | "Transferência iniciada. Aguardando aceite de [destino]." |
+
+### 4.4 Tela: Gestão de Cargos Institucionais
+
+| Campo | Detalhes |
+|-------|---------|
+| **Objetivo** | CRUD de cargos extras (Coordenador, Pedagogo, etc.) |
+| **Acesso** | [institution_admin](file:///d:/.dev/avaliation_on/platform/tests/Feature/Dashboard/DashboardAccessTest.php#33-46) (owner) |
+| **Campos** | Nome do cargo, Permissões (checkbox matrix) |
+| **Ações** | Criar, Editar, Excluir cargo |
+| **Limites** | Exibir barra de quota: "2 de 5 perfis extras utilizados" |
+
+### 4.5 Tela: Billing (Corrigida)
+
+| Campo | Detalhes |
+|-------|---------|
+| **Objetivo** | Gerenciar assinatura da instituição |
+| **Acesso** | [institution_admin](file:///d:/.dev/avaliation_on/platform/tests/Feature/Dashboard/DashboardAccessTest.php#33-46) (owner) |
+| **Conteúdo** | Card com plano atual, status, vencimento, valor |
+| **Ações** | "Trocar Plano" (lista de planos), "Cancelar Assinatura" (confirmação 2 etapas) |
+| **Fallback** | Se sem gateway: "Módulo de pagamento em configuração — entre em contato" |
+
+---
+
+## 5. Endpoints Sugeridos (Rotas Web)
+
+### Grupo: Professores (refatorado)
+```
+GET    /institution/teachers                    → index
+GET    /institution/teachers/create             → create (formulário unificado)
+POST   /institution/teachers/search             → search (ajax: busca email/código)
+POST   /institution/teachers                    → store (cria novo ou envia convite)
+GET    /institution/teachers/{id}/edit           → edit
+PUT    /institution/teachers/{id}               → update
+DELETE /institution/teachers/{id}               → destroy (toggle status)
+```
+
+### Grupo: Alunos (refatorado)
+```
+POST   /institution/students/search             → search (ajax: busca email/código)
+POST   /institution/students                    → store (cria novo ou envia convite)
+```
+
+### Grupo: Turmas (expandido)
+```
+GET    /institution/classes                      → index (próprias + compartilhadas)
+POST   /institution/classes/{id}/enroll          → enviar convite de enrollment
+POST   /institution/classes/{id}/transfer        → iniciar transferência
+POST   /institution/classes/{id}/transfer/cancel → cancelar transferência
+```
+
+### Grupo: Convites (expandido)
+```
+GET    /invites/received                         → received (todos os tipos)
+POST   /invites/{token}/accept                   → accept (org, turma, transferência)
+POST   /invites/{token}/decline                  → decline
+```
+
+### Grupo: Perfis Extras
+```
+GET    /institution/roles                        → index (cargos)
+GET    /institution/roles/create                 → create
+POST   /institution/roles                        → store
+GET    /institution/roles/{id}/edit              → edit
+PUT    /institution/roles/{id}                   → update
+DELETE /institution/roles/{id}                   → destroy
+```
+
+### Grupo: Billing
+```
+GET    /institution/billing                      → index (assinatura)
+POST   /institution/billing/change-plan          → changePlan
+POST   /institution/billing/cancel               → cancel
+```
+
+### Admin (global_admin)
+```
+POST   /admin/organizations/{id}/toggle-trash    → toggleTrash
+POST   /admin/organizations/{id}/toggle-logs     → toggleLogs
+```
+
+---
+
+## 6. Estratégia de Testes
+
+### 6.1 Testes por Módulo
+
+| Módulo | Cenários |
+|--------|----------|
+| **A/B: Criar vs Vincular** | Criar novo professor/aluno, buscar por email/código, convite enviado, aceite efetiva vínculo, rejeitar duplicata, não criar senha para existente |
+| **C: Convites** | Status lifecycle (pending→accepted/declined/canceled/expired), anti-duplicata, expiração, cancelamento |
+| **D: Turmas** | Enrollment com convite, múltiplas turmas, escopo de visibilidade |
+| **E: Transferência** | Iniciar→aceitar→propriedade muda, iniciar→recusar→permanece, capacidade do destinatário |
+| **F: Questões** | Professor vinculado vê questões da org, professor desvinculado NÃO vê, compartilhamento de avaliação |
+| **G: Perfis Extras** | CRUD cargos, permissões limitadas, sem acesso a config sensível, limite do plano |
+| **H: Billing** | Exibir assinatura, trocar plano, cancelar, fallback, log |
+| **I: Trash/Logs** | Acesso negado por padrão (403 + log), acesso concedido → escopo correto, tentativa IDOR |
+| **J: Código** | Geração único, formato válido, busca, código inválido, código inexistente |
+| **Segurança** | IDOR entre orgs, escalação de permissão, acesso cross-tenant |
+
+### 6.2 Mínimo de Testes Feature
+
+| Fase | Testes estimados |
+|------|-----------------|
+| Fase 1 | ~12 testes |
+| Fase 2 | ~10 testes |
+| Fase 3 | ~8 testes |
+| Fase 4 | ~8 testes |
+| Fase 5 | ~6 testes |
+| **Total** | **~44 testes** |
+
+---
+
+## 7. Riscos e Hipóteses
+
+### Riscos
+
+| # | Risco | Mitigação |
+|---|-------|-----------|
+| R1 | Ambiguidade entre vínculo org vs turma | Tipos de convite explícitos (`invite_type`) |
+| R2 | Múltiplas orgs por professor/aluno complica escopo | TenantScope + pivot `user_organization` com `status` |
+| R3 | Transferência de turma pode perder histórico | Tabela `class_ownership_logs` dedicada |
+| R4 | Perfis extras podem escalar permissões | `InstitutionPermission` middleware + restrição hard-coded de configs sensíveis |
+| R5 | Gateway de pagamento não integrado | Fallback explícito no billing sem erro 500 |
+
+### Hipóteses
+
+| # | Hipótese |
+|---|---------|
+| H1 | O código de vínculo é um identificador **público** (não sensível). O usuário pode compartilhá-lo livremente |
+| H2 | Perfis extras são usuários do tipo [teacher](file:///d:/.dev/avaliation_on/platform/app/Models/Organization.php#55-59) com `role_in_org='staff'` na pivot, diferenciados pelo `institution_role_id` |
+| H3 | A transferência de turma inclui todos os alunos matriculados (não transfere alunos, apenas propriedade) |
+| H4 | O módulo de billing nesta fase é **informativo** (exibir plano, permitir troca/cancelamento via request) — integração com gateway real é escopo futuro |
+
+---
+
+## 8. Estado Atual do Codebase (Gaps Identificados)
+
+| Componente | Estado Atual | O que falta |
+|------------|-------------|-------------|
+| `TeacherController.store()` | Cria sempre com `unique:users` + senha obrigatória | Detectar existente → convite |
+| `StudentController.store()` | Mesma lógica do TeacherController | Mesma refatoração |
+| `users.link_code` | **Não existe** | Migration + geração automática |
+| [invites](file:///d:/.dev/avaliation_on/platform/app/Models/Organization.php#65-69) | Só `invitee_email` + `target_role` | `invite_type`, `invitee_user_id`, `target_entity_*` |
+| `school_classes` | Só `organization_id` | `owner_type/owner_id`, `class_teacher` pivot, ownership logs |
+| `institution_roles` | **Não existe** | Migration + Model + Service + Middleware |
+| `organizations.can_access_*` | **Não existe** | Migration + Middleware |
+| `BillingController` | Existe mas incompleto | Troca/cancelamento de plano, status, fallback |
+| Trash/Logs | Funcional mas sem access control | Middleware de acesso + audit de negação |

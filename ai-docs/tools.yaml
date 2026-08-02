@@ -1,0 +1,611 @@
+# ────────────────────────────────────────────────────────────────────────────
+#  ai-docs/tools.yaml — Catalog of tools available to agents on this project.
+#
+#  This file is the single source-of-truth that `task-sequencer` consults
+#  when it generates a task file in `ai-docs/actual-todo/`. The agent picks
+#  the entries relevant to the task and injects them into the generated
+#  file under `## Available Tools` so the implementer (next `/dev` run)
+#  knows exactly which tools are available without rediscovering them.
+#
+#  Maintenance:
+#    • When a new agent / command / script / skill / MCP / CLI / team /
+#      hook is added to the project, append a row here.
+#    • Avoid drift: `tools.yaml` SHOULD reflect what currently lives in
+#      `.claude/agents/`, `.claude/commands/`, `.mcp.json`, etc.
+#
+# ────────────────────────────────────────────────────────────────────────────
+#  Schema (version 1)
+# ────────────────────────────────────────────────────────────────────────────
+#
+#  version: 1
+#  tools:
+#    <kind>:                  # one of the kinds listed below
+#      - id:          str     # required, kebab-case, unique within kind
+#        name:        str     # required, human-readable
+#        purpose:     str     # required, one sentence — what it does
+#        use_when:    str     # required, one sentence — when to use it
+#        how_to_invoke: str   # required, exact invocation syntax
+#        path:        str     # optional, repo-relative path on disk
+#        binary:      str     # optional, binary name on PATH (CLIs)
+#        server:      str     # optional, MCP server identifier
+#        prefix:      str     # optional, MCP tool-call prefix
+#        tags:        [str]   # optional, free-form tags for matching
+#        requires:    [str]   # optional, ids of other tools this needs
+#        notes:       str     # optional, gotchas / version pins
+#        scope:       str     # optional, "project" | "plugin" | "system"
+#
+#  Kinds shipped (all optional — empty lists are fine):
+#    agents       - project subagents in `.claude/agents/`
+#    commands     - slash commands in `.claude/commands/`
+#    skills       - Skills in `.claude/skills/`
+#    agent_teams  - reusable parallel-orchestration templates
+#    scripts      - shell / Python / Node scripts in `scripts/`
+#    mcps         - MCP servers (`.mcp.json` or `.claude/settings.json`)
+#    clis         - external CLI binaries the project relies on
+#    hooks        - lifecycle hooks fired by the harness
+#    other        - catch-all for tools that don't fit the kinds above
+#
+#  Invocation conventions:
+#    agents       → `Task(subagent_type: "<id>", prompt: "...")`
+#    commands     → user types `/<id>` in chat
+#    skills       → `Skill(skill: "<id>")`
+#    agent_teams  → ad-hoc, via parallel `Agent` tool calls in a single
+#                   message (this template uses ad-hoc spawning rather
+#                   than reusable team templates)
+#    scripts      → `Bash: <interpreter> scripts/<file> [flags]`
+#    mcps         → tool calls prefixed with `mcp__<server>__`
+#    clis         → `Bash: <binary> <subcommand>`
+#    hooks        → fired by the harness on lifecycle events (rarely
+#                   invoked manually; included here for awareness)
+#    other        → see entry's `how_to_invoke`
+#
+# ────────────────────────────────────────────────────────────────────────────
+
+version: 1
+
+tools:
+  # ──────────────────────────── agents ────────────────────────────────────
+  agents:
+    # ── project agents (live in .claude/agents/) ──────────────────────────
+    - id: task-master-generator
+      name: task-master-generator
+      scope: project
+      path: .claude/agents/task-master-generator.md
+      purpose: Reads ai-docs/PRD.md and generates ai-docs/todos/task-master.md with sequential tasks and explicit dependencies.
+      use_when: User wants to (re)generate the project's task list from the PRD.
+      how_to_invoke: 'Task(subagent_type: "task-master-generator", prompt: "...")'
+      tags: [planning, tasks]
+
+    - id: task-sequencer
+      name: task-sequencer
+      scope: project
+      path: .claude/agents/task-sequencer.md
+      purpose: Detects git context, claims a task/<NN>-<slug> branch, picks the next pending task, researches the codebase, and writes the next file in ai-docs/actual-todo/.
+      use_when: Preparing the next task for /dev to implement.
+      how_to_invoke: 'Task(subagent_type: "task-sequencer", prompt: "...")'
+      tags: [tasks, orchestration, git]
+
+    - id: design-system-curator
+      name: design-system-curator
+      scope: project
+      path: .claude/agents/design-system-curator.md
+      purpose: Authors and updates /DESIGN.md (Google Labs alpha spec) — colors, typography, spacing, rounded scale, component definitions.
+      use_when: Initialising the project's visual identity or evolving the design tokens.
+      how_to_invoke: 'Task(subagent_type: "design-system-curator", prompt: "...")'
+      tags: [design, ui, tokens]
+
+    - id: design-system-checker
+      name: design-system-checker
+      scope: project
+      path: .claude/agents/design-system-checker.md
+      purpose: Audits modified frontend files against /DESIGN.md — flags hardcoded hex, off-scale rounded/spacing, missing on-* pairs, components diverging from the spec.
+      use_when: Auto-invoked at the end of every /dev when frontend files were touched.
+      how_to_invoke: 'Task(subagent_type: "design-system-checker", prompt: "...")'
+      tags: [design, ui, audit, validation]
+
+    - id: ad-hoc-task-creator
+      name: ad-hoc-task-creator
+      scope: project
+      path: .claude/agents/ad-hoc-task-creator.md
+      purpose: Prepares a one-off ad-hoc task file from a free-form description, claims a task/adhoc-<slug> branch, and researches the codebase — without touching task-master.md.
+      use_when: /dev was given a free-form description instead of a numbered PRD task.
+      how_to_invoke: 'Task(subagent_type: "ad-hoc-task-creator", prompt: "...")'
+      tags: [tasks, orchestration, git, ad-hoc]
+
+    - id: quality-checklist-verifier
+      name: quality-checklist-verifier
+      scope: project
+      path: .claude/agents/quality-checklist-verifier.md
+      purpose: Verifies each item of a task's quality checklist against the actual diff — reports PASS / FAIL / N/A / USER-ONLY with file:line evidence. Never modifies code.
+      use_when: Auto-invoked at the end of every /dev (Step 4.5).
+      how_to_invoke: 'Task(subagent_type: "quality-checklist-verifier", prompt: "...")'
+      tags: [quality, audit, validation]
+
+    # ── built-in / plugin agents (available globally to every session) ────
+    - id: general-purpose
+      name: general-purpose
+      scope: system
+      purpose: General-purpose researcher for open-ended questions, multi-step searches, and tasks that require reading across the codebase.
+      use_when: Open-ended research where you can't predict in advance which files matter.
+      how_to_invoke: 'Agent(subagent_type: "general-purpose", prompt: "...")'
+      tags: [research, fallback]
+
+    - id: explore
+      name: Explore
+      scope: system
+      purpose: Fast read-only search agent for locating code (find files, grep symbols, "where is X defined").
+      use_when: Targeted code lookup — quick / medium / very thorough.
+      how_to_invoke: 'Agent(subagent_type: "Explore", prompt: "...")'
+      tags: [research, search, read-only]
+
+    - id: plan
+      name: Plan
+      scope: system
+      purpose: Software-architect agent that returns step-by-step implementation plans and identifies critical files.
+      use_when: Before writing code on a non-trivial task, to align on the approach and trade-offs.
+      how_to_invoke: 'Agent(subagent_type: "Plan", prompt: "...")'
+      tags: [planning, architecture]
+
+    - id: task-master-helper
+      name: task-master-generator (plugin variant)
+      scope: plugin
+      purpose: Plugin-provided helper that generates ai-docs/todos/task-master.md from PRD.md, analysing the codebase to avoid duplicating already-implemented work.
+      use_when: Same as the project agent of the same name — provided when the plugin is loaded.
+      how_to_invoke: 'Agent(subagent_type: "task-master-generator", prompt: "...")'
+      tags: [planning, tasks]
+      notes: Functionally identical to .claude/agents/task-master-generator.md — listed here for awareness when both are visible.
+
+    - id: design-system-curator-plugin
+      name: design-system-curator (plugin variant)
+      scope: plugin
+      purpose: Plugin-provided curator that creates/updates DESIGN.md (Google Labs alpha spec).
+      use_when: Same as the project agent — provided when the plugin is loaded.
+      how_to_invoke: 'Agent(subagent_type: "design-system-curator", prompt: "...")'
+      tags: [design, ui, tokens]
+
+    - id: design-system-checker-plugin
+      name: design-system-checker (plugin variant)
+      scope: plugin
+      purpose: Plugin-provided auditor that validates frontend files against DESIGN.md.
+      use_when: Same as the project agent — provided when the plugin is loaded.
+      how_to_invoke: 'Agent(subagent_type: "design-system-checker", prompt: "...")'
+      tags: [design, ui, audit]
+
+  # ─────────────────────────── commands ───────────────────────────────────
+  commands:
+    # ── project commands (live in .claude/commands/) ──────────────────────
+    - id: create-tasks
+      name: /create-tasks
+      scope: project
+      path: .claude/commands/create-tasks.md
+      purpose: Generates ai-docs/todos/task-master.md from the PRD by invoking task-master-generator.
+      use_when: After PRD.md is filled in, to produce the initial sequential task list.
+      how_to_invoke: "Type /create-tasks in chat."
+      tags: [planning, tasks, bootstrap]
+
+    - id: dev
+      name: /dev
+      scope: project
+      path: .claude/commands/dev.md
+      purpose: Picks the next pending task (or uses a description), claims a task/<NN>-<slug> branch, prepares its file, implements it end-to-end and runs the design-system audit.
+      use_when: Implementing the next available task.
+      how_to_invoke: "Type /dev [description] [--test] [--worktree] [--no-branch] in chat."
+      tags: [implementation, tasks, git]
+      notes: |
+        Flags:
+          --test       run Playwright MCP E2E test at the end
+          --worktree   create the branch inside a fresh git worktree at ../<repo>-task-<NN>-<slug>
+          --no-branch  skip branch/worktree creation (legacy/hotfix)
+
+    - id: design
+      name: /design
+      scope: project
+      path: .claude/commands/design.md
+      purpose: Manages /DESIGN.md (Google Labs alpha spec) — create / lint / check / export / spec.
+      use_when: Bootstrapping or evolving the visual identity, or auditing components against tokens.
+      how_to_invoke: "Type /design [create|lint|check|export|spec] in chat."
+      tags: [design, ui, tokens]
+      requires: [npx]
+
+    - id: learning
+      name: /learning
+      scope: project
+      path: .claude/commands/learning.md
+      purpose: Records a lesson learned in ai-docs/lessons.md (date, context, root cause, how to avoid, tags).
+      use_when: After any avoidable mistake, so the project keeps a living guide of what NOT to repeat.
+      how_to_invoke: "Type /learning [description] in chat."
+      tags: [learning, knowledge, post-mortem]
+
+    - id: manual-verify
+      name: /manual-verify
+      scope: project
+      path: .claude/commands/manual-verify.md
+      purpose: Runs a free-form verification described in the argument — browser checks via Playwright MCP, CLI checks, etc. — and reports anything that needs human action.
+      use_when: You want an explicit, described verification run outside the normal /dev flow.
+      how_to_invoke: "Type /manual-verify <what to verify> in chat."
+      tags: [verification, testing, qa]
+
+    # ── built-in / harness commands (always available) ────────────────────
+
+    - id: review
+      name: /review
+      scope: system
+      purpose: Runs a code review on a pull request.
+      use_when: Reviewing a PR before merging.
+      how_to_invoke: "Type /review in chat."
+      tags: [review, quality]
+
+    - id: security-review
+      name: /security-review
+      scope: system
+      purpose: Performs a security review of pending changes on the current branch.
+      use_when: Before merging changes that touch auth, secrets, network, or data handling.
+      how_to_invoke: "Type /security-review in chat."
+      tags: [security, review]
+
+  # ───────────────────────────── skills ───────────────────────────────────
+  skills:
+    # The rows below catalog the Skills bundled in .claude/skills/. They are
+    # stack-specific — they came from the template's source project. After
+    # adopting the template, delete the .claude/skills/ folders you don't
+    # need and trim this list to match; add a row for any skill you keep
+    # that isn't listed yet.
+    # ── bundled skills (live in .claude/skills/) ──
+    - id: agent-email-inbox
+      name: agent-email-inbox
+      scope: project
+      path: .claude/skills/agent-email-inbox/SKILL.md
+      purpose: Patterns for systems where inbound email triggers actions (AI inboxes, automated support, email-to-task pipelines) — includes security guardrails (allowlists, sandboxing).
+      use_when: Building any pipeline that processes untrusted inbound email.
+      how_to_invoke: 'Skill(skill: "agent-email-inbox")'
+      tags: [email, security, agents, resend]
+
+    - id: astro
+      name: astro
+      scope: project
+      path: .claude/skills/astro/SKILL.md
+      purpose: Build with the Astro web framework — components and pages, SSR adapters, content collections, static-site deploy, project structure and CLI.
+      use_when: Working with Astro, .astro files, static site generation (SSG), islands architecture, content collections, or deploying an Astro project.
+      how_to_invoke: 'Skill(skill: "astro")'
+      tags: [astro, frontend, ssg]
+
+    - id: clerk
+      name: clerk
+      scope: project
+      path: .claude/skills/clerk/SKILL.md
+      purpose: Routes Clerk authentication tasks across Next.js, React, Vue, Nuxt, Astro, Expo, native iOS/Android, billing, organizations, etc.
+      use_when: Adding/configuring Clerk auth, billing, or organizations.
+      how_to_invoke: 'Skill(skill: "clerk")'
+      tags: [auth, clerk]
+
+    - id: cloudflare
+      name: cloudflare
+      scope: project
+      path: .claude/skills/cloudflare/SKILL.md
+      purpose: Comprehensive Cloudflare platform guidance — Workers, Pages, KV, D1, R2, Workers AI, Vectorize, WAF, Tunnel, Terraform.
+      use_when: Any Cloudflare development task.
+      how_to_invoke: 'Skill(skill: "cloudflare")'
+      tags: [cloudflare, workers, infra]
+
+    - id: cloudflare-deploy
+      name: cloudflare-deploy
+      scope: project
+      path: .claude/skills/cloudflare-deploy/SKILL.md
+      purpose: Deploys apps and infrastructure to Cloudflare (Workers, Pages, related services).
+      use_when: Deploying or hosting on Cloudflare.
+      how_to_invoke: 'Skill(skill: "cloudflare-deploy")'
+      tags: [cloudflare, deploy]
+
+    - id: email-best-practices
+      name: email-best-practices
+      scope: project
+      path: .claude/skills/email-best-practices/SKILL.md
+      purpose: Email deliverability, SPF/DKIM/DMARC, compliance (CAN-SPAM, GDPR, CASL), webhooks, retry logic, transactional vs marketing.
+      use_when: Building email features or debugging deliverability.
+      how_to_invoke: 'Skill(skill: "email-best-practices")'
+      tags: [email, deliverability, compliance]
+
+    - id: frontend-design
+      name: frontend-design
+      scope: project
+      path: .claude/skills/frontend-design/SKILL.md
+      purpose: Generates distinctive, production-grade frontend interfaces with high design quality (avoids generic AI aesthetics).
+      use_when: Building web components, landing pages, dashboards, or styling existing UI.
+      how_to_invoke: 'Skill(skill: "frontend-design")'
+      tags: [design, ui, frontend]
+
+    - id: hono
+      name: hono
+      scope: project
+      path: .claude/skills/hono/SKILL.md
+      purpose: Build Hono web applications — routing, middleware, JSX, validation, testing, streaming. Use `npx hono request` to test endpoints.
+      use_when: Code imports from 'hono' or 'hono/*', or building APIs/web apps with Hono.
+      how_to_invoke: 'Skill(skill: "hono")'
+      tags: [hono, api, web, framework]
+
+    - id: react-email
+      name: react-email
+      scope: project
+      path: .claude/skills/react-email/SKILL.md
+      purpose: Builds HTML email templates with React, supports the React Email visual editor, renders to HTML, sends via Resend.
+      use_when: Authoring transactional or marketing email templates.
+      how_to_invoke: 'Skill(skill: "react-email")'
+      tags: [email, react, templates, resend]
+
+    - id: resend
+      name: resend
+      scope: project
+      path: .claude/skills/resend/SKILL.md
+      purpose: Working with the Resend email API — send (single/batch), inbound webhooks, templates, domains, contacts, broadcasts, automations.
+      use_when: Anything Resend-related — includes critical gotchas (idempotency, webhook verification).
+      how_to_invoke: 'Skill(skill: "resend")'
+      tags: [email, resend, api]
+
+    - id: resend-cli
+      name: resend-cli
+      scope: project
+      path: .claude/skills/resend-cli/SKILL.md
+      purpose: Operate Resend from the terminal — send emails, manage domains/contacts/broadcasts/templates/webhooks, view logs, render React Email .tsx templates.
+      use_when: Running `resend` commands in shell, scripts, or CI/CD.
+      how_to_invoke: 'Skill(skill: "resend-cli")'
+      tags: [email, resend, cli]
+      requires: [resend]
+
+    - id: shadcn
+      name: shadcn
+      scope: project
+      path: .claude/skills/shadcn/SKILL.md
+      purpose: Manages shadcn/ui components — adding, searching, fixing, debugging, theming, and composing UI; presets and registries.
+      use_when: Working with shadcn/ui (any project containing components.json) or initialising shadcn.
+      how_to_invoke: 'Skill(skill: "shadcn")'
+      tags: [ui, shadcn, tailwind, components]
+
+    - id: skill-creator
+      name: skill-creator
+      scope: project
+      path: .claude/skills/skill-creator/SKILL.md
+      purpose: Creates, edits, and benchmarks skills; runs evals and optimises skill descriptions for triggering accuracy.
+      use_when: Authoring a new skill or improving an existing one.
+      how_to_invoke: 'Skill(skill: "skill-creator")'
+      tags: [meta, skills]
+
+    - id: stripe-best-practices
+      name: stripe-best-practices
+      scope: project
+      path: .claude/skills/stripe-best-practices/SKILL.md
+      purpose: Guides Stripe integration decisions — Checkout vs PaymentIntents, Connect, billing, Treasury, secure key handling, webhooks, OAuth.
+      use_when: Building, modifying, or reviewing any Stripe integration.
+      how_to_invoke: 'Skill(skill: "stripe-best-practices")'
+      tags: [payments, stripe]
+
+    - id: stripe-projects
+      name: stripe-projects
+      scope: project
+      path: .claude/skills/stripe-projects/SKILL.md
+      purpose: Sets up a new app or local repo with Stripe Projects, provisions a software stack, bootstraps the Projects CLI from a coding agent.
+      use_when: Starting a new Stripe-backed app.
+      how_to_invoke: 'Skill(skill: "stripe-projects")'
+      tags: [payments, stripe, bootstrap]
+      requires: [stripe]
+
+    - id: upgrade-stripe
+      name: upgrade-stripe
+      scope: project
+      path: .claude/skills/upgrade-stripe/SKILL.md
+      purpose: Upgrades Stripe API versions and SDKs.
+      use_when: Migrating to a newer Stripe API version.
+      how_to_invoke: 'Skill(skill: "upgrade-stripe")'
+      tags: [payments, stripe, migration]
+
+    - id: vercel-react-best-practices
+      name: vercel-react-best-practices
+      scope: project
+      path: .claude/skills/vercel-react-best-practices/SKILL.md
+      purpose: React/Next.js performance guidelines from Vercel Engineering — components, hooks, accessibility, bundle, data-fetching.
+      use_when: Writing, reviewing, or refactoring React/Next.js code.
+      how_to_invoke: 'Skill(skill: "vercel-react-best-practices")'
+      tags: [react, nextjs, performance, vercel]
+
+    - id: workers-best-practices
+      name: workers-best-practices
+      scope: project
+      path: .claude/skills/workers-best-practices/SKILL.md
+      purpose: Reviews and authors Cloudflare Workers code against production best practices (streaming, floating promises, secrets, bindings, observability).
+      use_when: Writing, reviewing, or configuring a Cloudflare Worker.
+      how_to_invoke: 'Skill(skill: "workers-best-practices")'
+      tags: [cloudflare, workers, review]
+
+    - id: wrangler
+      name: wrangler
+      scope: project
+      path: .claude/skills/wrangler/SKILL.md
+      purpose: Cloudflare Wrangler CLI usage — Workers, KV, R2, D1, Vectorize, Hyperdrive, Workers AI, Containers, Queues, Workflows, Pipelines, Secrets Store.
+      use_when: Running `wrangler` commands or configuring `wrangler.jsonc`.
+      how_to_invoke: 'Skill(skill: "wrangler")'
+      tags: [cloudflare, cli]
+
+    # ── plugin-provided skills (loaded by globally-installed plugins) ─────
+    - id: claude-api
+      name: claude-api
+      scope: plugin
+      purpose: Build/debug/optimise Claude API and Anthropic SDK apps; covers prompt caching, thinking, tool use, batch, files, citations, memory, and model migrations.
+      use_when: Code imports `anthropic`/`@anthropic-ai/sdk` or you're tuning a Claude feature.
+      how_to_invoke: 'Skill(skill: "claude-api")'
+      tags: [claude, anthropic-sdk, ai]
+
+    - id: convex
+      name: convex
+      scope: plugin
+      purpose: Umbrella router for Convex development patterns (functions, realtime, agents, etc.).
+      use_when: Working with Convex.
+      how_to_invoke: 'Skill(skill: "convex")'
+      tags: [convex, backend]
+
+    - id: convex-functions
+      name: convex-functions
+      scope: plugin
+      purpose: Authoring Convex queries, mutations, actions, HTTP actions with proper validators, error handling, internal functions, runtime considerations.
+      use_when: Writing Convex functions.
+      how_to_invoke: 'Skill(skill: "convex-functions")'
+      tags: [convex, backend]
+
+    - id: convex-best-practices
+      name: convex-best-practices
+      scope: plugin
+      purpose: Production guidelines for Convex apps — function organisation, query patterns, validation, TypeScript, Zen of Convex.
+      use_when: Reviewing or refactoring Convex code.
+      how_to_invoke: 'Skill(skill: "convex-best-practices")'
+      tags: [convex, backend, review]
+
+    - id: superdesign
+      name: superdesign
+      scope: plugin
+      purpose: Design agent for frontend UI/UX — create-project, create-design-draft, iterate-design-draft, execute-flow-pages.
+      use_when: Before implementing UI that needs design thinking; also for variations and faithful reproductions.
+      how_to_invoke: 'Skill(skill: "superdesign")'
+      tags: [design, ui, frontend]
+      requires: [superdesign]
+
+    - id: clerk-router
+      name: clerk (router)
+      scope: plugin
+      purpose: Clerk authentication router that picks the right framework-specific guide (Next.js, React, Vue, Nuxt, Astro, Expo, native, etc.).
+      use_when: Adding Clerk auth, organisations, billing, subscriptions, or seat-based pricing.
+      how_to_invoke: 'Skill(skill: "clerk")'
+      tags: [auth, clerk]
+
+    - id: find-skills
+      name: find-skills
+      scope: plugin
+      purpose: Discover and install agent skills based on the user's intent.
+      use_when: User asks "is there a skill that does X?" or wants to extend Claude Code.
+      how_to_invoke: 'Skill(skill: "find-skills")'
+      tags: [meta, skills]
+
+  # ──────────────────────── agent_teams (templates) ───────────────────────
+  agent_teams:
+    # This template uses **ad-hoc** parallel spawning (multiple `Agent` tool
+    # calls in a single message) rather than reusable team templates —
+    # `task-sequencer` and `task-master-generator` are explicitly authorized
+    # to design the team they need on the fly. Declare reusable templates
+    # here if you start repeating the same fan-out shape across tasks.
+    #
+    # Example:
+    # - id: codebase-research-team
+    #   name: Codebase Research Team
+    #   purpose: Parallel pattern-finder + type-finder + component-finder + service-finder for a fresh task.
+    #   use_when: Bootstrapping a full-stack task that touches UI + types + services.
+    #   how_to_invoke: 'Spawn the four specialists with parallel `Agent` tool calls in one message.'
+    #   tags: [research, parallel]
+
+  # ──────────────────────────── scripts ───────────────────────────────────
+  scripts:
+    # No project-level scripts shipped by default. Add entries here when
+    # you place anything under scripts/. Example shape:
+    #
+    # - id: <name>
+    #   name: <file>.{sh,py,mjs}
+    #   path: scripts/<file>
+    #   purpose: <one sentence>
+    #   use_when: <one sentence>
+    #   how_to_invoke: 'Bash: <interpreter> scripts/<file> [flags]'
+    #   tags: [<tag1>]
+
+  # ───────────────────────────── mcps ─────────────────────────────────────
+  mcps:
+    # MCP servers are registered per-repo in `.mcp.json` (or globally in
+    # `~/.claude.json`). Their tool schemas are *deferred* — call them by
+    # first loading the schema via `ToolSearch` with `select:<name>`.
+    #
+    # Add a row for each MCP your project registers. Example shape:
+    #
+    # - id: <name>
+    #   name: <name>
+    #   server: <name>
+    #   prefix: mcp__<name>__
+    #   scope: project
+    #   purpose: <one sentence>
+    #   use_when: <one sentence>
+    #   how_to_invoke: "Call mcp__<name>__* (...)."
+    #   tags: [<tag>]
+
+    - id: playwright
+      name: playwright
+      server: playwright
+      prefix: mcp__playwright__
+      scope: project
+      purpose: Drive a real browser for end-to-end UI verification (uses a11y tree, preferred over screenshots for LLM assertions).
+      use_when: /dev was invoked with --test, or any task whose acceptance criteria require validating a UI flow.
+      how_to_invoke: "Tool calls prefixed with mcp__playwright__ (e.g. mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_click)."
+      tags: [testing, ui, browser, e2e]
+      notes: Required for /dev --test. Register the Playwright MCP in .mcp.json first; schemas are deferred — load via ToolSearch before calling.
+
+  # ───────────────────────────── clis ─────────────────────────────────────
+  clis:
+    # ── version control & github ──────────────────────────────────────────
+    - id: git
+      name: git
+      binary: git
+      purpose: Version control — required by /dev to claim task branches, rebase against the base branch, commit and push.
+      use_when: Any branch / commit / rebase / worktree operation (entire /dev workflow).
+      how_to_invoke: "Bash: git <subcommand>"
+      tags: [vcs, required]
+
+    - id: gh
+      name: gh
+      binary: gh
+      purpose: GitHub CLI — used in /dev's Conclusion to open the pull request, manage issues/PRs/releases, query the GitHub API.
+      use_when: Pushing a task branch, opening/reviewing PRs, working with GitHub issues or Actions.
+      how_to_invoke: 'Bash: gh pr create --base <BASE_BRANCH> --title "<title>" --body "Closes task <NN>"'
+      tags: [vcs, github]
+      notes: Optional. Skip the PR step if `gh` isn't installed; the user can open the PR manually.
+
+    # ── browser automation ────────────────────────────────────────────────
+    - id: playwright
+      name: playwright (cli)
+      binary: playwright
+      purpose: Playwright CLI — install browsers, run tests, codegen.
+      use_when: Initial Playwright setup or running specs from the terminal (separate from the Playwright MCP).
+      how_to_invoke: "Bash: playwright <subcommand>  (e.g. playwright install, playwright test)"
+      tags: [testing, browser, e2e]
+
+    # ── project CLIs ──────────────────────────────────────────────────────
+    # Add a row for each external CLI your project relies on. Example shape:
+    #
+    # - id: <name>
+    #   name: <name>
+    #   binary: <name>
+    #   purpose: <one sentence>
+    #   use_when: <one sentence>
+    #   how_to_invoke: "Bash: <name> <subcommand>"
+    #   tags: [<tag>]
+
+  # ───────────────────────────── hooks ────────────────────────────────────
+  hooks:
+    - id: block-npm-npx
+      name: block-npm-npx.sh
+      scope: project
+      path: .claude/hooks/block-npm-npx.sh
+      purpose: PreToolUse(Bash) hook — blocks `npm` / `npx` and tells Claude to use the pnpm equivalent. Wired in .claude/settings.json.
+      use_when: Fired automatically before every Bash call. Optional — delete it (and the settings.json `hooks` block) if your project does not use pnpm.
+      how_to_invoke: "Fired by the harness on PreToolUse; not invoked manually."
+      tags: [hook, pnpm, guardrail]
+    # Append a row for each hook you add to .claude/settings.json — they
+    # exist here for awareness when reasoning about automated behaviour.
+
+  # ───────────────────────────── other ────────────────────────────────────
+  other:
+    - id: design-md
+      name: "@google/design.md"
+      purpose: Google Labs alpha CLI for the DESIGN.md spec — used by /design create / lint / check / export / spec.
+      use_when: Bootstrapping or auditing /DESIGN.md.
+      how_to_invoke: "Bash: npx @google/design.md <subcommand>"
+      requires: [npx]
+      tags: [design, cli]
+
+    - id: worktreeinclude
+      name: .worktreeinclude
+      purpose: Per-repo allowlist of gitignored files to copy into new git worktrees (e.g. `.env.local`).
+      use_when: Setting up multi-tab parallel work with /dev --worktree and you need env files in each.
+      how_to_invoke: "Edit `.worktreeinclude` at the repo root; entries are read by Claude Code natively when creating a worktree."
+      tags: [worktree, dx]
