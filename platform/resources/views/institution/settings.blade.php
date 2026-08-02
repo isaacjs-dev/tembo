@@ -51,7 +51,7 @@
                         placeholder="minhaescola">
                     <div
                         class="px-4 py-3 bg-gray-100 border-y-2 border-r-2 border-duo-border rounded-r-xl text-gray-500 font-bold text-sm">
-                        .tembo.aracruz.org
+                        .tembo.aracruz.eu
                     </div>
                 </div>
             </div>

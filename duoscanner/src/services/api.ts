@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/auth-store';
 const configuredApiUrl =
   process.env.EXPO_PUBLIC_API_URL ||
   Constants.expoConfig?.extra?.apiBaseUrl ||
-  'https://tembo.aracruz.org/api/v1';
+  'https://tembo.aracruz.eu/api/v1';
 
 /** URL can be overridden for local Expo development; production always defaults to HTTPS. */
 const API_BASE_URL = String(configuredApiUrl).replace(/\/+$/, '');

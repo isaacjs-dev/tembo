@@ -22,7 +22,7 @@ import { fonts } from '@/theme/typography';
 import { getApiErrorMessage } from '@/lib/api-error';
 
 const WEB_BASE_URL = String(
-  Constants.expoConfig?.extra?.webBaseUrl || 'https://tembo.aracruz.org'
+  Constants.expoConfig?.extra?.webBaseUrl || 'https://tembo.aracruz.eu'
 ).replace(/\/+$/, '');
 
 export default function LoginScreen() {

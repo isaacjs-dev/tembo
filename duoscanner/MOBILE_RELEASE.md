@@ -5,8 +5,8 @@
 - Nome: `Tembo Scanner`
 - Versão: `1.0.0` (`versionCode 1`)
 - Pacote: `com.duoscanner.app` (mantido para preservar compatibilidade)
-- URL da API: `https://tembo.aracruz.org/api/v1`
-- URL web: `https://tembo.aracruz.org`
+- URL da API: `https://tembo.aracruz.eu/api/v1`
+- URL web: `https://tembo.aracruz.eu`
 - Android: mínimo 7.0 (API 24), alvo API 34
 
 Em builds que não sejam de desenvolvimento, o cliente rejeita uma URL de API
@@ -40,7 +40,8 @@ Android de desenvolvimento. Uma publicação em loja deve usar o perfil
 
 ## Validações dependentes do ambiente
 
-No fechamento deste build, `tembo.aracruz.org` não possuía resolução DNS. Por
+No fechamento deste build, `tembo.aracruz.org` não possuía resolução DNS. O
+domínio canônico adotado passou a ser `tembo.aracruz.eu`. Por
 isso, autenticação, sessão contra a API, certificado TLS e fluxos completos de
 sincronização precisam ser retestados após a publicação do domínio. Não havia
 dispositivo físico conectado por ADB. Duas inicializações limpas do AVD

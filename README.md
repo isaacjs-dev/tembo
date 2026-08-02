@@ -16,7 +16,7 @@ A marca Tembo usa uma paleta azul-celeste/pastel e um símbolo de elefante. Toke
 A URL oficial configurada para web e API mobile é:
 
 ```text
-https://tembo.aracruz.org
+https://tembo.aracruz.eu
 ```
 
 O procedimento de publicação, variáveis obrigatórias, baseline de banco, permissões, filas e validação pós-deploy está em [`platform/docs/PRODUCTION_DEPLOYMENT.md`](platform/docs/PRODUCTION_DEPLOYMENT.md).
@@ -42,4 +42,3 @@ npm ci
 npx tsc --noEmit
 npx expo-doctor
 ```
-

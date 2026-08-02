@@ -51,8 +51,8 @@
       "expo-sqlite"
     ],
     "extra": {
-      "apiBaseUrl": "https://tembo.aracruz.org/api/v1",
-      "webBaseUrl": "https://tembo.aracruz.org",
+      "apiBaseUrl": "https://tembo.aracruz.eu/api/v1",
+      "webBaseUrl": "https://tembo.aracruz.eu",
       "router": {
         "origin": false
       },

@@ -11,7 +11,7 @@ Este documento descreve a implantação segura do Laravel no domínio de produç
 - O diretório web reservado para o Tembo existe e contém apenas a página padrão da hospedagem. Não há aplicação ou `.env` nele.
 - Não há worker de fila nem cron do Laravel em execução.
 - Não foi encontrada credencial MySQL reutilizável em arquivo de cliente, variável de processo ou `.env` já instalado. A senha do banco precisa ser obtida de forma segura no painel da hospedagem.
-- O domínio `tembo.aracruz.org` ainda retornava `NXDOMAIN`. Sem o registro DNS, não é possível emitir ou validar o certificado TLS.
+- O domínio canônico é `tembo.aracruz.eu`, com DNS e HTTPS ativos. O endereço alternativo `tembo.aracruz.org` permanecia em `NXDOMAIN` durante a implantação.
 
 ## Bloqueios antes da primeira publicação
 
