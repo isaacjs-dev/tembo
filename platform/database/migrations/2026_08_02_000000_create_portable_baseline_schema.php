@@ -28,8 +28,15 @@ return new class extends Migration
             }
 
             Schema::create($tableName, function (Blueprint $table) use ($tableName, $definition): void {
+                $foreignKeyColumns = array_values(array_unique(array_merge(
+                    ...array_map(
+                        static fn (array $foreign): array => $foreign['columns'],
+                        $definition['foreign']
+                    )
+                )));
+
                 foreach ($definition['columns'] as $column) {
-                    $this->addColumn($table, $tableName, $column);
+                    $this->addColumn($table, $tableName, $column, $foreignKeyColumns);
                 }
 
                 foreach ($definition['primary'] as $columns) {
@@ -88,9 +95,14 @@ return new class extends Migration
 
     /**
      * @param  array{name: string, type: string, remainder: string}  $definition
+     * @param  array<int, string>  $foreignKeyColumns
      */
-    private function addColumn(Blueprint $table, string $tableName, array $definition): void
-    {
+    private function addColumn(
+        Blueprint $table,
+        string $tableName,
+        array $definition,
+        array $foreignKeyColumns
+    ): void {
         $name = $definition['name'];
         $type = strtolower($definition['type']);
         $remainder = $definition['remainder'];
@@ -99,7 +111,11 @@ return new class extends Migration
 
         if ($type === 'integer' && $autoIncrement && $inlinePrimary) {
             $column = $table->id($name);
-        } elseif ($type === 'integer' && ($name === 'model_id' || str_ends_with($name, '_id'))) {
+        } elseif ($type === 'integer' && (
+            $name === 'model_id'
+            || str_ends_with($name, '_id')
+            || in_array($name, $foreignKeyColumns, true)
+        )) {
             $column = $table->unsignedBigInteger($name);
         } elseif ($type === 'integer') {
             $column = $table->integer($name);
