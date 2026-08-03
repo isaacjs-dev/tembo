@@ -21,6 +21,7 @@ use App\Http\Controllers\LearningMaterialController;
 use App\Http\Controllers\OmrController;
 use App\Http\Controllers\OmrTemplateController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PublicStorageController;
 use App\Http\Controllers\QuestionController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SchoolClassController;
@@ -32,6 +33,10 @@ use App\Http\Controllers\TaxonomyController;
 use App\Http\Controllers\TeacherController;
 use App\Models\Plan;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/storage/{path}', PublicStorageController::class)
+    ->where('path', '.*')
+    ->name('storage.public');
 
 Route::get('/', function () {
     if (auth()->check()) {
