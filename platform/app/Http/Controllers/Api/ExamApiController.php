@@ -11,11 +11,15 @@ class ExamApiController extends Controller
 {
     public function index(Request $request)
     {
-        $orgId = $request->user()->organization_id;
+        $user = $request->user();
+        $orgId = $user->organization_id;
+        $canReadInstitutionExams = in_array($user->type, ['admin', 'institution_admin', 'global_admin'], true);
 
         $exams = Exam::where('organization_id', $orgId)
-            ->where('author_id', $request->user()->id)
-            ->where('status', 'published')
+            // A printed card remains valid after the assessment is closed.
+            // Drafts are never exposed to the mobile scanner.
+            ->whereIn('status', ['published', 'closed'])
+            ->when(! $canReadInstitutionExams, fn ($query) => $query->where('author_id', $user->id))
             ->withCount(['questions', 'submissions'])
             ->with('schoolClasses:id,name')
             ->orderByDesc('updated_at')
@@ -38,12 +42,14 @@ class ExamApiController extends Controller
 
     public function download(Request $request, Exam $exam)
     {
-        $orgId = $request->user()->organization_id;
+        $user = $request->user();
+        $orgId = $user->organization_id;
+        $canReadInstitutionExams = in_array($user->type, ['admin', 'institution_admin', 'global_admin'], true);
 
         abort_unless(
             (int) $exam->organization_id === (int) $orgId
-            && (int) $exam->author_id === (int) $request->user()->id
-            && $exam->status === 'published',
+            && ($canReadInstitutionExams || (int) $exam->author_id === (int) $user->id)
+            && in_array($exam->status, ['published', 'closed'], true),
             404
         );
 

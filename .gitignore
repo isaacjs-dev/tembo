@@ -8,6 +8,13 @@
 # Dependencies and generated build state
 **/node_modules/
 **/vendor/
+# OpenCV is a browser runtime asset, not a Composer dependency. Keep the
+# pinned copy in source control so a release cannot publish the OMR worker
+# without the runtime it loads.
+!platform/public/vendor/
+!platform/public/vendor/opencv/
+!platform/public/vendor/opencv/opencv-4.8.0.js
+!platform/public/vendor/opencv/LICENSE
 **/.gradle/
 **/.expo/
 **/.kotlin/

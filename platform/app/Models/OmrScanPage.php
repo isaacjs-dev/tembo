@@ -19,6 +19,7 @@ class OmrScanPage extends Model
         'page_index',
         'total_pages',
         'image_path',
+        'qr_payload',
         'raw_answers',
         'raw_confidences',
         'overall_confidence',
@@ -27,6 +28,7 @@ class OmrScanPage extends Model
 
     protected $casts = [
         'raw_answers' => 'array',
+        'qr_payload' => 'array',
         'raw_confidences' => 'array',
         'overall_confidence' => 'float',
         'page_index' => 'integer',

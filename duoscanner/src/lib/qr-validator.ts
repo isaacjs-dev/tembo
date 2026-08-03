@@ -39,6 +39,15 @@ export function validateQRPayload(qr: QRPayloadV2): QRValidationResult {
     warnings.push('Versão de layout não especificada. Usando configuração padrão.');
   }
 
+  if (qr.v !== undefined && qr.v >= 4) {
+    if (!qr.g || qr.g.length !== 6 || qr.g.some((item) => !Number.isFinite(item))) {
+      errors.push('Geometria do cartão (g) ausente ou inválida. Gere o cartão novamente.');
+    }
+    if (!qr.oc || !/^[0-9]+$/.test(qr.oc)) {
+      errors.push('Contagem de alternativas (oc) ausente ou inválida. Gere o cartão novamente.');
+    }
+  }
+
   // Gabarito embedded data validation (for qr_embedded/hybrid modes)
   if (qr.gab) {
     if (!/^[0-4]+$/.test(qr.gab)) {

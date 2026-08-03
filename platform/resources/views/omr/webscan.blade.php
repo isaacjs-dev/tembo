@@ -429,10 +429,12 @@
                         }
 
                         this.processing = true;
+                        let engine = null;
                         try {
                             const imageData = await this.fileToImageData(this.capturedFile);
-                            const engine = new window.OmrBrowserEngine({
+                            engine = new window.OmrBrowserEngine({
                                 opencvUrl: @js(asset('vendor/opencv/opencv-4.8.0.js')),
+                                opencvFallbackUrls: [@js(url('vendor/opencv/opencv-4.8.0.js'))],
                                 debug: false
                             });
                             const result = await engine.processImage(imageData);
@@ -478,6 +480,10 @@
                                 this.$refs.payloadInput.value = '';
                                 e.target.submit();
                             }
+                        } finally {
+                            // OpenCV reserves a sizable worker heap. Each submission processes one
+                            // photo, so free it immediately to keep the scanner responsive.
+                            engine?.terminate();
                         }
                     },
 

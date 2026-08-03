@@ -140,25 +140,48 @@ export default function ResultScreen() {
     router.replace('/(tabs)');
   };
 
-  const buildFinalScan = () => ({
-    ...currentScan as any,
-    localId,
-    examId: Number(examId),
-    score: correctionResult?.score ?? 0,
-    totalPoints: correctionResult?.totalPoints ?? 0,
-    status: 'confirmed' as const,
-    createdAt: currentScan?.createdAt || new Date().toISOString(),
-    syncedAt: null,
-    serverScanId: null,
-    confirmedAnswers: currentScan?.confirmedAnswers || currentScan?.detectedAnswers || {},
-    imageUri: currentScan?.imageUri || '',
-    copyId: currentScan?.copyId || null,
-    validationHash: currentScan?.validationHash || '',
-    studentId: currentScan?.studentId || null,
-    studentName: currentScan?.studentName || null,
-    confidenceScore: currentScan?.confidenceScore || 0,
-    detectedAnswers: currentScan?.detectedAnswers || {},
-  });
+  const mapToPrintedPositions = <T extends number | null>(values: Record<string, T>) => {
+    // Cached scans use database question IDs; offline QR validation binds data
+    // to printed positions. Convert only when the cached copy is available.
+    const qrVersion = Number(currentScan?.qrPayload?.v ?? 0);
+    if (qrVersion < 4 || !copy?.questions_map?.length) return values;
+
+    const mapped: Record<string, T> = {};
+    for (const [questionId, value] of Object.entries(values)) {
+      const position = copy.questions_map.indexOf(Number(questionId));
+      mapped[String(position >= 0 ? position + 1 : questionId)] = value;
+    }
+    return mapped;
+  };
+
+  const buildFinalScan = () => {
+    // Manual review is authoritative. Keeping the reviewed values in both
+    // fields also makes a later offline upload deterministic.
+    const detectedAnswers = currentScan?.confirmedAnswers || currentScan?.detectedAnswers || {};
+    const questionConfidences = currentScan?.questionConfidences || {};
+
+    return {
+      ...currentScan as any,
+      localId,
+      examId: Number(examId),
+      score: correctionResult?.score ?? 0,
+      totalPoints: correctionResult?.totalPoints ?? 0,
+      status: 'confirmed' as const,
+      createdAt: currentScan?.createdAt || new Date().toISOString(),
+      syncedAt: null,
+      serverScanId: null,
+      confirmedAnswers: detectedAnswers,
+      imageUri: currentScan?.imageUri || '',
+      copyId: currentScan?.copyId || null,
+      validationHash: currentScan?.validationHash || '',
+      studentId: currentScan?.studentId || null,
+      studentName: currentScan?.studentName || null,
+      confidenceScore: currentScan?.confidenceScore || 0,
+      detectedAnswers,
+      printedAnswers: mapToPrintedPositions(detectedAnswers),
+      printedConfidences: mapToPrintedPositions(questionConfidences),
+    };
+  };
 
   const saveScanToDb = async (scan: any) => {
     const { saveScan: dbSaveScan } = await import('@/db/database');

@@ -30,6 +30,15 @@ export interface ScanResult {
   qStart?: number;
   qEnd?: number;
   sessionId?: string;
+  /** v4 QR geometry: [x0, y0, columnStep, rowStep, bubbleWidth, optionStep] × 10000. */
+  qrGeometry?: number[];
+  /** v4 QR option counts, one digit per printed question (0 means essay). */
+  qrOptionCounts?: string;
+  /** Signed QR metadata retained for deferred, server-side grading. */
+  qrPayload?: Record<string, unknown>;
+  /** Position-keyed values for a signed offline QR (never answer-key data). */
+  printedAnswers?: Record<string, number | null>;
+  printedConfidences?: Record<string, number>;
 }
 
 
@@ -61,6 +70,14 @@ export interface QRPayload {
   // v1+ embedded data fields (for qr_embedded and hybrid modes)
   gab?: string;  // compact answer key: each digit = correct option index (0-4)
   pts?: string;  // compact points: each char = weight (1-9)
+  /** v4 geometry, relative to the fiducial frame and scaled by 10000. */
+  g?: number[];
+  /** v4 number of options for each question on this page. */
+  oc?: string;
+  /** Encrypted answer key used only by the server. It is never decrypted on-device. */
+  gab_enc?: string;
+  /** Original signed JSON; used for deferred server verification only. */
+  signedPayload?: Record<string, unknown>;
   // Parsed metadata (set by parser, not from QR)
   legacyQr?: boolean;
 }

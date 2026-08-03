@@ -72,8 +72,10 @@ class OmrPrintPipelineTest extends TestCase
         )->all());
         $this->assertSame([false, false, true], collect($pages[0]['geometry']['cells'])->pluck('essay')->all());
         $this->assertSame('420', $pages[0]['qrPayload']['oc']);
+        $this->assertSame(5, $pages[0]['qrPayload']['v']);
         $this->assertArrayNotHasKey('gab', $pages[0]['qrPayload']);
         $this->assertArrayHasKey('gab_enc', $pages[0]['qrPayload']);
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{22}$/', $pages[0]['qrPayload']['chk']);
 
         $signer = app(QrCodeSigningService::class);
         $this->assertTrue($signer->verifyPayload($pages[0]['qrPayload'], $exam->organization_id));
@@ -149,6 +151,20 @@ class OmrPrintPipelineTest extends TestCase
         $legacy['chk'] = substr(hash_hmac('sha256', $legacyCanonical, $legacyKey), 0, 16);
 
         $this->assertTrue($signer->verifyPayload($legacy, $exam->organization_id));
+
+        // Cartões v4 já impressos continuam válidos: usavam HMAC em hexadecimal.
+        $v4 = $signer->buildPayload([
+            'e' => $exam->id,
+            'c' => 11,
+            'h' => 'existing-card',
+            'p' => 1,
+            'v' => 4,
+            'tpl_id' => 5,
+            'tpl_v' => 2,
+            'g' => [1, 2, 3, 4, 5, 6],
+        ], 'preloaded', $exam->organization_id);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $v4['chk']);
+        $this->assertTrue($signer->verifyPayload($v4, $exam->organization_id));
     }
 
     public function test_templates_support_twenty_fifty_and_custom_multi_page_limits(): void

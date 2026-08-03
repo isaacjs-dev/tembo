@@ -9,7 +9,8 @@ import { useScanStore } from '@/store/scan-store';
 import { useConfigStore } from '@/store/config-store';
 import { useSyncStore } from '@/store/sync-store';
 import { examService } from '@/services/exams';
-import { parseQRCode, validateQRAgainstExam, hasEmbeddedData } from '@/lib/qr-parser';
+import { explainExamDownloadError } from '@/services/exam-download-error';
+import { parseQRCode, validateQRAgainstExam, hasEmbeddedData, canCaptureOffline } from '@/lib/qr-parser';
 import { validateQRPayload, detectVersionConflict } from '@/lib/qr-validator';
 import { getResolvedConfig, getDataStrategy } from '@/lib/config-resolver';
 import { evaluatePreCapture, shouldAutoCapture, type PreCaptureValidation } from '@/lib/capture-engine';
@@ -117,6 +118,7 @@ export default function CameraScreen() {
   const loadExamData = async (qr: QRPayload) => {
     const eid = qr.e;
     setCameraState('loading_exam');
+    const strategy = getDataStrategy(config.scanMode, isExamCached(eid), isOnline);
 
     // Check version conflict
     const cachedVersion = await getExamVersion(eid);
@@ -128,7 +130,7 @@ export default function CameraScreen() {
     }
 
     // Strategy-based data acquisition
-    if (dataStrategy === 'use_cache' && isExamCached(eid)) {
+    if (strategy === 'use_cache' && isExamCached(eid)) {
       const cached = getCachedExam(eid);
       if (cached) {
         const copies = cached.data.copies.map((c) => ({
@@ -137,6 +139,23 @@ export default function CameraScreen() {
         }));
         const qrValidation = validateQRAgainstExam(qr, eid, copies);
         if (!qrValidation.valid) {
+          if (isOnline) {
+            try {
+              const refreshed = await examService.download(eid);
+              await cacheExam(eid, refreshed);
+              const refreshedCopies = refreshed.copies.map((c) => ({ id: c.id, validation_hash: c.validation_hash }));
+              if (validateQRAgainstExam(qr, eid, refreshedCopies).valid) {
+                setExamTitle(refreshed.exam.title);
+                setCameraState('ready_to_capture');
+                return;
+              }
+            } catch (error) {
+              const info = explainExamDownloadError(error);
+              Alert.alert(info.title, info.message);
+              setCameraState('qr_error');
+              return;
+            }
+          }
           Alert.alert('QR Inválido', qrValidation.error || 'Versão da prova não encontrada.');
           setCameraState('qr_error');
           return;
@@ -147,7 +166,7 @@ export default function CameraScreen() {
       }
     }
 
-    if (dataStrategy === 'download_on_demand') {
+    if (strategy === 'download_on_demand') {
       try {
         const data = await examService.download(eid);
         await cacheExam(eid, data);
@@ -167,22 +186,27 @@ export default function CameraScreen() {
         setCameraState('ready_to_capture');
         return;
       } catch (error: any) {
+        const info = explainExamDownloadError(error);
         const msg = error.response?.data?.error || 'Não foi possível carregar a prova.';
         // If hybrid mode, fallback to QR data
-        if (config.scanMode === 'hybrid' && hasEmbeddedData(qr as any)) {
-          setVersionWarning('Usando dados do QR Code (offline fallback).');
+        if (config.scanMode === 'hybrid' && (hasEmbeddedData(qr as any) || canCaptureOffline(qr as any))) {
+          setExamTitle(`Prova #${eid} (captura offline)`);
+          setVersionWarning('Cartão aceito offline. A correção será concluída ao sincronizar.');
           setCameraState('ready_to_capture');
           return;
         }
-        Alert.alert('Erro ao carregar prova', msg);
+        Alert.alert(info.title, info.message);
         setCameraState('qr_error');
         return;
       }
     }
 
-    if (dataStrategy === 'use_qr_fallback') {
-      if (hasEmbeddedData(qr as any)) {
+    if (strategy === 'use_qr_fallback') {
+      if (hasEmbeddedData(qr as any) || canCaptureOffline(qr as any)) {
         setExamTitle(`Prova #${eid} (via QR)`);
+        if (canCaptureOffline(qr as any) && !hasEmbeddedData(qr as any)) {
+          setVersionWarning('Cartão aceito offline. A correção será concluída ao sincronizar.');
+        }
         setCameraState('ready_to_capture');
         return;
       }
@@ -218,6 +242,8 @@ export default function CameraScreen() {
       pageTotal: parsed.pt ?? 1,
       qStart: parsed.qs ?? 1,
       qEnd: parsed.qe,
+      qrGeometry: parsed.g,
+      qrOptionCounts: parsed.oc,
     });
 
     loadExamData(parsed);

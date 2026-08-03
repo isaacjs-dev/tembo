@@ -104,7 +104,18 @@ class QrCodeSigningService
             return true;
         }
 
-        // Compatibilidade somente para QRs antigos. O emissor atual usa v4.
+        // QR v5 usa a mesma assinatura truncada de 128 bits do v4, codificada em
+        // base64url. Isso reduz 10 caracteres em relação ao hexadecimal e melhora
+        // materialmente a leitura em um QR impresso, sem reduzir a entropia. QRs v4
+        // continuam usando o formato hexadecimal acima.
+        if ((int) ($payload['v'] ?? 0) >= 5) {
+            $expected = $this->compactSignature($payload, $organizationId);
+            if (hash_equals($expected, $actual)) {
+                return true;
+            }
+        }
+
+        // Compatibilidade somente para QRs antigos. O emissor atual usa v5.
         return (int) ($payload['v'] ?? 0) <= 3
             && hash_equals($this->legacyPayloadSignature($payload, $organizationId), $actual);
     }
@@ -198,9 +209,26 @@ class QrCodeSigningService
             unset($payload['gab']);
         }
 
-        $payload['chk'] = $this->signPayload($payload, $organizationId);
+        $payload['chk'] = (int) ($payload['v'] ?? 0) >= 5
+            ? $this->compactSignature($payload, $organizationId)
+            : $this->signPayload($payload, $organizationId);
 
         return $payload;
+    }
+
+    /**
+     * HMAC de 128 bits (mesmo truncamento legado), com codificação URL-safe sem
+     * padding para caber melhor no QR. Não deve ser usado como segredo fora do QR.
+     */
+    private function compactSignature(array $payload, ?int $organizationId): string
+    {
+        $raw = substr(
+            hash_hmac('sha256', $this->canonical($payload), $this->rawKey($organizationId), true),
+            0,
+            16
+        );
+
+        return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
     }
 
     /** @deprecated Assinatura de identificação para QRs anteriores ao formato v3. */

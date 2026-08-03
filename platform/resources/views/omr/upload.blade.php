@@ -71,6 +71,7 @@
             if (!this.file) return;
 
             this.processing = true;
+            let engine = null;
 
             try {
                 // 1. Prepare image data
@@ -86,8 +87,9 @@
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
                 // 2. Start Engine
-                const engine = new window.OmrBrowserEngine({
+                engine = new window.OmrBrowserEngine({
                     opencvUrl: @js(asset('vendor/opencv/opencv-4.8.0.js')),
+                    opencvFallbackUrls: [@js(url('vendor/opencv/opencv-4.8.0.js'))],
                     debug: false
                 });
 
@@ -103,6 +105,8 @@
                 console.error('Erro no processamento OMR:', err);
                 alert('Erro ao processar imagem: ' + err.message + '\n\nTente tirar uma foto melhor com os 4 marcadores visíveis.');
                 this.processing = false;
+            } finally {
+                engine?.terminate();
             }
         }
     }">

@@ -141,8 +141,8 @@
                             <div class="omr-field"><strong>NOME:</strong> <span class="omr-dotted" style="width: 86mm;">&nbsp;</span> <strong style="margin-left:6px;">DATA:</strong> ____/____/______</div>
                             <div class="omr-field"><strong>MATRÍCULA / Nº:</strong> <span class="omr-dotted" style="width: 24mm;">&nbsp;</span> <strong style="margin-left:8px;">TURMA:</strong> <span class="omr-dotted" style="width: 18mm;">&nbsp;</span> <strong style="margin-left:8px;">VERSÃO:</strong> <span class="omr-badge">#{{ $copy->copy_number }}</span></div>
                         </td>
-                        <td class="omr-qr-cell" style="width: 22mm;">
-                            <img src="data:image/svg+xml;base64,{!! $cardPage['qrBase64'] !!}" alt="QR" style="width: 19mm; height: 19mm;">
+                        <td class="omr-qr-cell" style="width: 30mm;">
+                            <img src="data:image/svg+xml;base64,{!! $cardPage['qrBase64'] !!}" alt="QR" style="width: 24mm; height: 24mm;">
                         </td>
                     </tr>
                 </table>

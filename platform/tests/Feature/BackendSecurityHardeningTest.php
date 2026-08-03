@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\EventLog;
 use App\Models\Exam;
 use App\Models\ExamAnswer;
+use App\Models\ExamCopy;
 use App\Models\ExamSubmission;
 use App\Models\OmrScan;
 use App\Models\Organization;
@@ -16,6 +17,7 @@ use App\Models\Question;
 use App\Models\SchoolClass;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Services\QrCodeSigningService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -225,7 +227,7 @@ class BackendSecurityHardeningTest extends TestCase
         $this->getJson('/api/v1/exams')->assertForbidden();
     }
 
-    public function test_exam_scanner_api_only_lists_and_downloads_owned_published_exams(): void
+    public function test_exam_scanner_api_only_lists_and_downloads_owned_published_or_closed_exams(): void
     {
         $organization = $this->organization();
         $this->enableOmr($organization);
@@ -233,6 +235,8 @@ class BackendSecurityHardeningTest extends TestCase
         $otherTeacher = $this->user($organization, 'teacher');
         $ownedExam = $this->exam($organization, $teacher);
         $ownedExam->update(['status' => 'published']);
+        $closedExam = $this->exam($organization, $teacher);
+        $closedExam->update(['status' => 'closed']);
         $foreignExam = $this->exam($organization, $otherTeacher);
         $foreignExam->update(['status' => 'published']);
         $draftExam = $this->exam($organization, $teacher);
@@ -241,12 +245,16 @@ class BackendSecurityHardeningTest extends TestCase
 
         $this->getJson('/api/v1/exams')
             ->assertOk()
-            ->assertJsonCount(1, 'exams')
-            ->assertJsonPath('exams.0.id', $ownedExam->id);
+            ->assertJsonCount(2, 'exams')
+            ->assertJsonFragment(['id' => $ownedExam->id])
+            ->assertJsonFragment(['id' => $closedExam->id]);
 
         $this->getJson("/api/v1/exams/{$ownedExam->id}/download")
             ->assertOk()
             ->assertJsonPath('exam.id', $ownedExam->id);
+        $this->getJson("/api/v1/exams/{$closedExam->id}/download")
+            ->assertOk()
+            ->assertJsonPath('exam.id', $closedExam->id);
         $this->getJson("/api/v1/exams/{$foreignExam->id}/download")->assertNotFound();
         $this->getJson("/api/v1/exams/{$draftExam->id}/download")->assertNotFound();
     }
@@ -382,6 +390,131 @@ class BackendSecurityHardeningTest extends TestCase
             ->assertJsonPath('submission.score', '2.00');
 
         $this->assertNotNull($response->json('submission.id'));
+    }
+
+    public function test_offline_omr_qr_is_verified_then_mapped_and_corrected_on_server_sync(): void
+    {
+        Storage::fake('public');
+        $organization = $this->organization();
+        $teacher = $this->user($organization, 'teacher');
+        $exam = $this->exam($organization, $teacher);
+        $question = $this->question($organization, $teacher, 'private');
+        $exam->questions()->attach($question->id, ['points' => 2, 'order' => 1]);
+        $copy = ExamCopy::create([
+            'exam_id' => $exam->id,
+            'copy_number' => 1,
+            'questions_map' => [$question->id],
+            'options_map' => [$question->id => [0, 1]],
+            'validation_hash' => str_repeat('a', 40),
+        ]);
+        $payload = $this->offlineQrPayload($exam, $copy, $organization->id, [0]);
+        $sessionId = (string) Str::uuid();
+
+        Sanctum::actingAs($teacher);
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', [
+                'session_id' => $sessionId,
+                'exam_id' => $exam->id,
+                'copy_id' => $copy->id,
+                'page_index' => 1,
+                'total_pages' => 1,
+                'question_start' => 1,
+                'qr_payload' => json_encode($payload),
+                'image' => UploadedFile::fake()->image('offline-page.jpg'),
+                // Position 1 is intentionally not a database question id.
+                'detected_answers' => json_encode(['1' => 0]),
+                'confidences' => json_encode(['1' => 0.91]),
+            ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('progress.is_complete', true);
+
+        $scan = OmrScan::where('session_id', $sessionId)->firstOrFail();
+        $this->assertSame('processed', $scan->status);
+        $this->assertSame([$question->id => 0], $scan->raw_answers);
+        $this->assertSame('2.00', number_format((float) $scan->score, 2));
+        $this->assertTrue((bool) data_get($scan->quality_json, 'offline_qr'));
+        $this->assertDatabaseHas('omr_scan_pages', [
+            'session_id' => $sessionId,
+            'status' => 'consolidated',
+        ]);
+    }
+
+    public function test_offline_omr_rejects_tampered_qr_before_persisting_capture(): void
+    {
+        Storage::fake('public');
+        $organization = $this->organization();
+        $teacher = $this->user($organization, 'teacher');
+        $exam = $this->exam($organization, $teacher);
+        $question = $this->question($organization, $teacher, 'private');
+        $exam->questions()->attach($question->id, ['points' => 1, 'order' => 1]);
+        $copy = ExamCopy::create([
+            'exam_id' => $exam->id,
+            'copy_number' => 1,
+            'questions_map' => [$question->id],
+            'options_map' => [$question->id => [0, 1]],
+            'validation_hash' => str_repeat('b', 40),
+        ]);
+        $payload = $this->offlineQrPayload($exam, $copy, $organization->id, [0]);
+        $payload['qe'] = 2; // HMAC no longer matches.
+
+        Sanctum::actingAs($teacher);
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', [
+                'session_id' => (string) Str::uuid(),
+                'exam_id' => $exam->id,
+                'copy_id' => $copy->id,
+                'page_index' => 1,
+                'total_pages' => 1,
+                'question_start' => 1,
+                'qr_payload' => json_encode($payload),
+                'image' => UploadedFile::fake()->image('tampered.jpg'),
+                'detected_answers' => json_encode(['1' => 0]),
+            ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('qr_payload');
+
+        $this->assertDatabaseCount('omr_scan_pages', 0);
+    }
+
+    public function test_offline_omr_holds_card_for_review_when_decrypted_key_diverges(): void
+    {
+        Storage::fake('public');
+        $organization = $this->organization();
+        $teacher = $this->user($organization, 'teacher');
+        $exam = $this->exam($organization, $teacher);
+        $question = $this->question($organization, $teacher, 'private');
+        $exam->questions()->attach($question->id, ['points' => 1, 'order' => 1]);
+        $copy = ExamCopy::create([
+            'exam_id' => $exam->id,
+            'copy_number' => 1,
+            'questions_map' => [$question->id],
+            'options_map' => [$question->id => [0, 1]],
+            'validation_hash' => str_repeat('c', 40),
+        ]);
+        // QR is validly signed but carries a historical printed answer key B while
+        // the current database key is A. It must not be auto-corrected.
+        $payload = $this->offlineQrPayload($exam, $copy, $organization->id, [1]);
+        $sessionId = (string) Str::uuid();
+
+        Sanctum::actingAs($teacher);
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', [
+                'session_id' => $sessionId,
+                'exam_id' => $exam->id,
+                'copy_id' => $copy->id,
+                'page_index' => 1,
+                'total_pages' => 1,
+                'question_start' => 1,
+                'qr_payload' => json_encode($payload),
+                'image' => UploadedFile::fake()->image('review.jpg'),
+                'detected_answers' => json_encode(['1' => 1]),
+            ], ['Accept' => 'application/json'])
+            ->assertCreated();
+
+        $scan = OmrScan::where('session_id', $sessionId)->firstOrFail();
+        $this->assertSame('reviewing', $scan->status);
+        $this->assertNull($scan->score);
+        $this->assertSame([1, 0], array_values(data_get($scan->quality_json, 'embedded_key_mismatches.'.$question->id)));
     }
 
     public function test_omr_grading_creates_numbered_attempt_without_overwriting_finished_online_attempt(): void
@@ -531,5 +664,25 @@ class BackendSecurityHardeningTest extends TestCase
             'status' => 'active',
             'starts_at' => now(),
         ]);
+    }
+
+    private function offlineQrPayload(Exam $exam, ExamCopy $copy, int $organizationId, array $key): array
+    {
+        return app(QrCodeSigningService::class)->buildPayload([
+            'e' => $exam->id,
+            'c' => $copy->id,
+            'h' => $copy->validation_hash,
+            'p' => 1,
+            'pt' => 1,
+            'qs' => 1,
+            'qe' => 1,
+            'v' => 5,
+            'rpp' => 20,
+            'tpl_id' => 1,
+            'tpl_v' => 1,
+            'g' => [1000, 1000, 5000, 500, 200, 300],
+            'oc' => '2',
+            'gab' => $key,
+        ], 'hybrid', $organizationId);
     }
 }

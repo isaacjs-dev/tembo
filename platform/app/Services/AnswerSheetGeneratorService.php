@@ -180,10 +180,13 @@ class AnswerSheetGeneratorService
                 'pt' => $totalPages,
                 'qs' => $qStart,
                 'qe' => $qEnd,
-                'v' => 4, // v4 = payload integralmente assinado + gabarito cifrado
-                'cols' => $effectiveColumns,
+                // v5 mantém o contrato v4, mas codifica a assinatura em base64url. A
+                // economia no QR permite módulos maiores na impressão, muito mais
+                // confiáveis para leitura pela câmera do celular.
+                'v' => 5,
                 'rpp' => $rowsPerColumn,
-                'tpl' => $template->slug,
+                // A coluna é derivável de qe/qs/rpp e o slug é redundante com
+                // tpl_id. Omiti-los diminui a densidade do QR sem perder a geometria.
                 'tpl_id' => $template->id,
                 'tpl_v' => $tplVersion,
                 'g' => $geometry['g'],
@@ -230,7 +233,13 @@ class AnswerSheetGeneratorService
             // Cifra o gabarito (AES) + assina (HMAC) com a chave da organização.
             $qrPayload = $this->signer->buildPayload($qrPayload, $scanMode, $organizationId);
 
-            $qrSvg = QrCode::format('svg')->size(100)->margin(0)->generate(json_encode($qrPayload));
+            // Não use QR minúsculo nem margem zero: impressoras e câmeras perdem os
+            // módulos da borda. O SVG é escalado na blade para 26 mm e inclui quiet zone.
+            $qrSvg = QrCode::format('svg')
+                ->errorCorrection('M')
+                ->size(300)
+                ->margin(2)
+                ->generate(json_encode($qrPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
             $pagesData[] = [
                 'page' => $page,
@@ -361,6 +370,13 @@ class AnswerSheetGeneratorService
             );
         }
 
+        // Quatro fiduciais sólidos precisam ser grandes o bastante para a foto, mas
+        // sem invadir a grade. Este intervalo foi escolhido para A4 fotografado por
+        // celular (aprox. 35–110 px por marcador em capturas usuais).
+        if ((float) $frame['fid'] < 7.0 || (float) $frame['fid'] > 12.0) {
+            throw new \RuntimeException('Os marcadores do template OMR devem ter entre 7 e 12 mm para leitura confiável.');
+        }
+
         $bubbleDiameter = (float) $geometry['bubbleMm'];
         foreach ($geometry['cells'] as $cell) {
             foreach ($cell['bubbles'] as $bubble) {
@@ -371,6 +387,22 @@ class AnswerSheetGeneratorService
                     || (float) $bubble['y'] + $bubbleDiameter > (float) $frame['y'] + (float) $frame['h']
                 ) {
                     throw new \RuntimeException('A grade de bolhas ultrapassa o frame do template OMR.');
+                }
+            }
+        }
+
+        // Impede que uma bolha encoste no quadrado preto. Regiões pretas adjacentes
+        // fazem o detector enxergar um componente maior e invalidam a homografia.
+        // Os templates legados já posicionam a primeira linha a 2 mm da borda do
+        // marcador. Mantemos 1,5 mm como mínimo compatível, sem invalidar cartões
+        // históricos que continuam sendo lidos pelo mesmo motor.
+        $minimumClearance = 1.5;
+        foreach ($geometry['cells'] as $cell) {
+            foreach ($cell['bubbles'] as $bubble) {
+                $nearLeft = (float) $bubble['x'] - ((float) $frame['x'] + $halfFiducial);
+                $nearTop = (float) $bubble['y'] - ((float) $frame['y'] + $halfFiducial);
+                if ($nearLeft < $minimumClearance || $nearTop < $minimumClearance) {
+                    throw new \RuntimeException('A grade deve manter ao menos 3 mm livres ao redor dos marcadores OMR.');
                 }
             }
         }

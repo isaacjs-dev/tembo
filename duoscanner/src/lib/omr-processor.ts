@@ -66,6 +66,8 @@ export interface OMRProcessingOptions {
   questionIds: number[];
   optionCounts: Record<string, number>;   // questionId → number of options
   layoutVersion?: number;                 // from QR payload
+  /** Exact v4 layout encoded in the answer-sheet QR. */
+  qrGeometry?: number[];
   /** Pixel data of the image (RGBA). If undefined, will be extracted from uri. */
   pixelData?: { data: Uint8ClampedArray; width: number; height: number };
 }
@@ -82,7 +84,7 @@ export async function processOMR(
   imageUri: string,
   options: OMRProcessingOptions
 ): Promise<OMRProcessingResult> {
-  const { questionIds, optionCounts, layoutVersion = 0 } = options;
+  const { questionIds, optionCounts, layoutVersion = 0, qrGeometry } = options;
 
   if (!questionIds || questionIds.length === 0) {
     return createEmptyResult([], false);
@@ -207,10 +209,15 @@ export async function processOMR(
       const numOpts = optionCounts[String(qId)] ?? template.maxOptions;
 
       try {
-        const result = readQuestionFromPixels(
-          activePixels, activeW, activeH, template,
-          col, row, numOpts, usedHomography
-        );
+        const result = isValidQrGeometry(qrGeometry)
+          ? readQuestionFromQrGeometry(
+            activePixels, activeW, activeH, qrGeometry,
+            col, row, numOpts
+          )
+          : readQuestionFromPixels(
+            activePixels, activeW, activeH, template,
+            col, row, numOpts, usedHomography
+          );
 
         answers[String(qId)] = result.selectedOption;
         confidences[String(qId)] = result.confidence;
@@ -257,6 +264,57 @@ export async function processOMR(
     flaggedForReview,
     needsRescan: overallConfidence < CONFIDENCE_RESCAN_THRESHOLD,
     fiducialCorners: fiducialResult.corners,
+  };
+}
+
+function isValidQrGeometry(value: number[] | undefined): value is number[] {
+  return Array.isArray(value)
+    && value.length === 6
+    && value.every((item) => Number.isFinite(item) && item >= 0)
+    && value[2] > 0
+    && value[3] > 0
+    && value[4] > 0
+    && value[5] > 0;
+}
+
+/**
+ * Reads v4 answer sheets using the coordinates emitted with the QR.  The
+ * four fiducials have already rectified the image, so all values are fractions
+ * of that frame. This avoids guessing a legacy template for a current card.
+ */
+function readQuestionFromQrGeometry(
+  pixels: Uint8ClampedArray,
+  imgW: number,
+  imgH: number,
+  geometry: number[],
+  col: number,
+  row: number,
+  numOpts: number
+): QuestionOMRResult & { markType: BubbleMarkType; multipleOptions?: number[] } {
+  const [startX, startY, colStep, rowStep, bubbleWidth, optionStep] = geometry.map((item) => item / 10000);
+  const bubblePx = Math.max(8, Math.round(bubbleWidth * imgW));
+  const centerY = (startY + row * rowStep) * imgH + bubblePx / 2;
+  const classifications = [];
+
+  for (let opt = 0; opt < numOpts; opt++) {
+    const centerX = (startX + col * colStep + opt * optionStep) * imgW + bubblePx / 2;
+    // Read only the centre of the bubble: the printed ring and letter should
+    // not be mistaken for a filled response.
+    const roiSize = Math.max(6, Math.round(bubblePx * 0.58));
+    const x = Math.max(0, Math.min(imgW - roiSize, Math.round(centerX - roiSize / 2)));
+    const y = Math.max(0, Math.min(imgH - roiSize, Math.round(centerY - roiSize / 2)));
+    const roiData = extractROI(new Uint8Array(pixels.buffer), imgW, { x, y, w: roiSize, h: roiSize });
+    classifications.push(classifyBubble(roiData));
+  }
+
+  const result = selectAnswer(classifications);
+  return {
+    questionId: 0,
+    markType: result.type === 'answered' ? 'answered' : result.type === 'blank' ? 'blank' : result.type === 'multiple_marks' ? 'multiple_marks' : 'ambiguous',
+    selectedOption: result.type === 'answered' ? result.optionIndex : null,
+    multipleOptions: result.type === 'multiple_marks' ? result.optionIndices : undefined,
+    confidence: result.confidence,
+    fillRatios: result.fillRatios,
   };
 }
 

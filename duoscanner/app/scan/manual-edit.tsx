@@ -21,9 +21,19 @@ export default function ManualEditScreen() {
 
   const copy = cachedExam?.data.copies.find((c) => c.id === currentScan?.copyId);
   const questions = cachedExam?.data.questions || [];
+  const offlineQuestionIds = Array.from(
+    { length: Math.max(0, (currentScan?.qEnd ?? 0) - (currentScan?.qStart ?? 1) + 1) },
+    (_, index) => (currentScan?.qStart ?? 1) + index
+  );
   const orderedQuestionIds = (copy?.questions_map && copy.questions_map.length > 0)
     ? copy.questions_map
-    : questions.map((q) => q.id);
+    : questions.length > 0 ? questions.map((q) => q.id) : offlineQuestionIds;
+
+  const getOptionCount = (qId: number) => {
+    const encoded = currentScan?.qrOptionCounts?.[orderedQuestionIds.indexOf(qId)];
+    if (encoded !== undefined) return Number(encoded);
+    return questions.find((q) => q.id === qId)?.option_count || 5;
+  };
 
   const [answers, setAnswers] = useState<Record<string, number | null>>(
     currentScan?.detectedAnswers || {}
@@ -80,8 +90,8 @@ export default function ManualEditScreen() {
         </Text>
 
         {orderedQuestionIds.map((qId, index) => {
-          const q = questions.find((q) => q.id === qId);
-          if (!q || q.type === 'essay') return null;
+          const optionCount = getOptionCount(qId);
+          if (optionCount === 0) return null;
           const qIdStr = String(qId);
           const isChanged = changes.has(qIdStr);
           const detected = currentScan?.detectedAnswers?.[qIdStr];
@@ -112,7 +122,7 @@ export default function ManualEditScreen() {
               </View>
 
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                {Array.from({ length: q.option_count || 5 }, (_, i) => (
+                {Array.from({ length: optionCount }, (_, i) => (
                   <Pressable
                     key={i}
                     onPress={() => handleSelect(qIdStr, i)}

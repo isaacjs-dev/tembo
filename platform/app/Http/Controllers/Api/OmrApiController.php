@@ -8,6 +8,7 @@ use App\Models\Exam;
 use App\Models\ExamCopy;
 use App\Models\OmrScan;
 use App\Models\OmrScanPage;
+use App\Services\OfflineOmrQrService;
 use App\Services\OmrGradingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +19,8 @@ use Illuminate\Validation\ValidationException;
 class OmrApiController extends Controller
 {
     public function __construct(
-        private OmrGradingService $gradingService
+        private OmrGradingService $gradingService,
+        private OfflineOmrQrService $offlineQrService,
     ) {}
 
     public function index(Request $request)
@@ -84,6 +86,10 @@ class OmrApiController extends Controller
             'detected_answers' => 'required|json|max:100000',
             'confidences' => 'nullable|json|max:100000',
             'overall_confidence' => 'nullable|numeric|min:0|max:1',
+            // Contingência offline: QR assinado, sem gabarito aberto. As chaves de
+            // detected_answers são os números impressos (qs..qe), não IDs internos.
+            'qr_payload' => 'nullable|json|max:100000',
+            'question_start' => 'nullable|integer|min:1|max:1000',
         ]);
 
         $detectedAnswers = json_decode($validated['detected_answers'], true);
@@ -95,6 +101,55 @@ class OmrApiController extends Controller
             throw ValidationException::withMessages([
                 'detected_answers' => 'As respostas e confianças devem ser objetos JSON.',
             ]);
+        }
+
+        $qrPayload = isset($validated['qr_payload'])
+            ? json_decode($validated['qr_payload'], true)
+            : null;
+        $offlineMetadata = null;
+        if ($qrPayload !== null) {
+            if (! is_array($qrPayload) || empty($validated['copy_id']) || empty($validated['question_start'])) {
+                throw ValidationException::withMessages([
+                    'qr_payload' => 'A captura offline exige qr_payload, copy_id e question_start.',
+                ]);
+            }
+
+            $exam = Exam::withoutGlobalScopes()
+                ->whereKey($validated['exam_id'])
+                ->where('organization_id', $orgId)
+                ->with('questions')
+                ->firstOrFail();
+            $copy = ExamCopy::query()
+                ->whereKey($validated['copy_id'])
+                ->where('exam_id', $exam->id)
+                ->firstOrFail();
+
+            $offlineMetadata = $this->offlineQrService->validatePage(
+                $qrPayload,
+                $orgId,
+                $exam,
+                $copy,
+                (int) $validated['page_index'],
+                (int) $validated['total_pages'],
+                (int) $validated['question_start'],
+            );
+
+            // Validar os limites agora, antes de aceitar imagem/arquivo da fila. O
+            // mapeamento definitivo ocorre no job de sincronização, sob transação.
+            $this->offlineQrService->mapPrintedAnswers(
+                $copy,
+                $detectedAnswers,
+                $offlineMetadata['question_start'],
+                $offlineMetadata['question_end'],
+            );
+            if ($confidences !== null) {
+                $this->offlineQrService->mapPrintedConfidences(
+                    $copy,
+                    $confidences,
+                    $offlineMetadata['question_start'],
+                    $offlineMetadata['question_end'],
+                );
+            }
         }
 
         // A session is owned by one institution, uploader and exam context.
@@ -143,6 +198,7 @@ class OmrApiController extends Controller
             'page_index' => $validated['page_index'],
             'total_pages' => $validated['total_pages'],
             'image_path' => $path,
+            'qr_payload' => $qrPayload,
             'raw_answers' => $detectedAnswers,
             'raw_confidences' => $confidences,
             'overall_confidence' => $validated['overall_confidence'] ?? 0,

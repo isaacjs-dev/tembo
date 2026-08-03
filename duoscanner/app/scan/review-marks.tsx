@@ -40,10 +40,20 @@ export default function ReviewMarksScreen() {
     (c) => c.id === currentScan?.copyId
   );
   const questions = cachedExam?.data.questions || [];
+  const offlineQuestionIds = Array.from(
+    { length: Math.max(0, (currentScan?.qEnd ?? 0) - (currentScan?.qStart ?? 1) + 1) },
+    (_, index) => (currentScan?.qStart ?? 1) + index
+  );
   // Use questions_map from copy if available, otherwise use question IDs in order
   const orderedQuestionIds = (copy?.questions_map && copy.questions_map.length > 0)
     ? copy.questions_map
-    : questions.map((q) => q.id);
+    : questions.length > 0 ? questions.map((q) => q.id) : offlineQuestionIds;
+
+  const getOptionCount = (qId: number) => {
+    const encoded = currentScan?.qrOptionCounts?.[orderedQuestionIds.indexOf(qId)];
+    if (encoded !== undefined) return Number(encoded);
+    return questions.find((q) => q.id === qId)?.option_count || 5;
+  };
 
   useEffect(() => {
     runOMR();
@@ -58,8 +68,7 @@ export default function ReviewMarksScreen() {
     try {
       const optionCounts: Record<string, number> = {};
       orderedQuestionIds.forEach((qId) => {
-        const q = questions.find((q) => q.id === qId);
-        optionCounts[String(qId)] = q?.option_count || 5;
+        optionCounts[String(qId)] = getOptionCount(qId);
       });
 
       setProcessingStep('Corrigindo perspectiva...');
@@ -67,6 +76,7 @@ export default function ReviewMarksScreen() {
         questionIds: orderedQuestionIds,
         optionCounts,
         layoutVersion: currentScan?.layoutVersion ?? 0,
+        qrGeometry: currentScan?.qrGeometry,
       });
 
       setDetectedAnswers(result.answers);
@@ -249,14 +259,14 @@ export default function ReviewMarksScreen() {
         {/* Answer Grid */}
         <View style={{ gap: 8 }}>
           {orderedQuestionIds.slice(0, 9).map((qId, index) => {
-            const q = questions.find((q) => q.id === qId);
-            if (!q || q.type === 'essay') return null;
+            const optionCount = getOptionCount(qId);
+            if (optionCount === 0) return null;
 
             return (
               <BubbleGrid
                 key={qId}
                 questionNumber={index + 1}
-                optionCount={q.option_count || 5}
+                optionCount={optionCount}
                 selectedOption={detectedAnswers[String(qId)] ?? null}
                 confidence={confidences[String(qId)] || 0}
               />

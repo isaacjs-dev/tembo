@@ -7,6 +7,7 @@ export * from './engine';
 
 export interface ProcessOptions {
     opencvUrl?: string; // e.g. "/vendor/opencv/opencv-4.8.0.js"
+    opencvFallbackUrls?: string[];
     debug?: boolean;
     templateData?: OmrTemplate;
 }
@@ -37,6 +38,7 @@ export class OmrBrowserEngine {
                 id,
                 payload: {
                     opencvUrl: options.opencvUrl || '/vendor/opencv/opencv-4.8.0.js',
+                    opencvFallbackUrls: options.opencvFallbackUrls || [],
                     debug: options.debug || false
                 }
             });

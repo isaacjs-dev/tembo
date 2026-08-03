@@ -107,8 +107,8 @@
                             <strong style="margin-left:8px;">VERSÃO:</strong> <span class="version-badge">#{{ $copy->copy_number }}</span>
                         </div>
                     </td>
-                    <td class="qr-cell" style="width: 24mm;">
-                        <img src="data:image/svg+xml;base64,{!! $pageData['qrBase64'] !!}" alt="QR" style="width: 20mm; height: 20mm;">
+                    <td class="qr-cell" style="width: 32mm;">
+                        <img src="data:image/svg+xml;base64,{!! $pageData['qrBase64'] !!}" alt="QR" style="width: 26mm; height: 26mm;">
                     </td>
                 </tr>
             </table>

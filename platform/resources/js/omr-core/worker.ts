@@ -1,4 +1,5 @@
 import { OmrEngine } from './engine';
+import { openCvUnavailableMessage, resolveOpenCvUrls } from './opencv-loader';
 import { QrReader } from './qr_reader';
 import type { OmrTemplate } from './types';
 
@@ -11,35 +12,76 @@ let cvInitialized = false;
 // We use a Promise to wait for OpenCV to be ready
 let cvReadyPromise: Promise<void> | null = null;
 
+const workerScope = self as any;
+
+function isOpenCvReady(candidate: any): boolean {
+    return Boolean(candidate && typeof candidate.Mat === 'function' && typeof candidate.matFromImageData === 'function');
+}
+
+async function waitForOpenCvRuntime(candidate: any): Promise<void> {
+    if (isOpenCvReady(candidate)) return;
+
+    await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('OpenCV runtime initialization timed out')), 20_000);
+        const previousCallback = candidate?.onRuntimeInitialized;
+
+        candidate.onRuntimeInitialized = () => {
+            try {
+                if (typeof previousCallback === 'function') previousCallback();
+                if (!isOpenCvReady(candidate)) {
+                    throw new Error('OpenCV runtime initialized without the required APIs');
+                }
+                clearTimeout(timeout);
+                resolve();
+            } catch (error) {
+                clearTimeout(timeout);
+                reject(error);
+            }
+        };
+    });
+}
+
+async function loadOpenCv(opencvUrl?: string, fallbackUrls: string[] = []): Promise<void> {
+    if (isOpenCvReady(workerScope.cv)) return;
+
+    const urls = resolveOpenCvUrls(opencvUrl, fallbackUrls, workerScope.location.href);
+    const failures: string[] = [];
+
+    for (const url of urls) {
+        try {
+            importScripts(url);
+            await waitForOpenCvRuntime(workerScope.cv);
+            return;
+        } catch (error) {
+            failures.push(`${url}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    console.error('[OMR] OpenCV runtime could not be loaded', failures);
+    throw new Error(openCvUnavailableMessage());
+}
+
 // Initialize the worker
 self.onmessage = async (e: MessageEvent) => {
     const { type, payload, id } = e.data;
 
     try {
         if (type === 'INIT') {
-            const { opencvUrl, debug } = payload;
+            const { opencvUrl, opencvFallbackUrls, debug } = payload;
             
-            if (!cvInitialized) {
+            if (!cvReadyPromise) {
                 cvReadyPromise = new Promise((resolve, reject) => {
-                    // Define Module before loading opencv.js
-                    (self as any).Module = {
-                        onRuntimeInitialized: () => {
+                    loadOpenCv(opencvUrl, opencvFallbackUrls || [])
+                        .then(() => {
                             cvInitialized = true;
                             engine = new OmrEngine(debug || false);
                             resolve();
-                        }
-                    };
-                    
-                    try {
-                        // Load OpenCV from the provided URL (e.g., CDN or local public path)
-                        importScripts(opencvUrl || '/vendor/opencv/opencv-4.8.0.js');
-                    } catch (err) {
-                        reject(err);
-                    }
+                        })
+                        .catch(reject);
                 });
-                
-                await cvReadyPromise;
             }
+
+            await cvReadyPromise;
             
             self.postMessage({ type: 'INIT_DONE', id });
             return;

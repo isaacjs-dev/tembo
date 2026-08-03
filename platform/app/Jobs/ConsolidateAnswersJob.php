@@ -3,9 +3,11 @@
 namespace App\Jobs;
 
 use App\Models\Exam;
+use App\Models\ExamCopy;
 use App\Models\OmrAuditLog;
 use App\Models\OmrScan;
 use App\Models\OmrScanPage;
+use App\Services\OfflineOmrQrService;
 use App\Services\OmrGradingService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -35,7 +37,7 @@ class ConsolidateAnswersJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(OmrGradingService $gradingService): void
+    public function handle(OmrGradingService $gradingService, OfflineOmrQrService $offlineQrService): void
     {
         Log::info("Starting consolidation for session: {$this->sessionId}");
 
@@ -78,16 +80,73 @@ class ConsolidateAnswersJob implements ShouldQueue
                 return;
             }
 
+            $exam = Exam::withoutGlobalScopes()
+                ->whereKey($firstPage->exam_id)
+                ->where('organization_id', $this->organizationId)
+                ->with('questions')
+                ->firstOrFail();
+            $copy = $firstPage->copy_id
+                ? ExamCopy::query()->whereKey($firstPage->copy_id)->where('exam_id', $exam->id)->firstOrFail()
+                : null;
+            $offlineCapture = $firstPage->qr_payload !== null;
+            if ($offlineCapture && ! $copy) {
+                throw new \RuntimeException('Offline OMR session has no valid exam copy.');
+            }
+
+            if ($pages->contains(fn (OmrScanPage $page): bool => ($page->qr_payload !== null) !== $offlineCapture)) {
+                throw new \RuntimeException('OMR session mixes online and offline QR page contracts.');
+            }
+
             // At this point we have all pages. Let's merge answers and confidences.
             $mergedAnswers = [];
             $mergedConfidences = [];
             $totalConfidenceSum = 0;
             $totalQuestionsProcessed = 0;
+            $embeddedKeyMismatches = [];
+            $layoutMetadata = null;
 
             foreach ($pages as $page) {
                 /** @var OmrScanPage $page */
                 $rawA = $page->raw_answers ?? [];
                 $rawC = $page->raw_confidences ?? [];
+
+                if ($offlineCapture) {
+                    /** @var array<string, mixed> $payload */
+                    $payload = $page->qr_payload ?? [];
+                    $metadata = $offlineQrService->validatePage(
+                        $payload,
+                        $this->organizationId,
+                        $exam,
+                        $copy,
+                        (int) $page->page_index,
+                        (int) $page->total_pages,
+                        (int) ($payload['qs'] ?? 0),
+                    );
+                    $rawA = $offlineQrService->mapPrintedAnswers(
+                        $copy,
+                        $rawA,
+                        $metadata['question_start'],
+                        $metadata['question_end'],
+                    );
+                    $rawC = $offlineQrService->mapPrintedConfidences(
+                        $copy,
+                        $rawC,
+                        $metadata['question_start'],
+                        $metadata['question_end'],
+                    );
+                    $embeddedKeyMismatches += $offlineQrService->embeddedKeyMismatches(
+                        $payload,
+                        $this->organizationId,
+                        $exam,
+                        $copy,
+                    );
+                    $layoutMetadata ??= [
+                        'qr_schema' => (int) $payload['v'],
+                        'template_id' => $metadata['template_id'],
+                        'template_version' => $metadata['template_version'],
+                        'offline_capture' => true,
+                    ];
+                }
 
                 foreach ($rawA as $qId => $opt) {
                     $mergedAnswers[$qId] = $opt;
@@ -107,17 +166,17 @@ class ConsolidateAnswersJob implements ShouldQueue
                 ? ($totalConfidenceSum / $totalQuestionsProcessed)
                 : 1.0;
 
-            // Grade the consolidated answers
-            $scoreResult = $gradingService->gradeAnswers(
-                $firstPage->exam_id,
-                $firstPage->copy_id,
-                $mergedAnswers
-            );
-
-            $exam = Exam::withoutGlobalScopes()
-                ->whereKey($firstPage->exam_id)
-                ->where('organization_id', $this->organizationId)
-                ->firstOrFail();
+            // The encrypted answer key is only decrypted and compared here. A card
+            // whose printed key diverges from the official copy is held for review,
+            // never silently auto-corrected.
+            $requiresReview = $embeddedKeyMismatches !== [];
+            $scoreResult = $requiresReview
+                ? [
+                    'score' => null,
+                    'total_points' => $exam->questions->sum(fn ($question) => $question->pivot->points ?? 1),
+                    'details' => ['offline_qr_key_mismatch' => $embeddedKeyMismatches],
+                ]
+                : $gradingService->gradeAnswers($exam->id, $copy?->id, $mergedAnswers);
 
             // Create the final OmrScan record
             $scan = OmrScan::create([
@@ -137,7 +196,13 @@ class ConsolidateAnswersJob implements ShouldQueue
                 'score' => $scoreResult['score'],
                 'total_points' => $scoreResult['total_points'],
                 'grading_details' => $scoreResult['details'],
-                'status' => 'processed',
+                'quality_json' => [
+                    'offline_qr' => $offlineCapture,
+                    'embedded_key_mismatches' => $embeddedKeyMismatches,
+                    'requires_review' => $requiresReview,
+                ],
+                'layout_meta' => $layoutMetadata,
+                'status' => $requiresReview ? 'reviewing' : 'processed',
                 'source' => 'mobile',
             ]);
 

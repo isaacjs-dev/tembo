@@ -29,6 +29,13 @@ const MAX_RETRIES = 10;
 const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 300_000; // 5 minutes
 
+interface DeferredOfflinePayload {
+  qrPayload?: unknown;
+  qStart?: number;
+  printedAnswers?: Record<string, number | null>;
+  printedConfidences?: Record<string, number>;
+}
+
 /**
  * Calculates the next retry delay with exponential backoff and jitter.
  */
@@ -57,6 +64,26 @@ async function buildFormData(scan: LocalScanRow): Promise<FormData> {
   formData.append('answer_sheet_type', scan.answer_sheet_type);
   formData.append('scan_mode', scan.scan_mode);
 
+  // A v4 QR carries signed identity/layout, not a plaintext answer key. Keep
+  // it with deferred uploads so the server can validate the printed copy and
+  // map offline answer positions to its authoritative question IDs.
+  let offlinePayload: DeferredOfflinePayload | null = null;
+
+  if (scan.payload_json) {
+    try {
+      offlinePayload = JSON.parse(scan.payload_json) as DeferredOfflinePayload;
+      const qrVersion = Number((offlinePayload?.qrPayload as { v?: unknown } | undefined)?.v ?? 0);
+      if (qrVersion >= 4 && offlinePayload?.qrPayload) {
+        formData.append('qr_payload', JSON.stringify(offlinePayload.qrPayload));
+        if (offlinePayload.qStart) formData.append('question_start', String(offlinePayload.qStart));
+      } else {
+        offlinePayload = null;
+      }
+    } catch {
+      // Old local scans remain uploadable through the legacy contract.
+    }
+  }
+
   // Image file
   formData.append('image', {
     uri: scan.image_uri,
@@ -65,8 +92,15 @@ async function buildFormData(scan: LocalScanRow): Promise<FormData> {
   } as any);
 
   // Answers
-  if (scan.detected_answers) {
+  if (offlinePayload?.qrPayload && offlinePayload.printedAnswers) {
+    // Signed offline cards are graded by their printed positions. Internal
+    // question IDs are deliberately never trusted by that server contract.
+    formData.append('detected_answers', JSON.stringify(offlinePayload.printedAnswers));
+  } else if (scan.detected_answers) {
     formData.append('detected_answers', scan.detected_answers);
+  }
+  if (offlinePayload?.qrPayload && offlinePayload.printedConfidences) {
+    formData.append('confidences', JSON.stringify(offlinePayload.printedConfidences));
   }
   if (scan.confirmed_answers) {
     formData.append('confirmed_answers', scan.confirmed_answers);

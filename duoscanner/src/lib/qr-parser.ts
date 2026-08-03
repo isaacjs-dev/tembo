@@ -12,6 +12,14 @@ export interface QRPayloadV2 extends QRPayload {
   pts?: string;    // compact points: each char = weight (1-9)
 }
 
+function parseGeometry(value: unknown): number[] | undefined {
+  if (!Array.isArray(value) || value.length !== 6) return undefined;
+  if (!value.every((item) => typeof item === 'number' && Number.isFinite(item) && item >= 0)) {
+    return undefined;
+  }
+  return value.map((item) => Math.round(item));
+}
+
 /**
  * Parses a QR Code data string into a structured payload.
  * Supports both v0 (legacy) and v1+ (modern) schemas.
@@ -19,6 +27,10 @@ export interface QRPayloadV2 extends QRPayload {
 export function parseQRCode(data: string): QRPayloadV2 | null {
   try {
     const parsed = JSON.parse(data);
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
 
     // Validate required fields (present in ALL modes)
     if (
@@ -46,6 +58,14 @@ export function parseQRCode(data: string): QRPayloadV2 | null {
       // v1+ embedded data fields
       gab: typeof parsed.gab === 'string' ? parsed.gab : undefined,
       pts: typeof parsed.pts === 'string' ? parsed.pts : undefined,
+      // v4 fields. Geometry is public layout data; the encrypted answer key is
+      // intentionally opaque to the device and can only be graded by the API.
+      g: parseGeometry(parsed.g),
+      oc: typeof parsed.oc === 'string' && /^[0-9]+$/.test(parsed.oc) ? parsed.oc : undefined,
+      gab_enc: typeof parsed.gab_enc === 'string' ? parsed.gab_enc : undefined,
+      // Do not rebuild this object before sync: v4 HMAC covers every field,
+      // including template identifiers that the scanner does not otherwise use.
+      signedPayload: parsed as Record<string, unknown>,
       // Computed metadata
       legacyQr: parsed.v === undefined || parsed.v === 0,
     };
@@ -127,4 +147,17 @@ export function extractPointsFromQR(qr: QRPayloadV2): Record<number, number> | n
  */
 export function hasEmbeddedData(qr: QRPayloadV2): boolean {
   return !!qr.gab && qr.gab.length > 0;
+}
+
+/**
+ * v4 cards have no plaintext answer key. Their signed geometry is enough to
+ * capture answers offline; final grading remains exclusively on the server.
+ */
+export function canCaptureOffline(qr: QRPayloadV2): boolean {
+  const count = (qr.qe ?? 0) - (qr.qs ?? 1) + 1;
+  return !!qr.g
+    && qr.g.length === 6
+    && !!qr.oc
+    && count > 0
+    && qr.oc.length === count;
 }
