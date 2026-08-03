@@ -15,15 +15,16 @@ usado somente para dados e operações pendentes de sincronização.
 
 ## APK de homologação
 
-- Arquivo local: `artifacts/tembo-scanner-1.0.0-preview-a016761c.apk`
-- SHA-256: `3FB61140ABAB83DEAE758EC6103BC3D6BC43A6D361C2186A6042DCCD3F6B1868`
-- Tamanho: `102460247` bytes
-- EAS build: `a016761c-c79c-4da7-8109-43f7d8d82324`
-- Página: <https://expo.dev/accounts/isaacjs-st/projects/tembo-scanner/builds/a016761c-c79c-4da7-8109-43f7d8d82324>
+- Arquivo local: `artifacts/tembo-scanner-1.0.0-aracruz-eu-signed-ae1aadb1.apk`
+- SHA-256: `DACE1A4D440B66AC47640BA03EB3037BF914342584AB22F7C4CEA0506D9B2F93`
+- Tamanho: `102460275` bytes
+- EAS build: `ae1aadb1-86fa-4b67-871e-38bada01eec4`
+- Página: <https://expo.dev/accounts/isaacjs-st/projects/tembo-scanner/builds/ae1aadb1-86fa-4b67-871e-38bada01eec4>
 
-O perfil `preview` gera um APK instalável para homologação e utiliza assinatura
-Android de desenvolvimento. Uma publicação em loja deve usar o perfil
-`production`, uma chave de produção protegida e o formato AAB.
+O perfil `preview` gera um APK instalável para homologação e usa a credencial
+Android gerenciada pelo EAS. A continuidade dessa keystore deve ser preservada
+nas próximas atualizações. Uma publicação em loja deve usar o perfil
+`production` e o formato AAB.
 
 ## Validações executadas
 
@@ -31,12 +32,15 @@ Android de desenvolvimento. Uma publicação em loja deve usar o perfil
 - `npx expo-doctor`: 18/18 verificações aprovadas.
 - Bundle Metro de release: aprovado (1458 módulos e 56 assets).
 - TypeScript do núcleo OMR: aprovado separadamente.
-- Assinatura APK v2: aprovada pelo `apksigner`.
+- Assinatura APK v2: aprovada pelo `apksigner` com uma credencial EAS, chave RSA
+  de 2048 bits e certificado SHA-256
+  `A6411DDFA7AEBDB7E1049B269D780CA08FCD34E6D296945AFA66DD5DAE7A1257`.
 - Manifesto APK: nome, pacote, versão e SDKs conferidos pelo `aapt2`.
-- Bundle APK: URL da API de produção confirmada; nenhum endpoint local de API.
+- Bundle APK: `https://tembo.aracruz.eu/api/v1` confirmada; o domínio anterior
+  `tembo.aracruz.org`, endpoints locais e HTTP claro não estão presentes.
 - Permissões: câmera, internet, rede, vibração e biometria do armazenamento
   seguro; áudio e armazenamento externo estão bloqueados na configuração.
-- `allowBackup=false` confirmado no manifesto final.
+- `allowBackup=false` e `usesCleartextTraffic=false` confirmados no manifesto final.
 
 ## Validações dependentes do ambiente
 

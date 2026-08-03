@@ -33,7 +33,7 @@ $HOME/apps/tembo/
     ├── .env
     └── storage/
 
-$HOME/domains/aracruz.org/public_html/tembo -> $HOME/apps/tembo/current/public
+$HOME/domains/aracruz.eu/public_html/tembo -> $HOME/apps/tembo/current/public
 ```
 
 O link deve ser criado pelo shell (`ln -s`), pois a função PHP `symlink` está desabilitada na hospedagem. Nunca publique a raiz do Laravel, `.env`, `storage` ou `vendor` diretamente dentro do document root.
