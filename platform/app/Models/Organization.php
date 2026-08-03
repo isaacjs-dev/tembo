@@ -88,7 +88,10 @@ class Organization extends Model
 
     public function subscription()
     {
-        return $this->hasOne(Subscription::class)->where('status', 'active')->latestOfMany();
+        return $this->hasOne(Subscription::class)->ofMany(
+            ['id' => 'max'],
+            fn ($query) => $query->where('status', 'active')
+        );
     }
 
     /* ── Feature & Limit Checks (legado — mantidos para retrocompatibilidade) ── */

@@ -138,6 +138,26 @@ class BillingAndAccessTest extends TestCase
         $this->assertNotNull($sub->expires_at);
     }
 
+    #[Test]
+    public function current_subscription_uses_the_latest_active_record_not_a_newer_canceled_one(): void
+    {
+        $org = $this->createOrg();
+        $activeSubscription = $org->subscriptions()->where('status', 'active')->firstOrFail();
+
+        Subscription::create([
+            'organization_id' => $org->id,
+            'plan_id' => $activeSubscription->plan_id,
+            'status' => 'canceled',
+            'starts_at' => now()->subYear(),
+            'expires_at' => now()->subDay(),
+        ]);
+
+        $currentSubscription = $org->fresh()->subscription;
+
+        $this->assertNotNull($currentSubscription);
+        $this->assertSame($activeSubscription->id, $currentSubscription->id);
+    }
+
     // ─── Trash Access Middleware Tests ───
 
     #[Test]
