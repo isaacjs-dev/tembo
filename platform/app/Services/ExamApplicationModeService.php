@@ -29,6 +29,11 @@ class ExamApplicationModeService
         return array_key_exists($mode, self::MODES) ? $mode : 'hybrid';
     }
 
+    public function label(Exam $exam): string
+    {
+        return self::MODES[$this->mode($exam)];
+    }
+
     /** @return array{digital:bool,print:bool,omr:bool,offline:bool} */
     public function capabilities(Exam $exam): array
     {

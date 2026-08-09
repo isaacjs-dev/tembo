@@ -92,6 +92,25 @@ test('aluno acessa revisão interativa e vê gamificação privada', async ({ pa
     expect(errors).toEqual([]);
 });
 
+test('aluno acompanha avaliação e resultado sem overflow', async ({ page }) => {
+    const errors = await login(page, 'student@email.com');
+    await expect(page.getByRole('heading', { name: 'Portal do Aluno' })).toBeVisible();
+
+    const assessment = page.locator('article').filter({ hasText: /Diagnóstico de Matemática/ });
+    await expect(assessment).toBeVisible();
+    await expect(assessment.getByText('Professor', { exact: true })).toBeVisible();
+    await expect(assessment.getByText('Instituição', { exact: true })).toBeVisible();
+    await expect(assessment.getByText('Disciplina', { exact: true })).toBeVisible();
+    await expect(assessment.getByText('Tentativas utilizadas', { exact: true })).toBeVisible();
+    await expectResponsive(page);
+
+    await assessment.getByRole('link', { name: 'Ver resultados' }).click();
+    await expect(page.getByRole('heading', { name: 'Resumo da avaliação' })).toBeVisible();
+    await expect(page.getByText('Tentativa corrigida')).toBeVisible();
+    await expectResponsive(page);
+    expect(errors).toEqual([]);
+});
+
 test('superadministrador acessa consumo e cortesias sem dados de outro painel', async ({ page }) => {
     const errors = await login(page, 'admin@admin.com');
     await page.goto('/admin/usage');

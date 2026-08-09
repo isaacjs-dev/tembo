@@ -38,6 +38,36 @@
     </x-slot>
 
     <div class="max-w-4xl mx-auto space-y-8 mb-24">
+        <section class="rounded-2xl border-2 border-duo-border bg-white p-5 shadow-sm md:p-6"
+            aria-labelledby="result-context-title">
+            <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <h2 id="result-context-title" class="text-xl font-extrabold text-gray-900">Resumo da avaliação</h2>
+                <span class="self-start rounded-full bg-green-100 px-3 py-1.5 text-sm font-extrabold text-green-900">
+                    Tentativa corrigida
+                </span>
+            </div>
+            <dl class="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                @foreach([
+                    ['Professor', $exam->author?->name ?: 'Não informado'],
+                    ['Instituição', $exam->organization?->name ?: 'Professor independente'],
+                    ['Disciplina', $exam->discipline?->name ?: 'Não informada'],
+                    ['Modalidade', $applicationModeLabel],
+                    ['Tentativa', 'Nº '.$submission->attempt_number],
+                    ['Enviada em', $submission->finished_at?->timezone(config('app.timezone'))->format('d/m/Y H:i') ?: 'Horário não registrado'],
+                ] as [$label, $value])
+                    <div class="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        <dt class="text-gray-600">{{ $label }}</dt>
+                        <dd class="mt-1 break-words font-extrabold text-gray-900">{{ $value }}</dd>
+                    </div>
+                @endforeach
+            </dl>
+            @if($availability['closes_at'])
+                <p class="mt-4 text-sm text-gray-700">
+                    Prazo geral da avaliação: {{ $availability['closes_at']->timezone(config('app.timezone'))->format('d/m/Y H:i') }}.
+                </p>
+            @endif
+        </section>
+
         @if($release['show_feedback'] && $submission->feedback)
             <section class="bg-blue-50 border-2 border-blue-200 rounded-2xl p-6" aria-labelledby="overall-feedback-title">
                 <h2 id="overall-feedback-title" class="text-xl font-extrabold text-blue-950">Comentário geral do professor</h2>

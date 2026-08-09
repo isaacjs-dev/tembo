@@ -10,6 +10,14 @@
             <div>
                 <p class="text-sm font-bold text-gray-600">Tentativa nº {{ $submission->attempt_number }}</p>
                 <h1 class="text-2xl md:text-3xl font-extrabold text-duo-heading">{{ $exam->title }}</h1>
+                <p class="mt-1 text-sm text-gray-700">
+                    {{ $exam->discipline?->name ?: 'Disciplina não informada' }}
+                    <span aria-hidden="true">·</span>
+                    Professor {{ $exam->author?->name ?: 'não informado' }}
+                    @if($exam->organization?->name)
+                        <span aria-hidden="true">·</span> {{ $exam->organization->name }}
+                    @endif
+                </p>
             </div>
 
             @if($submission->deadline_at)

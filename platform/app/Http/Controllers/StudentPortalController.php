@@ -52,6 +52,7 @@ class StudentPortalController extends Controller
                     $query->orWhereIn('exams.id', $ownSubmissionExamIds);
                 }
             })
+            ->with(['author:id,name', 'organization:id,name', 'discipline:id,name'])
             ->withCount('questions')
             ->latest()
             ->paginate(10);
@@ -65,6 +66,10 @@ class StudentPortalController extends Controller
             ->get();
 
         $submissions = $attempts->unique('exam_id')->keyBy('exam_id');
+        $gradedSubmissions = $attempts
+            ->where('status', 'graded')
+            ->unique('exam_id')
+            ->keyBy('exam_id');
         $attemptCounts = $attempts->countBy('exam_id');
         $portalMeta = $availableExams->getCollection()
             ->mapWithKeys(function (Exam $exam) use ($attemptCounts): array {
@@ -78,8 +83,10 @@ class StudentPortalController extends Controller
                         'attempts_remaining' => max(0, $allowed - $used),
                         'availability' => $this->access->availability($exam),
                         'release' => $this->access->releaseSettings($exam),
+                        'results_can_be_viewed' => $this->access->resultsCanBeViewed($exam),
                         'results_available_at' => $this->access->resultsAvailableAt($exam),
                         'application_mode' => $this->access->applicationMode($exam),
+                        'application_mode_label' => $this->access->applicationModeLabel($exam),
                         'supports_online' => $this->access->supportsOnline($exam),
                     ],
                 ];
@@ -88,6 +95,7 @@ class StudentPortalController extends Controller
         return view('student.dashboard', compact(
             'availableExams',
             'submissions',
+            'gradedSubmissions',
             'portalMeta',
         ));
     }
@@ -121,7 +129,7 @@ class StudentPortalController extends Controller
     {
         $exam = $this->access->findForStudent($request->user(), $id);
         $this->access->ensureCanAccess($exam, $request->user(), $request, 'overview');
-        $exam->loadCount('questions');
+        $exam->load(['author:id,name', 'organization:id,name', 'discipline:id,name'])->loadCount('questions');
 
         $inProgress = $this->inProgressSubmission($exam, $request);
         if ($inProgress && $this->deadlineReached($inProgress)) {
@@ -133,11 +141,16 @@ class StudentPortalController extends Controller
         $attemptsAllowed = $this->allowedAttempts($exam);
         $attemptsUsed = $attempts->count();
         $supportsOnline = $this->access->supportsOnline($exam);
+        $availability = $this->access->availability($exam);
         $canStart = $supportsOnline
+            && $exam->status === 'published'
+            && $availability['state'] === 'open'
             && ! $attempts->contains('status', 'in_progress')
             && $attemptsUsed < $attemptsAllowed;
         $release = $this->access->releaseSettings($exam);
-        $availability = $this->access->availability($exam);
+        $resultsCanBeViewed = $this->access->resultsCanBeViewed($exam);
+        $resultsAvailableAt = $this->access->resultsAvailableAt($exam);
+        $applicationModeLabel = $this->access->applicationModeLabel($exam);
         $blockingRevision = $this->blockingRevision($exam, $request);
         if ($blockingRevision) {
             $canStart = false;
@@ -146,13 +159,17 @@ class StudentPortalController extends Controller
         return view('student.exam_intro', compact(
             'exam',
             'submission',
+            'attempts',
             'attemptsAllowed',
             'attemptsUsed',
             'canStart',
             'release',
+            'resultsCanBeViewed',
             'availability',
             'supportsOnline',
             'blockingRevision',
+            'resultsAvailableAt',
+            'applicationModeLabel',
         ));
     }
 
@@ -226,7 +243,14 @@ class StudentPortalController extends Controller
     {
         $exam = $this->access->findForStudent($request->user(), $id);
         $this->access->ensureCanAccess($exam, $request->user(), $request);
-        $exam->load(['questions.discipline', 'questions.customSkills', 'questions.bnccSkills']);
+        $exam->load([
+            'author:id,name',
+            'organization:id,name',
+            'discipline:id,name',
+            'questions.discipline',
+            'questions.customSkills',
+            'questions.bnccSkills',
+        ]);
 
         $submission = $this->inProgressSubmission($exam, $request);
         if (! $submission) {
@@ -359,7 +383,14 @@ class StudentPortalController extends Controller
                 ->withErrors(['results' => 'Os resultados ainda não foram liberados pelo professor.']);
         }
 
-        $exam->load(['questions.discipline', 'questions.customSkills', 'questions.bnccSkills']);
+        $exam->load([
+            'author:id,name',
+            'organization:id,name',
+            'discipline:id,name',
+            'questions.discipline',
+            'questions.customSkills',
+            'questions.bnccSkills',
+        ]);
         $submission = ExamSubmission::query()
             ->with('answers')
             ->where('exam_id', $exam->id)
@@ -379,6 +410,8 @@ class StudentPortalController extends Controller
                 ->forStudent($request->user(), [], $submission, 3)
                 ->getCollection()
             : collect();
+        $applicationModeLabel = $this->access->applicationModeLabel($exam);
+        $availability = $this->access->availability($exam);
 
         return view('student.exam_results', compact(
             'exam',
@@ -387,6 +420,8 @@ class StudentPortalController extends Controller
             'totalPoints',
             'recommendations',
             'recommendedMaterials',
+            'applicationModeLabel',
+            'availability',
         ));
     }
 

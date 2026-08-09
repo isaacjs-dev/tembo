@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Discipline;
 use App\Models\Exam;
 use App\Models\ExamAnswer;
 use App\Models\ExamSubmission;
@@ -9,6 +10,7 @@ use App\Models\Organization;
 use App\Models\Question;
 use App\Models\SchoolClass;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
@@ -89,12 +91,21 @@ class StudentPortalTest extends TestCase
             ->assertOk();
     }
 
-    public function test_future_and_expired_availability_windows_are_enforced(): void
+    public function test_future_and_expired_windows_keep_overview_informative_but_block_start(): void
     {
+        config(['app.timezone' => 'America/Sao_Paulo']);
+        $this->travelTo(CarbonImmutable::parse('2026-08-09 10:00:00', 'America/Sao_Paulo'));
+        $this->teacher->update(['name' => 'Professora Ana Portal']);
+        $discipline = Discipline::withoutGlobalScopes()->create([
+            'organization_id' => $this->organization->id,
+            'name' => 'Matemática Aplicada',
+        ]);
         $future = $this->makeExam([
+            'discipline_id' => $discipline->id,
             'settings' => [
                 'attempts' => 1,
-                'available_from' => now()->addHour()->toIso8601String(),
+                'available_from' => '2026-08-10T15:00:00+00:00',
+                'available_until' => '2026-08-11T18:30:00+00:00',
             ],
         ]);
         $expired = $this->makeExam([
@@ -106,9 +117,133 @@ class StudentPortalTest extends TestCase
 
         $this->actingAs($this->student)
             ->get(route('student.exam.show', $future))
+            ->assertOk()
+            ->assertSee('Aguardando abertura')
+            ->assertSee('Professora Ana Portal')
+            ->assertSee('Escola Portal')
+            ->assertSee('Matemática Aplicada')
+            ->assertSee('10/08/2026 12:00')
+            ->assertSee('11/08/2026 15:30');
+        $this->actingAs($this->student)
+            ->get(route('student.dashboard'))
+            ->assertOk()
+            ->assertSee('Professora Ana Portal')
+            ->assertSee('Matemática Aplicada')
+            ->assertSee('Disponível em 10/08/2026 12:00');
+        $this->actingAs($this->student)
+            ->post(route('student.exam.start', $future))
             ->assertForbidden();
         $this->actingAs($this->student)
+            ->get(route('student.exam.show', $expired))
+            ->assertOk()
+            ->assertSee('Encerrada')
+            ->assertSee('O período para iniciar ou continuar esta avaliação foi encerrado.');
+        $this->actingAs($this->student)
             ->post(route('student.exam.start', $expired))
+            ->assertForbidden();
+    }
+
+    public function test_previous_graded_result_remains_available_during_a_new_attempt(): void
+    {
+        config(['app.timezone' => 'America/Sao_Paulo']);
+        $this->travelTo(CarbonImmutable::parse('2026-08-09 10:00:00', 'America/Sao_Paulo'));
+        $exam = $this->makeExam(['settings' => [
+            'attempts' => 2,
+            'show_results' => false,
+            'show_score' => true,
+            'show_answers' => false,
+            'show_feedback' => false,
+        ]]);
+        $question = $this->addQuestion($exam, 'multiple_choice', [
+            'statement' => 'Questão com nova tentativa',
+            'options' => ['Correta', 'Incorreta'],
+            'correct_option' => 0,
+        ], 2);
+
+        $first = $this->startAttempt($exam);
+        $this->submitAttempt($exam, $first, [$question->id => 0]);
+        $second = $this->startAttempt($exam);
+
+        $this->actingAs($this->student)
+            ->get(route('student.dashboard'))
+            ->assertOk()
+            ->assertSee('Continuar avaliação')
+            ->assertSee('Ver resultado da tentativa 1');
+
+        $this->actingAs($this->student)
+            ->get(route('student.exam.show', $exam))
+            ->assertOk()
+            ->assertSee('Histórico de tentativas')
+            ->assertSee('Tentativa 2 — Em andamento')
+            ->assertSee('Tentativa 1 — Corrigida')
+            ->assertSee('enviada em 09/08/2026 10:00')
+            ->assertSee('Nota 2,0');
+
+        $this->actingAs($this->student)
+            ->get(route('student.exam.results', $exam))
+            ->assertOk()
+            ->assertSee('Tentativa corrigida')
+            ->assertSee('Nº 1')
+            ->assertSee('09/08/2026 10:00')
+            ->assertDontSee('Horário não registrado');
+
+        $this->assertSame('in_progress', $second->fresh()->status);
+    }
+
+    public function test_rescheduled_attempt_uses_upcoming_message_and_cannot_resume(): void
+    {
+        $exam = $this->makeExam();
+        $attempt = $this->startAttempt($exam);
+        $settings = $exam->settings;
+        $settings['available_from'] = now()->addDay()->toIso8601String();
+        $exam->update(['settings' => $settings]);
+
+        $this->actingAs($this->student)
+            ->get(route('student.exam.show', $exam))
+            ->assertOk()
+            ->assertSee("A tentativa {$attempt->attempt_number} permanece registrada")
+            ->assertSee('a janela geral desta avaliação ainda não foi aberta')
+            ->assertDontSee('a janela geral desta avaliação está encerrada');
+
+        $this->actingAs($this->student)
+            ->get(route('student.exam.execution', $exam))
+            ->assertForbidden();
+    }
+
+    public function test_upcoming_overview_does_not_bypass_the_results_window(): void
+    {
+        $exam = $this->makeExam(['settings' => [
+            'attempts' => 1,
+            'show_results' => false,
+            'show_score' => true,
+            'show_answers' => true,
+            'show_feedback' => true,
+        ]]);
+        $question = $this->addQuestion($exam, 'multiple_choice', [
+            'statement' => 'Conteúdo ainda indisponível',
+            'options' => ['Gabarito ainda indisponível', 'Distrator'],
+            'correct_option' => 0,
+        ]);
+        $submission = $this->startAttempt($exam);
+        $this->submitAttempt($exam, $submission, [$question->id => 0]);
+
+        $settings = $exam->settings;
+        $settings['available_from'] = now()->addDay()->toIso8601String();
+        $exam->update(['settings' => $settings]);
+
+        $this->actingAs($this->student)
+            ->get(route('student.exam.show', $exam))
+            ->assertOk()
+            ->assertSee('Aguardando abertura')
+            ->assertDontSee('Nota 1,0')
+            ->assertDontSee('Ver resultados liberados');
+        $this->actingAs($this->student)
+            ->get(route('student.dashboard'))
+            ->assertOk()
+            ->assertSee('Aguardando abertura')
+            ->assertDontSee('Ver resultados');
+        $this->actingAs($this->student)
+            ->get(route('student.exam.results', $exam))
             ->assertForbidden();
     }
 
@@ -442,7 +577,7 @@ class StudentPortalTest extends TestCase
     }
 
     /**
-     * @param  array{school_class?: SchoolClass, settings?: array, access_code?: string}  $overrides
+     * @param  array{school_class?: SchoolClass, settings?: array, access_code?: string, discipline_id?: int}  $overrides
      */
     private function makeExam(array $overrides = []): Exam
     {
@@ -455,6 +590,7 @@ class StudentPortalTest extends TestCase
         $exam = Exam::withoutGlobalScopes()->create([
             'organization_id' => $this->organization->id,
             'author_id' => $this->teacher->id,
+            'discipline_id' => $overrides['discipline_id'] ?? null,
             'title' => 'Avaliação '.Str::random(6),
             'status' => 'published',
             'access_code' => $overrides['access_code'] ?? strtoupper(Str::random(6)),
