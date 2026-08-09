@@ -195,7 +195,13 @@ class ExamAudienceTest extends TestCase
         $discipline = $this->discipline($organization, 'História');
         $classStudent->schoolClasses()->attach($schoolClass->id);
         $exam = $this->exam($organization, $teacher, 'published');
-        $exam->update(['discipline_id' => $discipline->id]);
+        $exam->update([
+            'discipline_id' => $discipline->id,
+            'settings' => [
+                'application_mode' => 'hybrid',
+                '_wizard' => ['current_step' => 'preview', 'revision' => 4],
+            ],
+        ]);
         $exam->schoolClasses()->attach($schoolClass->id);
         $exam->students()->attach([$classStudent->id, $directStudent->id], [
             'organization_id' => $organization->id,
@@ -218,6 +224,7 @@ class ExamAudienceTest extends TestCase
             [$classStudent->id, $directStudent->id],
             collect($response->json('students'))->pluck('id')->all(),
         );
+        $this->assertArrayNotHasKey('_wizard', $response->json('exam.settings'));
     }
 
     public function test_duplication_preserves_authorized_discipline_and_rejects_same_tenant_idor(): void
@@ -238,6 +245,8 @@ class ExamAudienceTest extends TestCase
             ->where('id', '!=', $exam->id)
             ->sole();
         $this->assertSame($discipline->id, $copy->discipline_id);
+        $this->assertSame('questions', $copy->settings['_wizard']['current_step']);
+        $this->assertSame(['information'], $copy->settings['_wizard']['completed_steps']);
 
         $this->actingAs($otherTeacher)
             ->post(route('exams.duplicate', $exam))

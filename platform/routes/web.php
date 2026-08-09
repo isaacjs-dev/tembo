@@ -256,6 +256,7 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
         Route::resource('questions', QuestionController::class);
 
         Route::resource('exams', ExamController::class);
+        Route::patch('exams/{exam}/draft', [ExamController::class, 'autosaveDraft'])->name('exams.autosaveDraft');
         Route::resource('learning-materials', LearningMaterialController::class)
             ->parameters(['learning-materials' => 'learningMaterial'])
             ->except(['show']);

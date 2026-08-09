@@ -16,6 +16,7 @@ use App\Services\AnswerSheetGeneratorService;
 use App\Services\ConfigPrecedenceResolver;
 use App\Services\ExamAudienceService;
 use App\Services\ExamPrintService;
+use App\Services\ExamWizardService;
 use App\Services\MonthlyUsageService;
 use App\Services\RevisionBuilderService;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -24,6 +25,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class ExamController extends Controller
@@ -42,10 +44,10 @@ class ExamController extends Controller
 
     public function create()
     {
-        return view('exams.create');
+        return view('exams.create', ['wizardSteps' => ExamWizardService::STEPS]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, ExamWizardService $wizard)
     {
         $validated = $request->validate([
             'title' => 'required|string|max:255',
@@ -64,6 +66,7 @@ class ExamController extends Controller
             'status' => 'draft',
             'settings' => $settings,
         ]);
+        $wizard->initialize($exam);
 
         AuditLog::log('exam_created', Exam::class, $exam->id, [
             'title' => $exam->title,
@@ -109,7 +112,7 @@ class ExamController extends Controller
         return view('exams.show', compact('exam', 'audienceStudents', 'submissions', 'printSettings', 'cardTemplates'));
     }
 
-    public function edit(string $id, ExamAudienceService $audiences)
+    public function edit(string $id, ExamAudienceService $audiences, ExamWizardService $wizard)
     {
         $organization_id = auth()->user()->organization_id;
         $user_id = auth()->id();
@@ -127,6 +130,8 @@ class ExamController extends Controller
         $knowledgeAreas = KnowledgeArea::orderBy('name')->get();
 
         $printSettings = $this->getPrintSettings(auth()->user());
+        $wizardState = $wizard->state($exam);
+        $wizardSteps = ExamWizardService::STEPS;
 
         return view('exams.edit', compact(
             'exam',
@@ -136,11 +141,49 @@ class ExamController extends Controller
             'disciplines',
             'knowledgeAreas',
             'printSettings',
+            'wizardState',
+            'wizardSteps',
         ));
     }
 
-    public function update(Request $request, string $id, MonthlyUsageService $usage, RevisionBuilderService $revisions)
+    public function autosaveDraft(Request $request, string $id, ExamWizardService $wizard)
     {
+        $exam = Exam::where('organization_id', auth()->user()->organization_id)
+            ->where('author_id', auth()->id())
+            ->findOrFail($id);
+        abort_if($exam->status !== 'draft', 409, 'Somente avaliações em rascunho podem ser salvas automaticamente.');
+        $stepNames = array_keys(ExamWizardService::STEPS);
+        $validated = $request->validate([
+            'step' => ['required', Rule::in($stepNames)],
+            'payload' => ['nullable', 'array'],
+            'revision' => ['required', 'integer', 'min:0'],
+            'complete' => ['nullable', 'boolean'],
+            'target_step' => ['nullable', Rule::in($stepNames)],
+        ]);
+
+        $state = $wizard->autosave(
+            $exam,
+            $request->user(),
+            $validated['step'],
+            $validated['payload'] ?? [],
+            (int) $validated['revision'],
+            $request->boolean('complete'),
+            $validated['target_step'] ?? null,
+        );
+
+        return response()->json([
+            'saved' => true,
+            'wizard' => $state,
+        ]);
+    }
+
+    public function update(
+        Request $request,
+        string $id,
+        MonthlyUsageService $usage,
+        RevisionBuilderService $revisions,
+        ExamWizardService $wizard,
+    ) {
         $exam = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
             ->findOrFail($id);
@@ -148,49 +191,88 @@ class ExamController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'status' => 'required|in:draft,published,closed',
+            'wizard_revision' => ['nullable', 'integer', 'min:0'],
+            'wizard_step' => ['nullable', Rule::in(array_keys(ExamWizardService::STEPS))],
             ...$this->settingsValidationRules(),
         ]);
 
-        $previousStatus = $exam->status;
-        $previousSettings = $exam->settings ?? [];
-        $shouldUpdateSettings = $request->boolean('settings_form')
-            || $request->hasAny(array_keys($this->settingsValidationRules()));
-        $settings = $shouldUpdateSettings
-            ? $this->settingsFromRequest($request, $previousSettings)
-            : $previousSettings;
+        [$exam, $previousStatus, $previousSettings, $settings, $publicationWasCompleted] = DB::transaction(function () use (
+            $exam,
+            $request,
+            $validated,
+            $usage,
+            $wizard,
+        ): array {
+            $locked = Exam::withoutGlobalScopes()
+                ->where('organization_id', $exam->organization_id)
+                ->where('author_id', auth()->id())
+                ->lockForUpdate()
+                ->findOrFail($exam->id);
+            $previousStatus = $locked->status;
+            $previousSettings = is_array($locked->settings) ? $locked->settings : [];
+            $shouldUpdateSettings = $request->boolean('settings_form')
+                || $request->hasAny(array_keys($this->settingsValidationRules()));
+            $settings = $shouldUpdateSettings
+                ? $this->settingsFromRequest($request, $previousSettings)
+                : $previousSettings;
 
-        if ($validated['status'] === 'published') {
-            $this->ensurePublishable($exam, $settings);
-        }
+            if ($validated['status'] === 'published') {
+                $this->ensurePublishable($locked, $settings);
+            }
 
-        $updateData = [
-            'title' => $validated['title'],
-            'status' => $validated['status'],
-            'settings' => $settings,
-        ];
+            $previousWizard = $wizard->state($locked);
+            $settings = $wizard->prepareSettingsForUpdate(
+                $locked,
+                $settings,
+                isset($validated['wizard_revision']) ? (int) $validated['wizard_revision'] : null,
+                $validated['wizard_step'] ?? null,
+                $validated['status'] === 'published',
+            );
+            $updateData = [
+                'title' => $validated['title'],
+                'status' => $validated['status'],
+                'settings' => $settings,
+            ];
 
-        if ($validated['status'] === 'published' && empty($exam->access_code)) {
-            $updateData['access_code'] = $this->generateAccessCode($exam->organization_id);
-        }
+            if ($validated['status'] === 'published' && empty($locked->access_code)) {
+                $updateData['access_code'] = $this->generateAccessCode($locked->organization_id);
+            }
 
-        DB::transaction(function () use ($exam, $updateData, $validated, $usage, $previousStatus): void {
             if ($validated['status'] === 'published' && $previousStatus !== 'published') {
                 $usage->consume(
                     auth()->user(),
                     MonthlyUsageService::EXAM_PUBLICATIONS,
                     1,
-                    "exam:first-publish:{$exam->id}",
-                    $exam,
+                    "exam:first-publish:{$locked->id}",
+                    $locked,
                     auth()->user(),
                 );
             }
-            $exam->update($updateData);
+            $locked->update($updateData);
+
+            return [
+                $locked->fresh(),
+                $previousStatus,
+                $previousSettings,
+                $settings,
+                $validated['status'] === 'published'
+                    && ! in_array('publication', $previousWizard['completed_steps'], true),
+            ];
         });
 
         AuditLog::log('exam_updated', Exam::class, $exam->id, [
             'status' => ['old' => $previousStatus, 'new' => $exam->status],
             'settings_changed' => $previousSettings !== $settings,
         ]);
+
+        if ($publicationWasCompleted) {
+            AuditLog::log('exam_wizard_step_saved', Exam::class, $exam->id, [
+                'step' => 'publication',
+                'wizard_version' => ExamWizardService::VERSION,
+                'revision' => data_get($settings, '_wizard.revision'),
+                'first_completion' => true,
+            ]);
+        }
 
         if ($validated['status'] === 'published'
             && ($settings['generate_review'] ?? false)
@@ -844,7 +926,7 @@ class ExamController extends Controller
         return redirect()->route('exams.index')->with('status', 'Avaliação excluída com sucesso.');
     }
 
-    public function duplicate(string $id)
+    public function duplicate(string $id, ExamWizardService $wizard)
     {
         $original = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
@@ -868,6 +950,7 @@ class ExamController extends Controller
                 'order' => $question->pivot->order,
             ]);
         }
+        $wizard->initialize($copy);
 
         return redirect()->route('exams.edit', $copy->id)
             ->with('status', 'Avaliação duplicada! Edite os detalhes conforme necessário.');
@@ -1091,6 +1174,29 @@ class ExamController extends Controller
      */
     private function ensurePublishable(Exam $exam, array $settings): void
     {
+        $publicationSettings = array_merge([
+            'application_mode' => 'hybrid',
+            'attempts' => 1,
+            'time_limit' => null,
+            'available_from' => null,
+            'available_until' => null,
+            'show_score' => true,
+            'show_answers' => false,
+            'show_feedback' => true,
+            'results_available_from' => null,
+        ], $settings);
+        Validator::make($publicationSettings, [
+            'application_mode' => ['required', Rule::in(['online', 'paper', 'hybrid'])],
+            'attempts' => ['required', 'integer', 'min:1', 'max:20'],
+            'time_limit' => ['nullable', 'integer', 'min:1', 'max:1440'],
+            'available_from' => ['nullable', 'date'],
+            'available_until' => ['nullable', 'date', 'after:available_from'],
+            'show_score' => ['required', 'boolean'],
+            'show_answers' => ['required', 'boolean'],
+            'show_feedback' => ['required', 'boolean'],
+            'results_available_from' => ['nullable', 'date'],
+        ])->validate();
+
         if (! $exam->questions()->exists()) {
             throw ValidationException::withMessages([
                 'status' => 'Adicione ao menos uma questão antes de publicar a avaliação.',
@@ -1103,8 +1209,8 @@ class ExamController extends Controller
             ]);
         }
 
-        if (filled($settings['available_until'] ?? null)
-            && ! now()->isBefore(Carbon::parse($settings['available_until']))) {
+        if (filled($publicationSettings['available_until'])
+            && ! now()->isBefore(Carbon::parse($publicationSettings['available_until']))) {
             throw ValidationException::withMessages([
                 'available_until' => 'Defina um prazo futuro antes de publicar a avaliação.',
             ]);

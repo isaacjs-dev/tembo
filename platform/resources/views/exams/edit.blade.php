@@ -42,22 +42,59 @@
     {{-- Main Container with Alpine --}}
     <div x-data="examBuilder()" class="mb-12">
 
+        <section class="card mb-6 p-4 md:p-6" aria-labelledby="assessment-wizard-heading">
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h2 id="assessment-wizard-heading" class="text-lg font-extrabold text-duo-heading">Criação da Avaliação</h2>
+                    <p class="text-xs text-gray-600">Seu rascunho é salvo enquanto você avança pelas oito etapas.</p>
+                </div>
+                <div class="flex items-center gap-2 text-xs font-bold" role="status" aria-live="polite">
+                    <span x-show="autosaveStatus === 'saving'" class="text-blue-700">Salvando…</span>
+                    <span x-show="autosaveStatus === 'saved'" class="text-green-700">Rascunho salvo</span>
+                    <span x-show="autosaveStatus === 'conflict'" class="text-red-700">Atualizado em outra aba — recarregue</span>
+                    <span x-show="autosaveStatus === 'error'" class="text-red-700">Não foi possível salvar</span>
+                </div>
+            </div>
+            <ol class="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8" aria-label="Etapas da Avaliação">
+                @foreach($wizardSteps as $stepKey => $stepLabel)
+                    <li>
+                        <button type="button" @click="goToWizardStep('{{ $stepKey }}')"
+                            :aria-current="wizardStep === '{{ $stepKey }}' ? 'step' : null"
+                            :class="wizardStep === '{{ $stepKey }}'
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : (wizardCompleted.includes('{{ $stepKey }}')
+                                    ? 'border-green-300 bg-green-50 text-green-800'
+                                    : 'border-duo-border bg-white text-gray-600')"
+                            class="min-h-16 w-full rounded-xl border-2 px-2 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2">
+                            <span class="block text-[10px] font-extrabold uppercase tracking-wider">Etapa {{ $loop->iteration }}</span>
+                            <span class="mt-1 block text-xs font-bold">{{ $stepLabel }}</span>
+                        </button>
+                    </li>
+                @endforeach
+            </ol>
+        </section>
+
         {{-- 5-col grid: 3-col editor + 2-col preview --}}
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
 
             {{-- Left Column: Settings + Questions + Sidebar --}}
-            <div class="lg:col-span-3 space-y-6">
+            <div x-show="['information', 'questions', 'audience', 'application', 'appearance', 'publication'].includes(wizardStep)"
+                :class="['questions', 'audience'].includes(wizardStep) ? 'lg:col-span-5' : 'lg:col-span-3'"
+                class="space-y-6" x-cloak>
 
                 {{-- Settings Card --}}
-                <div class="card p-8">
+                <div x-show="['information', 'application', 'appearance', 'publication'].includes(wizardStep)" class="card p-8" x-cloak>
                     <h2
                         class="text-xl font-extrabold text-duo-heading mb-6 flex items-center gap-2 border-b-2 border-duo-border pb-4">
                         <span class="material-symbols-outlined text-primary">settings</span> Configurações Gerais
                     </h2>
-                    <form action="{{ route('exams.update', $exam->id) }}" method="POST" class="space-y-6">
+                    <form id="exam-settings-form" action="{{ route('exams.update', $exam->id) }}" method="POST"
+                        @submit.prevent="submitSettingsForm($event)" class="space-y-6">
                         @csrf
                         @method('PUT')
                         <input type="hidden" name="settings_form" value="1">
+                        <input type="hidden" name="wizard_revision" :value="wizardRevision">
+                        <input type="hidden" name="wizard_step" :value="wizardStep">
 
                         @php
                             $settingDate = function (string $key) use ($exam): string {
@@ -74,21 +111,23 @@
                             };
                         @endphp
 
-                        <div class="space-y-2">
+                        <div x-show="wizardStep === 'information'" class="space-y-2" x-cloak>
                             <label for="title" class="input-label">Título da Avaliação</label>
                             <input type="text" id="title" name="title" value="{{ old('title', $exam->title) }}" required
+                                @input="queueWizardAutosave('information')"
                                 class="input-field">
                         </div>
 
-                        <div class="space-y-2">
+                        <div x-show="wizardStep === 'information'" class="space-y-2" x-cloak>
                             <label for="instructions" class="input-label">Instruções ao estudante</label>
                             <textarea id="instructions" name="instructions" rows="4" maxlength="10000"
+                                @input="queueWizardAutosave('information')"
                                 class="input-field"
                                 placeholder="Materiais permitidos, critérios e orientações.">{{ old('instructions', $exam->settings['instructions'] ?? '') }}</textarea>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div class="space-y-2">
+                        <div x-show="['application', 'publication'].includes(wizardStep)" class="grid grid-cols-1 md:grid-cols-2 gap-6" x-cloak>
+                            <div x-show="wizardStep === 'publication'" class="space-y-2" x-cloak>
                                 <label for="status" class="input-label">Status da Avaliação</label>
                                 <select id="status" name="status" class="input-field">
                                     <option value="draft" {{ old('status', $exam->status) == 'draft' ? 'selected' : '' }}>
@@ -97,9 +136,9 @@
                                     <option value="closed" {{ old('status', $exam->status) == 'closed' ? 'selected' : '' }}>Encerrada</option>
                                 </select>
                             </div>
-                            <div class="space-y-2">
+                            <div x-show="wizardStep === 'application'" class="space-y-2" x-cloak>
                                 <label for="application_mode" class="input-label">Modalidade</label>
-                                <select id="application_mode" name="application_mode" class="input-field">
+                                <select id="application_mode" name="application_mode" @change="queueWizardAutosave('application')" class="input-field">
                                     <option value="hybrid" @selected(old('application_mode', $exam->settings['application_mode'] ?? 'hybrid') === 'hybrid')>
                                         Híbrida — on-line e impressa
                                     </option>
@@ -111,65 +150,65 @@
                                     </option>
                                 </select>
                             </div>
-                            <div class="space-y-2">
+                            <div x-show="wizardStep === 'application'" class="space-y-2" x-cloak>
                                 <label for="attempts" class="input-label">Tentativas Permitidas</label>
                                 <input type="number" id="attempts" name="attempts"
                                     value="{{ old('attempts', $exam->settings['attempts'] ?? 1) }}" min="1"
-                                    max="20" class="input-field">
+                                    max="20" @input="queueWizardAutosave('application')" class="input-field">
                             </div>
-                            <div class="space-y-2">
+                            <div x-show="wizardStep === 'application'" class="space-y-2" x-cloak>
                                 <label for="time_limit" class="input-label">Tempo Limite (Minutos)</label>
                                 <input type="number" id="time_limit" name="time_limit"
                                     value="{{ old('time_limit', $exam->settings['time_limit'] ?? '') }}" min="1" max="1440"
-                                    class="input-field" placeholder="Sem limite">
+                                    @input="queueWizardAutosave('application')" class="input-field" placeholder="Sem limite">
                             </div>
-                            <div class="space-y-2">
+                            <div x-show="wizardStep === 'application'" class="space-y-2" x-cloak>
                                 <label for="available_from" class="input-label">Disponível a partir de</label>
                                 <input type="datetime-local" id="available_from" name="available_from"
                                     value="{{ old('available_from', $settingDate('available_from')) }}"
-                                    class="input-field">
+                                    @change="queueWizardAutosave('application')" class="input-field">
                             </div>
-                            <div class="space-y-2">
+                            <div x-show="wizardStep === 'application'" class="space-y-2" x-cloak>
                                 <label for="available_until" class="input-label">Prazo final</label>
                                 <input type="datetime-local" id="available_until" name="available_until"
                                     value="{{ old('available_until', $settingDate('available_until')) }}"
-                                    class="input-field">
+                                    @change="queueWizardAutosave('application')" class="input-field">
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 gap-4 rounded-xl border-2 border-duo-border bg-gray-50 p-5 md:grid-cols-2">
-                            <fieldset class="space-y-3">
+                        <div x-show="['appearance', 'publication'].includes(wizardStep)" class="grid grid-cols-1 gap-4 rounded-xl border-2 border-duo-border bg-gray-50 p-5" x-cloak>
+                            <fieldset x-show="wizardStep === 'appearance'" class="space-y-3" x-cloak>
                                 <legend class="mb-2 font-extrabold text-duo-heading">Apresentação</legend>
                                 <label class="flex items-center gap-3 cursor-pointer">
-                                    <input type="checkbox" name="shuffle_questions" value="1"
+                                    <input type="checkbox" name="shuffle_questions" value="1" @change="queueWizardAutosave('appearance')"
                                         @checked(old('shuffle_questions', $exam->settings['shuffle_questions'] ?? false))
                                         class="size-6 text-primary border-gray-400 rounded focus:ring-primary">
                                     <span class="font-bold text-gray-800 text-sm">Embaralhar questões</span>
                                 </label>
                                 <label class="flex items-center gap-3 cursor-pointer">
-                                    <input type="checkbox" name="shuffle_options" value="1"
+                                    <input type="checkbox" name="shuffle_options" value="1" @change="queueWizardAutosave('appearance')"
                                         @checked(old('shuffle_options', $exam->settings['shuffle_options'] ?? false))
                                         class="size-6 text-primary border-gray-400 rounded focus:ring-primary">
                                     <span class="font-bold text-gray-800 text-sm">Embaralhar alternativas</span>
                                 </label>
                             </fieldset>
 
-                            <fieldset class="space-y-3">
+                            <fieldset x-show="wizardStep === 'publication'" class="space-y-3" x-cloak>
                                 <legend class="mb-2 font-extrabold text-duo-heading">Resultados liberados</legend>
                                 <label class="flex items-center gap-3 cursor-pointer">
-                                    <input type="checkbox" name="show_score" value="1"
+                                    <input type="checkbox" name="show_score" value="1" @change="queueWizardAutosave('publication')"
                                         @checked(old('show_score', $exam->settings['show_score'] ?? ($exam->settings['show_results'] ?? false)))
                                         class="size-6 text-primary border-gray-400 rounded focus:ring-primary">
                                     <span class="font-bold text-gray-800 text-sm">Nota</span>
                                 </label>
                                 <label class="flex items-center gap-3 cursor-pointer">
-                                    <input type="checkbox" name="show_feedback" value="1"
+                                    <input type="checkbox" name="show_feedback" value="1" @change="queueWizardAutosave('publication')"
                                         @checked(old('show_feedback', $exam->settings['show_feedback'] ?? ($exam->settings['show_results'] ?? false)))
                                         class="size-6 text-primary border-gray-400 rounded focus:ring-primary">
                                     <span class="font-bold text-gray-800 text-sm">Comentários e recomendações</span>
                                 </label>
                                 <label class="flex items-center gap-3 cursor-pointer">
-                                    <input type="checkbox" name="show_answers" value="1"
+                                    <input type="checkbox" name="show_answers" value="1" @change="queueWizardAutosave('publication')"
                                         @checked(old('show_answers', $exam->settings['show_answers'] ?? ($exam->settings['show_results'] ?? false)))
                                         class="size-6 text-primary border-gray-400 rounded focus:ring-primary">
                                     <span class="font-bold text-gray-800 text-sm">Respostas e gabarito</span>
@@ -179,7 +218,7 @@
                                     <input type="datetime-local" id="results_available_from"
                                         name="results_available_from"
                                         value="{{ old('results_available_from', $settingDate('results_available_from')) }}"
-                                        class="input-field">
+                                        @change="queueWizardAutosave('publication')" class="input-field">
                                 </div>
                             </fieldset>
                         </div>
@@ -193,7 +232,7 @@
                 </div>
 
                 {{-- Questions Card --}}
-                <div class="card p-8">
+                <div x-show="wizardStep === 'questions'" class="card p-8" x-cloak>
                     <div
                         class="flex flex-col md:flex-row justify-between items-center mb-6 border-b-2 border-duo-border pb-4 gap-4">
                         <h2 class="text-xl font-extrabold text-duo-heading flex items-center gap-2">
@@ -277,9 +316,9 @@
                 </div>
 
                 {{-- Audience + Publish (row) --}}
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div x-show="['audience', 'publication'].includes(wizardStep)" class="grid grid-cols-1 gap-6" x-cloak>
                     {{-- Disciplina e público --}}
-                    <div class="card p-6">
+                    <div x-show="wizardStep === 'audience'" class="card p-6" x-cloak>
                         <h2
                             class="text-lg font-extrabold text-duo-heading mb-4 flex items-center gap-2 border-b-2 border-duo-border pb-3">
                             <span class="material-symbols-outlined text-secondary">groups</span> Disciplina e público
@@ -342,15 +381,18 @@
                     </div>
 
                     {{-- Publishing --}}
-                    <div
+                    <div x-show="wizardStep === 'publication'" x-cloak
                         class="bg-primary/5 rounded-2xl border-2 border-primary/20 p-6 text-center shadow-sm flex flex-col justify-center">
                         <h3 class="font-extrabold text-primary mb-2 text-lg">Pronto para lançar?</h3>
                         <p class="text-xs text-gray-600 mb-6 font-medium px-4">Após adicionar as questões e turmas alvo,
                             publique a prova.</p>
-                        <form action="{{ route('exams.update', $exam->id) }}" method="POST">
+                        <form action="{{ route('exams.update', $exam->id) }}" method="POST"
+                            @submit.prevent="submitStatusForm($event)">
                             @csrf
                             @method('PUT')
                             <input type="hidden" name="title" value="{{ $exam->title }}">
+                            <input type="hidden" name="wizard_revision" :value="wizardRevision">
+                            <input type="hidden" name="wizard_step" :value="wizardStep">
 
                             @if($exam->status === 'draft')
                                 <input type="hidden" name="status" value="published">
@@ -379,7 +421,9 @@
             </div>
 
             {{-- Right Column: Live Preview --}}
-            <div class="lg:col-span-2 lg:sticky lg:top-8">
+            <div x-show="['appearance', 'answer_sheet', 'preview'].includes(wizardStep)"
+                :class="wizardStep === 'appearance' ? 'lg:col-span-2' : 'lg:col-span-5'"
+                class="lg:sticky lg:top-8" x-cloak>
                 <div
                     class="bg-background-light rounded-2xl border-2 border-duo-border p-6 shadow-sm flex flex-col min-h-[600px]">
                     {{-- Preview Header --}}
@@ -994,6 +1038,23 @@
             </div>
         </div>
 
+        <nav class="sticky bottom-4 z-20 mt-6 flex items-center justify-between gap-3 rounded-2xl border-2 border-duo-border bg-white/95 p-4 shadow-lg backdrop-blur"
+            aria-label="Navegação entre etapas">
+            <button type="button" @click="goToWizardStep(previousWizardStep, false)" :disabled="!previousWizardStep"
+                class="btn-secondary min-w-28 disabled:cursor-not-allowed disabled:opacity-40">
+                Voltar
+            </button>
+            <div class="text-center">
+                <p class="text-xs font-extrabold text-duo-heading" x-text="wizardStepLabel"></p>
+                <p class="text-[11px] text-gray-500" x-text="(wizardIndex + 1) + ' de ' + wizardStepKeys.length"></p>
+            </div>
+            <button type="button" x-show="nextWizardStep" @click="goToWizardStep(nextWizardStep, true)"
+                class="btn-primary min-w-28">
+                Salvar e avançar
+            </button>
+            <span x-show="!nextWizardStep" class="min-w-28 text-right text-xs font-bold text-green-700">Etapa final</span>
+        </nav>
+
         {{-- Question Picker Modal --}}
         @include('exams.partials.question-picker-modal')
 
@@ -1021,6 +1082,15 @@
                 Alpine.data('examBuilder', () => ({
                     // State
                     questions: {!! json_encode($questionsJson) !!},
+                    wizardStepKeys: @json(array_keys($wizardSteps)),
+                    wizardStepLabels: @json($wizardSteps),
+                    wizardStep: @json($wizardState['current_step']),
+                    wizardCompleted: @json($wizardState['completed_steps']),
+                    wizardRevision: @json($wizardState['revision']),
+                    wizardAutosaveEnabled: @json($exam->status === 'draft'),
+                    autosaveStatus: 'idle',
+                    _autosaveTimer: null,
+                    _autosaveChain: Promise.resolve(),
                     showPicker: false,
                     previewMode: 'web',
                     previewPage: 1,
@@ -1048,6 +1118,24 @@
                     // Computed
                     get totalPoints() {
                         return this.questions.reduce((sum, q) => sum + parseFloat(q.points || 0), 0);
+                    },
+
+                    get wizardIndex() {
+                        return Math.max(0, this.wizardStepKeys.indexOf(this.wizardStep));
+                    },
+
+                    get previousWizardStep() {
+                        return this.wizardIndex > 0 ? this.wizardStepKeys[this.wizardIndex - 1] : null;
+                    },
+
+                    get nextWizardStep() {
+                        return this.wizardIndex < this.wizardStepKeys.length - 1
+                            ? this.wizardStepKeys[this.wizardIndex + 1]
+                            : null;
+                    },
+
+                    get wizardStepLabel() {
+                        return this.wizardStepLabels[this.wizardStep] || '';
                     },
 
                     get examQuestionIds() {
@@ -1100,9 +1188,134 @@
 
                     // Init
                     init() {
+                        this.syncWizardPreview();
                         this.$nextTick(() => {
                             this.initSortable();
                         });
+                    },
+
+                    syncWizardPreview() {
+                        if (this.wizardStep === 'answer_sheet') {
+                            this.previewMode = 'print';
+                            this.printTab = 'answer_sheet';
+                        } else if (this.wizardStep === 'appearance') {
+                            this.previewMode = 'print';
+                            this.printTab = 'exam';
+                        }
+                    },
+
+                    wizardPayload(step) {
+                        const fields = {
+                            information: ['title', 'instructions'],
+                            application: ['application_mode', 'time_limit', 'attempts', 'available_from', 'available_until'],
+                            appearance: ['shuffle_questions', 'shuffle_options'],
+                            publication: ['show_score', 'show_answers', 'show_feedback', 'results_available_from'],
+                        }[step] || [];
+                        const form = document.getElementById('exam-settings-form');
+
+                        return fields.reduce((payload, name) => {
+                            const field = form?.elements.namedItem(name);
+                            if (!field) return payload;
+
+                            payload[name] = field.type === 'checkbox'
+                                ? field.checked
+                                : (field.value === '' ? null : field.value);
+
+                            return payload;
+                        }, {});
+                    },
+
+                    queueWizardAutosave(step) {
+                        if (!this.wizardAutosaveEnabled) return;
+
+                        window.clearTimeout(this._autosaveTimer);
+                        this._autosaveTimer = window.setTimeout(() => {
+                            this.saveWizardStep(step);
+                        }, 700);
+                    },
+
+                    saveWizardStep(step, complete = false, targetStep = null) {
+                        if (!this.wizardAutosaveEnabled) return Promise.resolve(true);
+
+                        window.clearTimeout(this._autosaveTimer);
+                        const operation = async () => {
+                            this.autosaveStatus = 'saving';
+
+                            try {
+                                const response = await axios.patch('{{ route('exams.autosaveDraft', $exam->id) }}', {
+                                    step,
+                                    payload: this.wizardPayload(step),
+                                    revision: this.wizardRevision,
+                                    complete,
+                                    target_step: targetStep,
+                                }, {
+                                    headers: {
+                                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                        'Accept': 'application/json',
+                                    },
+                                });
+
+                                const wizard = response.data.wizard;
+                                this.wizardRevision = wizard.revision;
+                                this.wizardCompleted = wizard.completed_steps;
+                                this.wizardStep = wizard.current_step;
+                                this.autosaveStatus = 'saved';
+                                this.syncWizardPreview();
+
+                                return true;
+                            } catch (error) {
+                                this.autosaveStatus = error.response?.status === 409 ? 'conflict' : 'error';
+
+                                return false;
+                            }
+                        };
+
+                        this._autosaveChain = this._autosaveChain.then(operation, operation);
+
+                        return this._autosaveChain;
+                    },
+
+                    syncWizardFormState(form) {
+                        const revision = form.elements.namedItem('wizard_revision');
+                        const step = form.elements.namedItem('wizard_step');
+                        if (revision) revision.value = this.wizardRevision;
+                        if (step) step.value = this.wizardStep;
+                    },
+
+                    async submitSettingsForm(event) {
+                        const form = event.currentTarget;
+                        const saved = await this.saveWizardStep(this.wizardStep);
+                        if (!saved) return;
+
+                        this.syncWizardFormState(form);
+                        HTMLFormElement.prototype.submit.call(form);
+                    },
+
+                    async submitStatusForm(event) {
+                        const form = event.currentTarget;
+                        const desiredStatus = form.elements.namedItem('status')?.value;
+                        if (desiredStatus === 'published') {
+                            const saved = await this.saveWizardStep('publication', true, 'publication');
+                            if (!saved) return;
+                        }
+
+                        const currentTitle = document.getElementById('title')?.value;
+                        if (currentTitle) form.elements.namedItem('title').value = currentTitle;
+                        this.syncWizardFormState(form);
+                        HTMLFormElement.prototype.submit.call(form);
+                    },
+
+                    async goToWizardStep(targetStep, completeCurrent = true) {
+                        if (!targetStep || targetStep === this.wizardStep || this.autosaveStatus === 'conflict') return;
+
+                        if (!this.wizardAutosaveEnabled) {
+                            this.wizardStep = targetStep;
+                            this.syncWizardPreview();
+
+                            return;
+                        }
+
+                        await this.saveWizardStep(this.wizardStep, completeCurrent, targetStep);
                     },
 
                     initSortable() {

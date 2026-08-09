@@ -40,6 +40,44 @@ test('professor consulta créditos e gerencia aulas, atividades e revisões', as
     expect(errors).toEqual([]);
 });
 
+test('professor navega pelo wizard recuperável de oito etapas', async ({ page }) => {
+    const errors = await login(page, 'teacher@email.com');
+    await page.goto('/exams');
+    await page.locator('.card')
+        .filter({ hasText: 'Rascunho sem questões' })
+        .getByRole('link', { name: 'Configurar' })
+        .click();
+    await expect(page.getByRole('heading', { name: 'Criação da Avaliação' })).toBeVisible();
+
+    const wizard = page.getByRole('list', { name: 'Etapas da Avaliação' });
+    await expect(wizard.getByRole('button')).toHaveCount(8);
+
+    await page.route('**/exams/*/draft', async route => {
+        const request = route.request().postDataJSON();
+        expect(request.target_step).toBe('application');
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                saved: true,
+                wizard: {
+                    version: 1,
+                    current_step: 'application',
+                    completed_steps: [request.step],
+                    revision: request.revision + 1,
+                    updated_at: new Date().toISOString(),
+                },
+            }),
+        });
+    });
+
+    await wizard.getByRole('button', { name: /Aplicação/ }).click();
+    await expect(page.getByLabel('Modalidade')).toBeVisible();
+    await expect(page.getByText('Rascunho salvo')).toBeVisible();
+    await expectResponsive(page);
+    expect(errors).toEqual([]);
+});
+
 test('aluno acessa revisão interativa e vê gamificação privada', async ({ page }) => {
     const errors = await login(page, 'student@email.com');
     await page.goto('/student/revisions');
