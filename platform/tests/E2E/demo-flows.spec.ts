@@ -46,8 +46,8 @@ test('professor acessa o gerenciador de materiais reutilizáveis', async ({ page
     await expect(page.getByRole('heading', { name: 'Materiais de apoio', exact: true })).toBeVisible();
     const resourceScopes = page.getByRole('navigation', { name: 'Escopos dos materiais de apoio' });
     await expect(resourceScopes.getByRole('link')).toHaveCount(4);
-    await expect(resourceScopes.getByRole('link', { name: /Institui/ })).toBeVisible();
-    await expect(resourceScopes.getByRole('link', { name: /Públic/ })).toBeVisible();
+    await expect(resourceScopes.locator('a[href*="scope=institution"]')).toBeVisible();
+    await expect(resourceScopes.locator('a[href*="scope=platform"]')).toBeVisible();
     await expectResponsive(page);
 
     await page.goto('/questions?tab=platform');
@@ -65,6 +65,23 @@ test('professor acessa o gerenciador de materiais reutilizáveis', async ({ page
     await expect(page.getByLabel('Visibilidade')).toBeVisible();
     await expect(page.getByLabel(/Arquivo privado/)).toBeVisible();
     await expectResponsive(page);
+
+    await page.goto('/public-catalog/submissions');
+    await expect(page.getByRole('heading', { name: 'Minhas contribuições públicas' })).toBeVisible();
+    await expect(page.getByText('Reputação', { exact: true })).toBeVisible();
+    await expectResponsive(page);
+
+    await page.goto('/questions?tab=mine');
+    const firstQuestion = page.locator('.card').first();
+    await firstQuestion.getByRole('button').first().click();
+    const submitLink = firstQuestion.getByRole('link', { name: 'Enviar ao catálogo' });
+    if (await submitLink.isVisible()) {
+        await submitLink.click();
+        await expect(page.getByRole('heading', { name: 'Enviar para moderação' })).toBeVisible();
+        await expect(page.getByLabel(/Confirmo que tenho os direitos necessários/)).toBeVisible();
+        await expect(page.getByLabel(/Aceito os termos de contribuição/)).toBeVisible();
+        await expectResponsive(page);
+    }
     expect(errors).toEqual([]);
 });
 
@@ -146,6 +163,10 @@ test('superadministrador acessa consumo e cortesias sem dados de outro painel', 
     await page.goto('/admin/courtesies');
     await expect(page.getByRole('heading', { name: /Cortesias/ })).toBeVisible();
     await expect(page.getByText('Demonstração de créditos pedagógicos extras.')).toBeVisible();
+    await page.goto('/admin/public-catalog');
+    await expect(page.getByRole('heading', { name: 'Moderação do catálogo público' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Submissões' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Denúncias abertas' })).toBeVisible();
     await expectResponsive(page);
     expect(errors).toEqual([]);
 });

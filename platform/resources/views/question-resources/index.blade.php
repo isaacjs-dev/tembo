@@ -58,6 +58,15 @@
                     <div class="col-span-2"><dt class="text-gray-500">Autor</dt><dd class="font-extrabold">{{ $resource->owner?->name ?: 'Não informado' }}</dd></div>
                 </dl>
                 <div class="mt-auto flex flex-wrap gap-2 pt-5">
+                    @if((int) $resource->owner_id === (int) auth()->id() && $resource->visibility_scope !== 'platform_public')
+                        @if($resource->has_active_public_submission)
+                            <span class="badge badge-warning">Em moderação</span>
+                        @else
+                            <a href="{{ route('public-catalog.submissions.create', ['type' => 'resource', 'id' => $resource->id]) }}" class="btn-secondary btn-sm">Enviar ao catálogo</a>
+                        @endif
+                    @elseif($resource->visibility_scope === 'platform_public' && (int) $resource->owner_id !== (int) auth()->id())
+                        <a href="{{ route('public-catalog.reports.create', ['type' => 'resource', 'id' => $resource->id]) }}" class="btn-ghost btn-sm text-red-700">Denunciar</a>
+                    @endif
                     @can('update', $resource)<a href="{{ route('question-resources.edit', $resource) }}" class="btn-secondary btn-sm">Editar</a>@endcan
                     @can('delete', $resource)
                         <form method="POST" action="{{ route('question-resources.destroy', $resource) }}" onsubmit="return confirm('Arquivar este recurso? Os vínculos históricos serão preservados.');">@csrf @method('DELETE')<button type="submit" class="btn-ghost btn-sm text-red-700">Arquivar</button></form>

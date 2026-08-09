@@ -27,8 +27,14 @@ class QuestionLibraryService
         return Question::query()
             ->where(function (Builder $query) use ($user, $organizationId): void {
                 $query->where('visibility_scope', 'platform_public')
+                    ->where(function (Builder $query): void {
+                        $query->whereDoesntHave('publicCatalogEntries')
+                            ->orWhereHas('publicCatalogEntries', fn (Builder $entries) => $entries
+                                ->where('status', 'published'));
+                    })
                     ->orWhere(function (Builder $query) use ($user, $organizationId): void {
                         $query->where('organization_id', $organizationId)
+                            ->where('visibility_scope', '!=', 'platform_public')
                             ->where(function (Builder $query) use ($user): void {
                                 $query->where('owner_id', $user->id)
                                     ->orWhere('visibility_scope', 'org_public')

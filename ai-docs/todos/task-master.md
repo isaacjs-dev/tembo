@@ -24,7 +24,7 @@ Fonte: `ai-docs/PRD.md`. Estados válidos: `pending`, `in_progress`, `done`, `bl
 | PED-002 | Entrega e execução de aulas/atividades pelo aluno | PED-02 | PED-001 | pending | Progresso, conclusão e relatório persistentes |
 | LIB-001 | Recurso de Questão versionado e pivot N:M | LIB-01..03 | IAM-004 | done | Reuso sem duplicação e visibilidade compatível |
 | LIB-002 | Biblioteca pessoal/específica/institucional/pública | LIB-01, LIB-04 | LIB-001 | done | Filtros, busca, paginação e policies |
-| LIB-003 | Moderação, denúncia, deduplicação e reputação | LIB-05, LIB-06 | LIB-002 | pending | Publicação exige aprovação e trilha completa |
+| LIB-003 | Moderação, denúncia, deduplicação e reputação | LIB-05, LIB-06 | LIB-002 | done | Publicação exige aprovação e trilha completa |
 | PLAN-001 | Ledger, cotas e cortesias atuais | PLAN-01, PLAN-02 | BASE-002 | done | 331 testes Laravel e testes dedicados aprovados |
 | PLAN-002 | Generalizar entitlements e contagem por membership | PLAN-03, PLAN-05 | IAM-004, PLAN-001 | pending | Vigência/carência/downgrade coerentes |
 | PLAN-003 | Recompensas configuráveis e idempotentes | PLAN-04 | LIB-003, PLAN-002 | pending | Aprovação gera um único crédito com caps |

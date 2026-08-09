@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class QuestionResource extends Model
@@ -65,5 +66,26 @@ class QuestionResource extends Model
             ->using(QuestionResourceLink::class)
             ->withPivot(['id', 'question_resource_version_id', 'is_required', 'sort_order'])
             ->withTimestamps();
+    }
+
+    public function publicCatalogSubmissions(): MorphMany
+    {
+        return $this->morphMany(PublicCatalogSubmission::class, 'submittable');
+    }
+
+    public function publicCatalogEntries(): MorphMany
+    {
+        return $this->morphMany(PublicCatalogEntry::class, 'entryable');
+    }
+
+    public function hasActivePublicSubmission(): bool
+    {
+        if (array_key_exists('has_active_public_submission', $this->attributes)) {
+            return (bool) $this->getAttribute('has_active_public_submission');
+        }
+
+        return $this->publicCatalogSubmissions()
+            ->whereIn('status', PublicCatalogSubmission::ACTIVE_STATUSES)
+            ->exists();
     }
 }

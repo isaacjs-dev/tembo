@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Activity;
 use App\Models\Discipline;
-use App\Models\Question;
 use App\Services\PedagogicalAccessService;
+use App\Services\QuestionLibraryService;
 use App\Services\RevisionBuilderService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -79,11 +79,9 @@ class ActivityController extends Controller
     {
         return view('activities.form', ['activity' => $activity->load(['schoolClasses', 'questions']), 'classes' => $access->classesFor($request->user()),
             'disciplines' => Discipline::where('organization_id', $request->user()->organization_id)->orderBy('name')->get(),
-            'questions' => Question::where('organization_id', $request->user()->organization_id)->where(function ($q) use ($request) {
-                $q->where('owner_id', $request->user()->id)
-                    ->orWhere('visibility_scope', 'org_public')
-                    ->orWhereHas('shares', fn ($share) => $share->where('shared_with_user_id', $request->user()->id));
-            })->latest()->limit(200)->get()]);
+            'questions' => app(QuestionLibraryService::class)->visibleTo($request->user())
+                ->where('organization_id', $request->user()->organization_id)
+                ->latest()->limit(200)->get()]);
     }
 
     private function validated(Request $request): array
@@ -97,13 +95,10 @@ class ActivityController extends Controller
 
     private function syncQuestions(Activity $activity, array $questionIds, Request $request): void
     {
-        $allowed = Question::where('organization_id', $request->user()->organization_id)
+        $allowed = app(QuestionLibraryService::class)->visibleTo($request->user())
+            ->where('organization_id', $request->user()->organization_id)
             ->whereIn('id', $questionIds)
-            ->where(function ($query) use ($request): void {
-                $query->where('owner_id', $request->user()->id)
-                    ->orWhere('visibility_scope', 'org_public')
-                    ->orWhereHas('shares', fn ($share) => $share->where('shared_with_user_id', $request->user()->id));
-            })->pluck('id');
+            ->pluck('id');
         abort_unless($allowed->count() === count(array_unique($questionIds)), 403);
         $activity->questions()->sync($allowed->mapWithKeys(fn ($id, $order) => [$id => ['order' => $order, 'points' => 1]])->all());
     }

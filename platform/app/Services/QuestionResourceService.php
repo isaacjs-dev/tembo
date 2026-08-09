@@ -21,8 +21,14 @@ class QuestionResourceService
             ->where('status', 'active')
             ->where(function (Builder $query) use ($user, $organizationId): void {
                 $query->where('visibility_scope', 'platform_public')
+                    ->where(function (Builder $query): void {
+                        $query->whereDoesntHave('publicCatalogEntries')
+                            ->orWhereHas('publicCatalogEntries', fn (Builder $entries) => $entries
+                                ->where('status', 'published'));
+                    })
                     ->orWhere(function (Builder $query) use ($user, $organizationId): void {
                         $query->where('organization_id', $organizationId)
+                            ->where('visibility_scope', '!=', 'platform_public')
                             ->where(function (Builder $query) use ($user): void {
                                 $query->where('owner_id', $user->id)
                                     ->orWhere('visibility_scope', 'organization')
@@ -43,7 +49,10 @@ class QuestionResourceService
         }
 
         if ($resource->visibility_scope === 'platform_public') {
-            return true;
+            $isPublished = $resource->publicCatalogEntries()->doesntExist()
+                || $resource->publicCatalogEntries()->where('status', 'published')->exists();
+
+            return $isPublished;
         }
 
         if ((int) $user->organization_id !== (int) $resource->organization_id) {
@@ -112,15 +121,19 @@ class QuestionResourceService
         $existingLinks = $question->resourceLinks()->with('version')->get()->keyBy('question_resource_id');
         $visibleExistingIds = $this->visibleTo($actor)
             ->whereKey($existingLinks->keys())
-            ->pluck('id');
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id);
         $preservedLinks = $existingLinks->except($visibleExistingIds->all());
+        $preservedResourceIds = $preservedLinks->pluck('question_resource_id')
+            ->map(fn ($id): int => (int) $id);
+        $requestedVisibleIds = $ids->diff($preservedResourceIds)->values();
 
         $resources = $this->visibleTo($actor)
             ->with(['currentVersion', 'shares:id,question_resource_id,shared_with_user_id'])
-            ->whereKey($ids)
+            ->whereKey($requestedVisibleIds)
             ->get()
             ->keyBy('id');
-        if ($resources->count() !== $ids->count()) {
+        if ($resources->count() !== $requestedVisibleIds->count()) {
             throw ValidationException::withMessages([
                 'resource_ids' => 'Um ou mais recursos não existem ou não estão acessíveis neste contexto.',
             ]);
@@ -135,6 +148,9 @@ class QuestionResourceService
             ],
         ])->all();
         foreach ($ids as $order => $resourceId) {
+            if ($preservedResourceIds->contains($resourceId)) {
+                continue;
+            }
             $resource = $resources->get($resourceId);
             if (! $resource?->currentVersion) {
                 throw ValidationException::withMessages([

@@ -40,6 +40,8 @@ class QuestionResourceController extends Controller
             ->when($request->filled('type'), fn (Builder $query) => $query
                 ->where('type', $request->string('type')->toString()))
             ->with(['owner:id,name', 'currentVersion'])
+            ->withExists(['publicCatalogSubmissions as has_active_public_submission' => fn (Builder $submissions) => $submissions
+                ->whereIn('status', ['pending', 'in_review'])])
             ->withCount(['questions' => fn (Builder $questions) => $questions
                 ->where('questions.organization_id', $request->user()->organization_id)]);
 
