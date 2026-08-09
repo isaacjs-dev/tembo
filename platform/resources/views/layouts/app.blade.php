@@ -131,18 +131,39 @@
                 {{-- ══════════════════════════════════════════ --}}
                 {{-- INSTITUTION ADMIN --}}
                 {{-- ══════════════════════════════════════════ --}}
-                @role('institution_admin')
+                @php
+                    $institutionPermissions = app(\App\Services\InstitutionPermissionService::class);
+                    $navigationUser = auth()->user();
+                    $navigationOrganizationId = (int) $navigationUser->organization_id;
+                    $canViewTeachers = $institutionPermissions->allows($navigationUser, 'view_teachers', $navigationOrganizationId);
+                    $canViewStudents = $institutionPermissions->allows($navigationUser, 'view_students', $navigationOrganizationId);
+                    $canViewClasses = $institutionPermissions->allows($navigationUser, 'view_classes', $navigationOrganizationId);
+                    $canViewInvites = $institutionPermissions->allows($navigationUser, 'view_invites', $navigationOrganizationId);
+                    $canViewReports = $institutionPermissions->allows($navigationUser, 'view_reports', $navigationOrganizationId);
+                    $canViewOmr = $institutionPermissions->allows($navigationUser, 'view_omr', $navigationOrganizationId);
+                    $canManageInstitution = in_array(
+                        $navigationUser->roleInOrganization($navigationOrganizationId),
+                        ['global_admin', 'admin', 'institution_admin'],
+                        true,
+                    );
+                @endphp
+                @if($canViewTeachers || $canViewStudents || $canViewClasses || $canViewInvites || $canViewReports || $canViewOmr || $canManageInstitution)
                 <div class="mt-4">
                     <h3 class="sidebar-section-title">Operação</h3>
                     <div class="space-y-0.5">
+                        @if($canViewTeachers)
                         <a href="{{ route('institution.teachers.index') }}"
                             class="sidebar-link {{ request()->routeIs('institution.teachers.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">person_add</span> Professores
                         </a>
+                        @endif
+                        @if($canViewClasses)
                         <a href="{{ route('institution.classes.index') }}"
                             class="sidebar-link {{ request()->routeIs('institution.classes.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">groups</span> Turmas
                         </a>
+                        @endif
+                        @if($canViewStudents)
                         <a href="{{ route('institution.students.index') }}"
                             class="sidebar-link {{ request()->routeIs('institution.students.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">school</span> Alunos
@@ -151,24 +172,34 @@
                             class="sidebar-link {{ request()->routeIs('institution.guardians.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">family_restroom</span> Responsáveis
                         </a>
+                        @endif
+                        @if($canViewInvites)
                         <a href="{{ route('institution.invites.index') }}"
                             class="sidebar-link {{ request()->routeIs('institution.invites.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">mail</span> Convites
                         </a>
+                        @endif
+                        @if($canManageInstitution)
                         <a href="{{ route('institution.roles.index') }}"
                             class="sidebar-link {{ request()->routeIs('institution.roles.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">badge</span> Cargos
                         </a>
+                        @endif
+                        @if($canViewReports)
                         <a href="{{ route('institution.reports') }}"
                             class="sidebar-link {{ request()->routeIs('institution.reports') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">monitoring</span> Relatórios
                         </a>
+                        @endif
+                        @if($canViewOmr)
                         <a href="{{ route('institution.omr.index') }}"
                             class="sidebar-link {{ request()->routeIs('institution.omr.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">document_scanner</span> Leitura OMR
                         </a>
+                        @endif
                     </div>
                 </div>
+                @if($canManageInstitution)
                 <div class="mt-4">
                     <h3 class="sidebar-section-title">Configurações</h3>
                     <div class="space-y-0.5">
@@ -182,12 +213,13 @@
                         </a>
                     </div>
                 </div>
-                @endrole
+                @endif
+                @endif
 
                 {{-- ══════════════════════════════════════════ --}}
                 {{-- ACADÊMICO (Teacher + Institution Admin) --}}
                 {{-- ══════════════════════════════════════════ --}}
-                @if(in_array(auth()->user()->type, ['teacher', 'institution_admin'], true))
+                @if(auth()->user()->hasWorkspaceRole('teacher', 'admin', 'institution_admin'))
                     <div class="mt-4">
                         <h3 class="sidebar-section-title">Acadêmico</h3>
                         <div class="space-y-0.5">

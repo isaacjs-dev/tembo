@@ -158,7 +158,7 @@
                 </div>
 
                 <div class="space-y-2">
-                    <label for="password" class="text-gray-800 font-bold text-sm">Senha Inicial</label>
+                    <label for="password" class="text-gray-800 font-bold text-sm">Senha provisória</label>
                     <div class="relative group">
                         <div
                             class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-primary transition-colors">
@@ -168,6 +168,7 @@
                             class="block w-full pl-11 pr-4 py-3 bg-background-light border-2 border-duo-border rounded-xl text-gray-800 focus:outline-none focus:border-primary focus:ring-0 transition-all font-medium"
                             placeholder="Mínimo 8 caracteres">
                     </div>
+                    <p class="text-xs text-gray-500">O titular deverá confirmar o e-mail e trocar esta senha antes de acessar dados institucionais.</p>
                 </div>
 
                 <div class="space-y-2">

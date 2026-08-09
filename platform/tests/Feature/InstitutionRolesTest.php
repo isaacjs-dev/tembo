@@ -199,7 +199,7 @@ class InstitutionRolesTest extends TestCase
         ]);
 
         $service = app(InstitutionRoleService::class);
-        $service->assignToUser($teacher->id, $org->id, $role->id);
+        $service->assignToUser($admin, $teacher->id, $org->id, $role->id);
 
         $this->assertDatabaseHas('user_organization', [
             'user_id' => $teacher->id,

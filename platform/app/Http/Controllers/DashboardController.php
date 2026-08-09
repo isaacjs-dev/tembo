@@ -25,7 +25,7 @@ class DashboardController extends Controller
             return redirect()->route('guardian.dashboard');
         } elseif ($type === 'global_admin') {
             return redirect()->route('admin.dashboard');
-        } elseif (in_array($type, ['admin', 'institution_admin'], true)) {
+        } elseif (in_array($type, ['admin', 'institution_admin', 'director', 'coordinator', 'pedagogue'], true)) {
             return redirect()->route('institution.dashboard');
         }
 

@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\AuditLog;
 use App\Models\InstitutionRole;
 use App\Models\Organization;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class InstitutionRoleService
@@ -92,23 +94,78 @@ class InstitutionRoleService
     /**
      * Atribui um cargo institucional a um usuário na pivot.
      */
-    public function assignToUser(int $userId, int $orgId, int $roleId): void
+    public function assignToUser(User $actor, int $userId, int $orgId, int $roleId): void
     {
-        \DB::table('user_organization')
+        $this->authorizeRoleManagement($actor, $orgId);
+        $role = InstitutionRole::query()
+            ->where('organization_id', $orgId)
+            ->where('is_active', true)
+            ->find($roleId);
+        $membership = DB::table('user_organization')
+            ->where('user_id', $userId)
+            ->where('organization_id', $orgId)
+            ->where('status', 'active')
+            ->first();
+
+        if (! $role || ! $membership) {
+            throw ValidationException::withMessages([
+                'role_id' => 'Cargo e membro devem estar ativos no workspace atual.',
+            ]);
+        }
+
+        DB::table('user_organization')
             ->where('user_id', $userId)
             ->where('organization_id', $orgId)
             ->update(['institution_role_id' => $roleId]);
+
+        AuditLog::log('role_assigned', User::class, $userId, [
+            'organization_id' => $orgId,
+            'before' => ['institution_role_id' => $membership->institution_role_id],
+            'after' => ['institution_role_id' => $roleId],
+        ]);
     }
 
     /**
      * Remove o cargo institucional de um usuário.
      */
-    public function removeFromUser(int $userId, int $orgId): void
+    public function removeFromUser(User $actor, int $userId, int $orgId): void
     {
-        \DB::table('user_organization')
+        $this->authorizeRoleManagement($actor, $orgId);
+        $membership = DB::table('user_organization')
+            ->where('user_id', $userId)
+            ->where('organization_id', $orgId)
+            ->where('status', 'active')
+            ->first();
+
+        if (! $membership) {
+            throw ValidationException::withMessages([
+                'user_id' => 'O membro não pertence ao workspace atual.',
+            ]);
+        }
+
+        DB::table('user_organization')
             ->where('user_id', $userId)
             ->where('organization_id', $orgId)
             ->update(['institution_role_id' => null]);
+
+        AuditLog::log('role_assigned', User::class, $userId, [
+            'organization_id' => $orgId,
+            'before' => ['institution_role_id' => $membership->institution_role_id],
+            'after' => ['institution_role_id' => null],
+        ]);
+    }
+
+    private function authorizeRoleManagement(User $actor, int $organizationId): void
+    {
+        abort_unless(
+            $actor->canUseOrganizationContext($organizationId)
+                && in_array(
+                    $actor->roleInOrganization($organizationId),
+                    ['global_admin', 'admin', 'institution_admin'],
+                    true,
+                ),
+            403,
+        );
     }
 
     /**

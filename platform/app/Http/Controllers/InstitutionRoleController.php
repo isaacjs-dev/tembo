@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\InstitutionRole;
 use App\Services\InstitutionRoleService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class InstitutionRoleController extends Controller
@@ -93,17 +94,31 @@ class InstitutionRoleController extends Controller
     public function assign(Request $request)
     {
         $validated = $request->validate([
-            'user_id' => 'required|exists:users,id',
-            'role_id' => 'nullable|exists:institution_roles,id',
+            'user_id' => [
+                'required',
+                'integer',
+                Rule::exists('user_organization', 'user_id')
+                    ->where(fn ($query) => $query
+                        ->where('organization_id', auth()->user()->organization_id)
+                        ->where('status', 'active')),
+            ],
+            'role_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('institution_roles', 'id')
+                    ->where(fn ($query) => $query
+                        ->where('organization_id', auth()->user()->organization_id)
+                        ->where('is_active', true)),
+            ],
         ]);
 
         $service = app(InstitutionRoleService::class);
         $orgId = auth()->user()->organization_id;
 
-        if ($validated['role_id']) {
-            $service->assignToUser($validated['user_id'], $orgId, $validated['role_id']);
+        if ($validated['role_id'] ?? null) {
+            $service->assignToUser(auth()->user(), $validated['user_id'], $orgId, $validated['role_id']);
         } else {
-            $service->removeFromUser($validated['user_id'], $orgId);
+            $service->removeFromUser(auth()->user(), $validated['user_id'], $orgId);
         }
 
         return back()->with('status', 'Cargo atualizado para o membro.');

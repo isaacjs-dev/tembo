@@ -10,6 +10,7 @@ use App\Services\AcademicRelationshipService;
 use App\Services\InviteManagerService;
 use App\Services\OrganizationMembershipService;
 use App\Services\UserFinderService;
+use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -130,14 +131,20 @@ class StudentController extends Controller
             ],
         ]);
 
-        DB::transaction(function () use ($validated, $request, $org) {
+        $createdStudent = null;
+        DB::transaction(function () use ($validated, $request, $org, &$createdStudent) {
             $student = User::create([
                 'name' => $validated['name'],
                 'email' => $validated['email'],
                 'password' => Hash::make($validated['password']),
                 'organization_id' => $org->id,
                 'type' => 'student',
+                'settings' => [
+                    'requires_email_verification' => true,
+                    'must_change_password' => true,
+                ],
             ]);
+            $createdStudent = $student;
 
             $student->assignRole('student');
 
@@ -165,6 +172,8 @@ class StudentController extends Controller
                 'new' => ['name' => $student->name, 'email' => $student->email, 'type' => 'student'],
             ]);
         });
+
+        event(new Registered($createdStudent));
 
         return redirect()->route('institution.students.index')->with('status', 'Aluno cadastrado com sucesso!');
     }

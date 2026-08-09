@@ -30,7 +30,7 @@ class UserLinkerService
             ]);
         }
 
-        if ($user->email !== $invite->invitee_email) {
+        if (mb_strtolower($user->email) !== mb_strtolower($invite->invitee_email)) {
             throw ValidationException::withMessages([
                 'invite' => 'Este convite foi enviado para outro e-mail.',
             ]);
@@ -145,7 +145,7 @@ class UserLinkerService
             ]);
         }
 
-        if ($user->email !== $invite->invitee_email) {
+        if (mb_strtolower($user->email) !== mb_strtolower($invite->invitee_email)) {
             throw ValidationException::withMessages([
                 'invite' => 'Este convite foi enviado para outro e-mail.',
             ]);
@@ -162,9 +162,17 @@ class UserLinkerService
      * Desvincula um usuário de uma organização.
      * Remove acesso a turmas institucionais e recalcula plano efetivo.
      */
-    public function unlink(User $user, int $organizationId): void
+    public function unlink(User $actor, User $user, int $organizationId): void
     {
-        DB::transaction(function () use ($user, $organizationId) {
+        abort_unless($actor->canUseOrganizationContext($organizationId), 403);
+        $targetRole = $user->roleInOrganization($organizationId);
+        $permission = $targetRole === 'student' ? 'manage_students' : 'manage_teachers';
+        abort_unless(
+            app(InstitutionPermissionService::class)->allows($actor, $permission, $organizationId),
+            403,
+        );
+
+        DB::transaction(function () use ($actor, $user, $organizationId, $targetRole) {
             $user->organizations()->updateExistingPivot($organizationId, [
                 'status' => 'inactive',
             ]);
@@ -183,6 +191,9 @@ class UserLinkerService
 
             AuditLog::log('unlinked', User::class, $user->id, [
                 'organization_id' => $organizationId,
+                'actor_id' => $actor->id,
+                'before' => ['role' => $targetRole, 'status' => 'active'],
+                'after' => ['role' => $targetRole, 'status' => 'inactive'],
             ]);
         });
     }

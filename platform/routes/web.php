@@ -103,7 +103,7 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
             ->name('students.show');
     });
 
-    Route::prefix('institution')->name('institution.')->middleware('workspace_role:admin,institution_admin,teacher,global_admin')->group(function () {
+    Route::prefix('institution')->name('institution.')->middleware('workspace_role:admin,institution_admin,director,coordinator,pedagogue,teacher,global_admin')->group(function () {
         Route::get('/dashboard', [InstitutionController::class, 'dashboard'])->name('dashboard');
 
         Route::middleware('workspace_role:admin,institution_admin,global_admin')->group(function () {
@@ -114,37 +114,67 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
             Route::post('billing/change-plan', [BillingController::class, 'changePlan'])->name('billing.changePlan');
             Route::post('billing/cancel', [BillingController::class, 'cancelPlan'])->name('billing.cancelPlan');
 
-            // Convites (gestão institucional)
-            Route::resource('invites', InviteController::class)->only(['index', 'create', 'store', 'destroy']);
-
-            Route::get('teachers/{teacher}/permissions', [TeacherController::class, 'permissions'])->name('teachers.permissions');
-            Route::put('teachers/{teacher}/permissions', [TeacherController::class, 'updatePermissions'])->name('teachers.permissions.update');
-            Route::post('teachers/search', [TeacherController::class, 'search'])->name('teachers.search');
-
-            Route::resource('teachers', TeacherController::class);
-
-            Route::post('students/search', [StudentController::class, 'search'])->name('students.search');
-            Route::resource('students', StudentController::class);
-
-            Route::get('guardians', [GuardianLinkController::class, 'index'])
-                ->name('guardians.index');
-            Route::post('guardians', [GuardianLinkController::class, 'store'])
-                ->name('guardians.store');
-            Route::delete(
-                'guardians/{guardianLink}',
-                [GuardianLinkController::class, 'destroy']
-            )->name('guardians.destroy');
-
             Route::resource('roles', InstitutionRoleController::class);
             Route::post('roles/assign', [InstitutionRoleController::class, 'assign'])->name('roles.assign');
         });
+
+        Route::get('invites', [InviteController::class, 'index'])
+            ->middleware('inst_perm:view_invites')->name('invites.index');
+        Route::get('invites/create', [InviteController::class, 'create'])
+            ->middleware('inst_perm:manage_invites')->name('invites.create');
+        Route::post('invites', [InviteController::class, 'store'])
+            ->middleware('inst_perm:manage_invites')->name('invites.store');
+        Route::delete('invites/{invite}', [InviteController::class, 'destroy'])
+            ->middleware('inst_perm:manage_invites')->name('invites.destroy');
+
+        Route::get('teachers', [TeacherController::class, 'index'])
+            ->middleware('inst_perm:view_teachers')->name('teachers.index');
+        Route::post('teachers/search', [TeacherController::class, 'search'])
+            ->middleware('inst_perm:view_teachers')->name('teachers.search');
+        Route::get('teachers/create', [TeacherController::class, 'create'])
+            ->middleware('inst_perm:manage_teachers')->name('teachers.create');
+        Route::post('teachers', [TeacherController::class, 'store'])
+            ->middleware('inst_perm:manage_teachers')->name('teachers.store');
+        Route::get('teachers/{teacher}/edit', [TeacherController::class, 'edit'])
+            ->middleware('inst_perm:manage_teachers')->name('teachers.edit');
+        Route::put('teachers/{teacher}', [TeacherController::class, 'update'])
+            ->middleware('inst_perm:manage_teachers')->name('teachers.update');
+        Route::delete('teachers/{teacher}', [TeacherController::class, 'destroy'])
+            ->middleware('inst_perm:manage_teachers')->name('teachers.destroy');
+        Route::get('teachers/{teacher}/permissions', [TeacherController::class, 'permissions'])
+            ->middleware('workspace_role:admin,institution_admin,global_admin')->name('teachers.permissions');
+        Route::put('teachers/{teacher}/permissions', [TeacherController::class, 'updatePermissions'])
+            ->middleware('workspace_role:admin,institution_admin,global_admin')->name('teachers.permissions.update');
+
+        Route::get('students', [StudentController::class, 'index'])
+            ->middleware('inst_perm:view_students')->name('students.index');
+        Route::post('students/search', [StudentController::class, 'search'])
+            ->middleware('inst_perm:view_students')->name('students.search');
+        Route::get('students/create', [StudentController::class, 'create'])
+            ->middleware('inst_perm:manage_students')->name('students.create');
+        Route::post('students', [StudentController::class, 'store'])
+            ->middleware('inst_perm:manage_students')->name('students.store');
+        Route::get('students/{student}/edit', [StudentController::class, 'edit'])
+            ->middleware('inst_perm:manage_students')->name('students.edit');
+        Route::put('students/{student}', [StudentController::class, 'update'])
+            ->middleware('inst_perm:manage_students')->name('students.update');
+        Route::delete('students/{student}', [StudentController::class, 'destroy'])
+            ->middleware('inst_perm:manage_students')->name('students.destroy');
+
+        Route::get('guardians', [GuardianLinkController::class, 'index'])
+            ->middleware('inst_perm:view_students')->name('guardians.index');
+        Route::post('guardians', [GuardianLinkController::class, 'store'])
+            ->middleware('inst_perm:manage_students')->name('guardians.store');
+        Route::delete('guardians/{guardianLink}', [GuardianLinkController::class, 'destroy'])
+            ->middleware('inst_perm:manage_students')->name('guardians.destroy');
 
         Route::resource('classes', SchoolClassController::class);
         Route::post('classes/{class}/enroll', [SchoolClassController::class, 'enroll'])->name('classes.enroll');
         Route::post('classes/{class}/transfer', [SchoolClassController::class, 'initiateTransfer'])->name('classes.transfer');
         Route::post('classes/{class}/transfer/cancel', [SchoolClassController::class, 'cancelTransfer'])->name('classes.transfer.cancel');
 
-        Route::get('reports', [ReportController::class, 'index'])->name('reports');
+        Route::get('reports', [ReportController::class, 'index'])
+            ->middleware('inst_perm:view_reports')->name('reports');
 
         Route::middleware('restrict_trash')->group(function () {
             Route::get('trash', [TrashController::class, 'index'])->name('trash.index');
@@ -157,17 +187,24 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
             ->name('logs');
 
         // Taxonomy AJAX
-        Route::post('knowledge-areas', [TaxonomyController::class, 'storeKnowledgeArea'])->name('knowledge-areas.store');
-        Route::post('disciplines', [TaxonomyController::class, 'storeDiscipline'])->name('disciplines.store');
+        Route::post('knowledge-areas', [TaxonomyController::class, 'storeKnowledgeArea'])
+            ->middleware('inst_perm:manage_questions')->name('knowledge-areas.store');
+        Route::post('disciplines', [TaxonomyController::class, 'storeDiscipline'])
+            ->middleware('inst_perm:manage_questions')->name('disciplines.store');
 
         // BNCC AJAX
-        Route::get('bncc/schema', [BNCcController::class, 'schema'])->name('bncc.schema');
-        Route::get('bncc/nodes', [BNCcController::class, 'nodes'])->name('bncc.nodes');
-        Route::get('bncc/search', [BNCcController::class, 'search'])->name('bncc.search');
+        Route::get('bncc/schema', [BNCcController::class, 'schema'])
+            ->middleware('inst_perm:view_questions')->name('bncc.schema');
+        Route::get('bncc/nodes', [BNCcController::class, 'nodes'])
+            ->middleware('inst_perm:view_questions')->name('bncc.nodes');
+        Route::get('bncc/search', [BNCcController::class, 'search'])
+            ->middleware('inst_perm:view_questions')->name('bncc.search');
 
         // Custom Skills AJAX
-        Route::get('custom-skills/search', [CustomSkillController::class, 'search'])->name('custom-skills.search');
-        Route::post('custom-skills/store', [CustomSkillController::class, 'store'])->name('custom-skills.store');
+        Route::get('custom-skills/search', [CustomSkillController::class, 'search'])
+            ->middleware('inst_perm:view_questions')->name('custom-skills.search');
+        Route::post('custom-skills/store', [CustomSkillController::class, 'store'])
+            ->middleware('inst_perm:manage_questions')->name('custom-skills.store');
 
         // OMR
         Route::prefix('omr')->name('omr.')->middleware('omr_api:permission-only')->group(function () {

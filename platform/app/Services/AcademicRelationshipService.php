@@ -23,7 +23,7 @@ class AcademicRelationshipService
         $organizationId = (int) $organization->id;
         abort_unless($actor->canUseOrganizationContext($organizationId), 403);
         abort_unless(
-            $this->actorCanManageOrganization($actor, $organization)
+            app(InstitutionPermissionService::class)->allows($actor, 'manage_teachers', $organizationId)
                 || ($organization->isPersonalWorkspace() && $actor->is($teacher)),
             403,
         );
@@ -152,21 +152,12 @@ class AcademicRelationshipService
         $this->linkClassStudentTeachersById((int) $schoolClass->id, (int) $actor->id);
     }
 
-    private function actorCanManageOrganization(User $actor, Organization $organization): bool
-    {
-        return in_array(
-            $actor->roleInOrganization((int) $organization->id),
-            ['admin', 'institution_admin', 'global_admin'],
-            true,
-        ) || ($organization->isPersonalWorkspace() && (int) $organization->owner_user_id === (int) $actor->id);
-    }
-
     private function actorCanManageClass(User $actor, SchoolClass $schoolClass): bool
     {
-        return in_array(
-            $actor->roleInOrganization((int) $schoolClass->organization_id),
-            ['admin', 'institution_admin', 'global_admin'],
-            true,
+        return app(InstitutionPermissionService::class)->allows(
+            $actor,
+            'manage_classes',
+            (int) $schoolClass->organization_id,
         ) || ($schoolClass->owner_type === 'user' && (int) $schoolClass->owner_id === (int) $actor->id);
     }
 

@@ -6,7 +6,8 @@ use App\Models\AuditLog;
 use App\Models\Invite;
 use App\Models\Organization;
 use App\Models\User;
-use Illuminate\Support\Facades\Mail;
+use App\Notifications\InstitutionInviteNotification;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
 
 class InviteManagerService
@@ -31,7 +32,24 @@ class InviteManagerService
         ?string $targetEntityType = null,
         ?int $targetEntityId = null,
     ): Invite {
+        $email = mb_strtolower(trim($email));
+
         // Validações de negócio
+        if ($organization) {
+            abort_unless($inviter->canUseOrganizationContext((int) $organization->id), 403);
+
+            if (str_starts_with($inviteType, 'org_')) {
+                $allowedRoles = app(InstitutionPermissionService::class)
+                    ->invitationalRoles($inviter, (int) $organization->id);
+
+                if (! in_array($targetRole, $allowedRoles, true)) {
+                    throw ValidationException::withMessages([
+                        'target_role' => 'Seu papel não pode convidar este perfil institucional.',
+                    ]);
+                }
+            }
+        }
+
         $this->validateNoDuplicate($email, $organization, $inviteType, $targetEntityType, $targetEntityId);
         $this->validateLimits($organization, $targetRole);
 
@@ -63,8 +81,12 @@ class InviteManagerService
     /**
      * Cancela um convite pendente.
      */
-    public function cancel(Invite $invite): void
+    public function cancel(Invite $invite, User $actor): void
     {
+        if ($invite->organization_id) {
+            abort_unless($actor->canUseOrganizationContext((int) $invite->organization_id), 403);
+        }
+
         if (! $invite->isPending()) {
             throw ValidationException::withMessages([
                 'invite' => 'Apenas convites pendentes podem ser cancelados.',
@@ -73,7 +95,10 @@ class InviteManagerService
 
         $invite->cancel();
 
-        AuditLog::log('invite_canceled', Invite::class, $invite->id);
+        AuditLog::log('invite_canceled', Invite::class, $invite->id, [
+            'organization_id' => $invite->organization_id,
+            'invite_type' => $invite->invite_type,
+        ]);
     }
 
     /**
@@ -145,7 +170,8 @@ class InviteManagerService
      */
     private function sendEmail(Invite $invite): void
     {
-        // TODO: Implementar InviteMailable com template Blade
-        // Mail::to($invite->invitee_email)->queue(new \App\Mail\InviteMailable($invite));
+        $invite->loadMissing('organization:id,name');
+        Notification::route('mail', $invite->invitee_email)
+            ->notify(new InstitutionInviteNotification($invite));
     }
 }

@@ -10,6 +10,7 @@ use App\Models\Subscription;
 use App\Models\User;
 use App\Services\UserFinderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use PHPUnit\Framework\Attributes\Test;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -25,6 +26,7 @@ class LinkCodeAndInviteTest extends TestCase
         foreach (['global_admin', 'institution_admin', 'teacher', 'student'] as $r) {
             Role::findOrCreate($r, 'web');
         }
+        Notification::fake();
     }
 
     private function createOrg(): Organization
@@ -185,7 +187,7 @@ class LinkCodeAndInviteTest extends TestCase
     }
 
     #[Test]
-    public function institution_created_teacher_can_log_in_without_a_conflicting_verification_redirect(): void
+    public function institution_created_teacher_must_verify_and_replace_the_provisional_password(): void
     {
         $org = $this->createOrg();
         $admin = $this->createAdmin($org);
@@ -207,7 +209,9 @@ class LinkCodeAndInviteTest extends TestCase
         ])->assertRedirect(route('institution.dashboard', absolute: false));
 
         $this->assertAuthenticatedAs($teacher);
-        $this->get(route('institution.dashboard'))->assertOk();
+        $this->get(route('institution.dashboard'))
+            ->assertRedirect(route('verification.notice'));
+        $this->assertTrue((bool) ($teacher->settings['must_change_password'] ?? false));
     }
 
     #[Test]

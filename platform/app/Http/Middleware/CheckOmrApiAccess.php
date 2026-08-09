@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\UserOrganization;
+use App\Services\InstitutionPermissionService;
 use Closure;
 use Illuminate\Http\Request;
 
@@ -21,33 +21,22 @@ class CheckOmrApiAccess
         }
 
         // Check plan feature (chave 'omr' é a semeada em PlanSeeder para pro/enterprise)
-        $workspaceRole = $request->attributes->get('workspace_role');
-        if (! in_array($workspaceRole, ['teacher', 'admin', 'institution_admin', 'global_admin'], true)) {
+        if (! app(InstitutionPermissionService::class)->allows(
+            $user,
+            'manage_omr',
+            (int) $user->organization_id,
+        )) {
             return response()->json(['error' => 'Acesso não autorizado ao OMR.'], 403);
+        }
+
+        if ($mode !== 'permission-only' && $user->roleInOrganization((int) $user->organization_id) !== 'teacher') {
+            return response()->json([
+                'error' => 'A correção institucional está disponível somente no ambiente Web.',
+            ], 403);
         }
 
         if ($mode !== 'permission-only' && ! $user->organization->hasFeature('omr')) {
             return response()->json(['error' => 'Recurso OMR mobile não disponível no plano atual.'], 403);
-        }
-
-        // Check institution permission (manage_omr)
-        $orgId = $user->organization_id;
-        $pivot = UserOrganization::where('user_id', $user->id)
-            ->where('organization_id', $orgId)
-            ->where('status', 'active')
-            ->first();
-
-        if (! $pivot) {
-            // Legacy users may use the direct organization link only before
-            // they have any authoritative membership rows.
-            if ($user->organizations()->exists()) {
-                return response()->json(['error' => 'Acesso não autorizado ao OMR.'], 403);
-            }
-        } elseif ($pivot->institution_role_id) {
-            $institutionRole = $pivot->role;
-            if (! $institutionRole || ! $institutionRole->is_active || ! $institutionRole->hasPermission('manage_omr')) {
-                return response()->json(['error' => 'Sem permissão para gerenciar leituras OMR.'], 403);
-            }
         }
 
         return $next($request);

@@ -58,11 +58,19 @@
                             *</label>
                         <select id="invite-role" name="target_role" required
                             class="w-full px-4 py-3 bg-white border-2 border-duo-border rounded-xl text-sm font-medium focus:border-primary focus:ring-0 transition-colors">
-                            <option value="teacher" {{ old('target_role') == 'teacher' ? 'selected' : '' }}>Professor
-                            </option>
-                            <option value="admin" {{ old('target_role') == 'admin' ? 'selected' : '' }}>Administrador
-                            </option>
-                            <option value="student" {{ old('target_role') == 'student' ? 'selected' : '' }}>Aluno</option>
+                            @foreach ([
+                                'director' => 'Diretor',
+                                'coordinator' => 'Coordenador',
+                                'pedagogue' => 'Pedagogo',
+                                'teacher' => 'Professor',
+                                'student' => 'Aluno',
+                            ] as $roleKey => $roleLabel)
+                                @if (in_array($roleKey, $allowedRoles, true))
+                                    <option value="{{ $roleKey }}" @selected(old('target_role') === $roleKey)>
+                                        {{ $roleLabel }}
+                                    </option>
+                                @endif
+                            @endforeach
                         </select>
                     </div>
                 </div>
