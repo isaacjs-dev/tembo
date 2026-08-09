@@ -45,6 +45,13 @@ class SchoolClass extends Model
             ->withPivot('assigned_at');
     }
 
+    public function disciplines()
+    {
+        return $this->belongsToMany(Discipline::class, 'class_discipline', 'school_class_id', 'discipline_id')
+            ->withPivot('organization_id', 'assigned_by')
+            ->withTimestamps();
+    }
+
     /**
      * Proprietário morph (Organization ou User).
      */

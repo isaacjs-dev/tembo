@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
+use App\Models\SchoolClass;
 use App\Models\StudentProfile;
 use App\Models\User;
+use App\Services\AcademicRelationshipService;
 use App\Services\InviteManagerService;
 use App\Services\OrganizationMembershipService;
 use App\Services\UserFinderService;
@@ -156,6 +158,7 @@ class StudentController extends Controller
 
             if ($request->has('school_classes')) {
                 $student->schoolClasses()->sync($validated['school_classes']);
+                $this->linkClassTeachers($student, $org->id, $validated['school_classes']);
             }
 
             AuditLog::log('created', User::class, $student->id, [
@@ -225,6 +228,14 @@ class StudentController extends Controller
                 $request->has('school_classes') ? $validated['school_classes'] : [],
             );
 
+            if ($validated['status'] === 'active') {
+                $this->linkClassTeachers(
+                    $student,
+                    $organizationId,
+                    $request->has('school_classes') ? $validated['school_classes'] : [],
+                );
+            }
+
             AuditLog::log('updated', User::class, $student->id);
         });
 
@@ -293,5 +304,21 @@ class StudentController extends Controller
             ...$foreignClassIds,
             ...$localClassIds,
         ])));
+    }
+
+    private function linkClassTeachers(User $student, int $organizationId, array $classIds): void
+    {
+        $classes = SchoolClass::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->whereIn('id', $classIds)
+            ->get();
+
+        foreach ($classes as $schoolClass) {
+            app(AcademicRelationshipService::class)->linkClassStudentTeachers(
+                $schoolClass,
+                $student,
+                auth()->user(),
+            );
+        }
     }
 }

@@ -37,6 +37,7 @@
         <form action="{{ route('institution.teachers.update', $teacher->id) }}" method="POST" class="space-y-6">
             @csrf
             @method('PUT')
+            <input type="hidden" name="_sync_academic_relations" value="1">
 
             <div class="space-y-2">
                 <div class="text-gray-800 font-bold text-sm">Nome da conta</div>
@@ -58,6 +59,71 @@
                     <option value="inactive" {{ (old('status', $membershipStatus) == 'inactive') ? 'selected' : '' }}>
                         Inativo</option>
                 </select>
+            </div>
+
+            <div class="rounded-xl border-2 border-duo-border p-5 space-y-6">
+                <div>
+                    <h2 class="font-extrabold text-gray-800">Escopo acadêmico</h2>
+                    <p class="mt-1 text-sm text-gray-500">Defina turmas, alunos e disciplinas deste professor somente no workspace atual.</p>
+                </div>
+
+                <fieldset class="space-y-3">
+                    <legend class="text-sm font-extrabold text-gray-800">Turmas</legend>
+                    @if ($classes->isEmpty())
+                        <p class="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">Nenhuma turma cadastrada.</p>
+                    @else
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            @foreach ($classes as $schoolClass)
+                                <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-duo-border p-3 hover:border-primary">
+                                    <input type="checkbox" name="class_ids[]" value="{{ $schoolClass->id }}"
+                                        @checked(in_array($schoolClass->id, old('class_ids', $assignedClassIds)))
+                                        class="rounded border-gray-300 text-primary focus:ring-primary">
+                                    <span class="font-semibold text-gray-700">{{ $schoolClass->name }} <span class="text-xs font-normal text-gray-500">({{ $schoolClass->year }})</span></span>
+                                </label>
+                            @endforeach
+                        </div>
+                    @endif
+                </fieldset>
+
+                <fieldset class="space-y-3 border-t border-duo-border pt-5">
+                    <legend class="text-sm font-extrabold text-gray-800">Alunos vinculados diretamente</legend>
+                    <p class="text-xs text-gray-500">Alunos das turmas selecionadas também serão vinculados automaticamente.</p>
+                    @if ($students->isEmpty())
+                        <p class="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">Nenhum aluno ativo cadastrado.</p>
+                    @else
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            @foreach ($students as $student)
+                                <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-duo-border p-3 hover:border-primary">
+                                    <input type="checkbox" name="student_ids[]" value="{{ $student->id }}"
+                                        @checked(in_array($student->id, old('student_ids', $assignedStudentIds)))
+                                        class="rounded border-gray-300 text-primary focus:ring-primary">
+                                    <span>
+                                        <span class="block font-semibold text-gray-700">{{ $student->name }}</span>
+                                        <span class="block text-xs text-gray-500">{{ $student->email }}</span>
+                                    </span>
+                                </label>
+                            @endforeach
+                        </div>
+                    @endif
+                </fieldset>
+
+                <fieldset class="space-y-3 border-t border-duo-border pt-5">
+                    <legend class="text-sm font-extrabold text-gray-800">Disciplinas</legend>
+                    @if ($disciplines->isEmpty())
+                        <p class="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">Nenhuma disciplina cadastrada.</p>
+                    @else
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            @foreach ($disciplines as $discipline)
+                                <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-duo-border p-3 hover:border-primary">
+                                    <input type="checkbox" name="discipline_ids[]" value="{{ $discipline->id }}"
+                                        @checked(in_array($discipline->id, old('discipline_ids', $assignedDisciplineIds)))
+                                        class="rounded border-gray-300 text-primary focus:ring-primary">
+                                    <span class="font-semibold text-gray-700">{{ $discipline->name }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                    @endif
+                </fieldset>
             </div>
 
             <div class="pt-6 border-t-2 border-duo-border flex justify-end gap-4">

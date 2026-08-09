@@ -3,14 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
+use App\Models\Discipline;
 use App\Models\Invite;
 use App\Models\SchoolClass;
 use App\Models\User;
 use App\Rules\ActiveOrganizationMember;
+use App\Services\AcademicRelationshipService;
 use App\Services\ClassOwnershipService;
 use App\Services\EntitlementService;
 use App\Services\InviteManagerService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SchoolClassController extends Controller
 {
@@ -38,10 +41,13 @@ class SchoolClassController extends Controller
 
     public function create()
     {
-        $this->currentOrganizationId();
+        $organizationId = $this->currentOrganizationId();
         $this->authorizeClassCreation();
+        $disciplines = Discipline::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->orderBy('name')->get(['id', 'name']);
 
-        return view('institution.classes.create');
+        return view('institution.classes.create', compact('disciplines'));
     }
 
     public function store(Request $request)
@@ -56,19 +62,30 @@ class SchoolClassController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'year' => 'required|string|max:255',
+            'discipline_ids' => ['nullable', 'array'],
+            'discipline_ids.*' => ['integer', 'distinct'],
         ]);
 
         $user = auth()->user();
-        $personal = $user->organization->isPersonalWorkspace();
-        $class = SchoolClass::create([
-            'organization_id' => $orgId,
-            'owner_type' => $personal ? 'user' : 'organization',
-            'owner_id' => $personal ? $user->id : $orgId,
-            'name' => $validated['name'],
-            'year' => $validated['year'],
-        ]);
+        DB::transaction(function () use ($orgId, $user, $validated): void {
+            $personal = $user->organization->isPersonalWorkspace();
+            $class = SchoolClass::create([
+                'organization_id' => $orgId,
+                'owner_type' => $personal ? 'user' : 'organization',
+                'owner_id' => $personal ? $user->id : $orgId,
+                'name' => $validated['name'],
+                'year' => $validated['year'],
+            ]);
 
-        AuditLog::log('created', SchoolClass::class, $class->id);
+            app(AcademicRelationshipService::class)->syncClass(
+                $class,
+                [],
+                $validated['discipline_ids'] ?? [],
+                $user,
+            );
+
+            AuditLog::log('created', SchoolClass::class, $class->id);
+        });
 
         return redirect()->route('institution.classes.index')->with('status', 'Turma criada com sucesso!');
     }
@@ -82,10 +99,20 @@ class SchoolClassController extends Controller
             ->where('status', 'active')
             ->memberOfOrganization($orgId, 'teacher')
             ->get();
+        $availableDisciplines = Discipline::withoutGlobalScopes()
+            ->where('organization_id', $orgId)
+            ->orderBy('name')->get(['id', 'name']);
 
         $assignedTeacherIds = $schoolClass->teachers()->pluck('users.id')->toArray();
+        $assignedDisciplineIds = $schoolClass->disciplines()->pluck('disciplines.id')->toArray();
 
-        return view('institution.classes.edit', compact('schoolClass', 'availableTeachers', 'assignedTeacherIds'));
+        return view('institution.classes.edit', compact(
+            'schoolClass',
+            'availableTeachers',
+            'availableDisciplines',
+            'assignedTeacherIds',
+            'assignedDisciplineIds',
+        ));
     }
 
     public function update(Request $request, string $id)
@@ -97,25 +124,25 @@ class SchoolClassController extends Controller
             'year' => 'nullable|string|max:20',
             'teacher_ids' => 'nullable|array',
             'teacher_ids.*' => ['integer', 'distinct', new ActiveOrganizationMember((int) $schoolClass->organization_id, 'teacher')],
+            'discipline_ids' => ['nullable', 'array'],
+            'discipline_ids.*' => ['integer', 'distinct'],
         ]);
 
-        $schoolClass->update([
-            'name' => $validated['name'],
-            'year' => $validated['year'] ?? $schoolClass->year,
-        ]);
+        DB::transaction(function () use ($schoolClass, $validated): void {
+            $schoolClass->update([
+                'name' => $validated['name'],
+                'year' => $validated['year'] ?? $schoolClass->year,
+            ]);
 
-        // Sync professores atribuídos
-        if (isset($validated['teacher_ids'])) {
-            $syncData = [];
-            foreach ($validated['teacher_ids'] as $tid) {
-                $syncData[$tid] = ['assigned_at' => now()];
-            }
-            $schoolClass->teachers()->sync($syncData);
-        } else {
-            $schoolClass->teachers()->detach();
-        }
+            app(AcademicRelationshipService::class)->syncClass(
+                $schoolClass,
+                $validated['teacher_ids'] ?? [],
+                $validated['discipline_ids'] ?? [],
+                auth()->user(),
+            );
 
-        AuditLog::log('updated', SchoolClass::class, $schoolClass->id);
+            AuditLog::log('updated', SchoolClass::class, $schoolClass->id);
+        });
 
         return redirect()->route('institution.classes.index')->with('status', 'Turma atualizada.');
     }

@@ -87,6 +87,12 @@ class UserLinkerService
             $classId = $invite->target_entity_id;
             $class = SchoolClass::withoutGlobalScopes()->findOrFail($classId);
 
+            if ((int) $class->organization_id !== (int) $invite->organization_id) {
+                throw ValidationException::withMessages([
+                    'invite' => 'O convite não pertence ao mesmo workspace da turma.',
+                ]);
+            }
+
             // Matricular aluno na turma (sem duplicar)
             $user->schoolClasses()->syncWithoutDetaching([$classId]);
 
@@ -104,6 +110,9 @@ class UserLinkerService
                     $user->update(['organization_id' => $invite->organization_id]);
                 }
             }
+
+            $actor = User::find($invite->inviter_id) ?? $user;
+            app(AcademicRelationshipService::class)->linkClassStudentTeachers($class, $user, $actor);
 
             $this->purgeEffectivePlanCache($user);
 

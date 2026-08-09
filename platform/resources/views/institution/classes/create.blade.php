@@ -50,6 +50,26 @@
                     placeholder="Ex: 2026">
             </div>
 
+            <fieldset class="space-y-3 rounded-xl border-2 border-duo-border p-5">
+                <legend class="px-2 text-sm font-extrabold text-gray-800">Disciplinas da turma</legend>
+                <p class="text-sm text-gray-500">Selecione as disciplinas que fazem parte desta turma. Você pode alterar esta lista depois.</p>
+
+                @if ($disciplines->isEmpty())
+                    <p class="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">Nenhuma disciplina cadastrada neste workspace.</p>
+                @else
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        @foreach ($disciplines as $discipline)
+                            <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-duo-border p-3 hover:border-primary">
+                                <input type="checkbox" name="discipline_ids[]" value="{{ $discipline->id }}"
+                                    @checked(in_array($discipline->id, old('discipline_ids', [])))
+                                    class="rounded border-gray-300 text-primary focus:ring-primary">
+                                <span class="font-semibold text-gray-700">{{ $discipline->name }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                @endif
+            </fieldset>
+
             <div class="pt-6 border-t-2 border-duo-border flex justify-end">
                 <button type="submit"
                     class="duo-button-primary px-8 py-4 rounded-xl font-extrabold text-sm uppercase tracking-wider">
