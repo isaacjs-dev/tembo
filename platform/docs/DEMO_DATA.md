@@ -57,6 +57,11 @@ Tenant principal no plano Profissional. Possui:
 - entregas corrigidas, enviadas aguardando correção e em andamento;
 - notas altas, médias e baixas, duas tentativas, feedback, respostas certas e erradas e correção discursiva por rubrica;
 - materiais publicados, rascunhos, itens removidos e progresso aberto/concluído;
+- aulas publicadas, futuras e em rascunho, vinculadas a uma ou mais turmas;
+- atividades on-line, impressas e híbridas com questões relacionadas;
+- revisões nos estados rascunho, em análise, devolvida, publicada e suspensa;
+- exercícios de múltipla escolha, verdadeiro/falso, associação, preenchimento, ordenação, flashcard e resposta curta;
+- tentativas de revisão concluídas/em andamento, snapshots, XP, níveis, sequência e conquistas privadas;
 - cópias de prova, cartões-resposta e leituras OMR confirmadas, sincronizadas, em revisão, pendentes e rejeitadas;
 - convites pendente, aceito, expirado e recusado;
 - regras de configuração ativas, inativas, globais e específicas por usuário;
@@ -83,7 +88,8 @@ Entre com `admin@admin.com`.
 - compare as três instituições e seus estados ativo/inativo;
 - confira os planos Profissional, Enterprise e o cenário vencido;
 - consulte eventos de pagamento confirmado, pagamento pendente e cortesia de 30 dias;
-- valide limites e recursos previstos nos planos;
+- valide os limites mensais individuais de leituras OMR, provas publicadas e questões cadastradas;
+- teste cortesias ativas e agendadas, créditos extras por recurso e plano temporário gratuito;
 - confirme que a instituição suspensa não consegue operar.
 
 ### Administrador institucional
@@ -117,6 +123,9 @@ Entre com `teacher@email.com`.
 - gere ou confira as versões impressas e cartões-resposta;
 - percorra a fila OMR com leituras de diferentes níveis de confiança;
 - consulte resultados da turma e materiais relacionados aos erros.
+- abra Aulas, Atividades e Revisões; edite os itens e confira o fluxo de publicação;
+- gere um prompt, copie para uma IA externa e cole o JSON retornado no Tembo;
+- consulte o relatório coletivo da revisão demonstrativa.
 
 Entre com `teacher.portugues@email.com` para verificar um professor com outra disciplina e acesso somente ao contexto atribuído.
 
@@ -128,6 +137,8 @@ Entre com `student@email.com`.
 - confira nota, respostas, feedback e histórico quando a configuração da prova permitir;
 - confirme que resultados futuros ou ainda não liberados permanecem ocultos;
 - abra materiais e compare os estados de progresso;
+- execute `Missão: dominar números e gráficos` para testar os tipos interativos, feedback e gamificação;
+- confira que progresso, XP, nível, sequência e conquistas são privados;
 - tente acessar dados de outro aluno ou do tenant Aurora e confirme o bloqueio.
 
 ### Responsável
@@ -150,25 +161,28 @@ Entre com `guardian@email.com`.
 | Entregas | em andamento, enviada e corrigida |
 | Desempenho | insuficiente, regular, bom e excelente |
 | Conteúdo | publicado, rascunho, aberto, concluído e removido |
+| Aulas e atividades | rascunho, publicada, futura, on-line, impressa e híbrida |
+| Revisões | rascunho, em análise, devolvida, publicada, suspensa, concluída e em andamento |
+| Créditos mensais | consumo normal, créditos extras acumulados e cortesia agendada |
 | OMR | pendente, revisão, confirmada, sincronizada e rejeitada |
 | Convites | pendente, aceito, expirado e recusado |
 | Auditoria | eventos recentes, antigos, informativos, alerta e críticos |
 
-## Limites do modelo atual
+## Regras novas cobertas
 
-O schema atual não possui módulos/tabelas próprios para calendário acadêmico, períodos letivos, transações financeiras ou benefícios comerciais. Por isso:
-
-- as janelas de aplicação das avaliações representam os cenários de calendário;
-- datas antigas e recentes representam diferentes períodos de atividade;
-- assinaturas e eventos de auditoria representam pagamentos e a cortesia fictícia;
-- a cortesia registrada não altera automaticamente a assinatura, pois ainda não existe um domínio funcional de benefícios.
-
-Esses registros permitem testar as funcionalidades que já existem sem simular telas ou regras que o sistema ainda não implementa.
+- somente leituras OMR, primeira publicação de provas e criação de questões consomem créditos mensais;
+- os limites pertencem individualmente a cada professor e renovam no primeiro dia do mês;
+- reimpressões, downloads e edições não consomem novamente;
+- cortesias concedem plano temporário, créditos extras, substituição de limite, uso ilimitado ou recurso premium;
+- uma cortesia institucional beneficia cada professor atual ou futuro durante sua vigência;
+- a revisão obrigatória antes da prova só bloqueia o início quando o professor ativa explicitamente essa opção;
+- alterações publicadas aparecem imediatamente, mas respostas já dadas preservam o snapshot do item respondido.
 
 ## Validação automatizada
 
-O teste `tests/Feature/DemoDatabaseSeederTest.php` recria a base e verifica contas, senha, instituições, turmas, vínculo de professores, questões, avaliações, entregas, materiais, OMR, assinaturas, lixeira e ausência de relacionamentos cruzados entre tenants.
+O teste `tests/Feature/DemoDatabaseSeederTest.php` recria a base e verifica contas, senha, instituições, turmas, professores, questões, avaliações, materiais, aulas, atividades, revisões, gamificação, consumo, cortesias, OMR, assinaturas, lixeira e isolamento entre tenants.
 
 ```bash
 php artisan test tests/Feature/DemoDatabaseSeederTest.php
+php artisan test tests/Feature/RevisionWorkflowTest.php
 ```

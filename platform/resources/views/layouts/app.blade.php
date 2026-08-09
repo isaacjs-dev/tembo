@@ -78,6 +78,11 @@
                         <span class="material-symbols-outlined" aria-hidden="true">auto_stories</span>
                         <span>Estudar e revisar</span>
                     </a>
+                    <a class="sidebar-item {{ request()->routeIs('student.revisions.*') ? 'active' : '' }}"
+                        href="{{ route('student.revisions.index') }}">
+                        <span class="material-symbols-outlined" aria-hidden="true">psychology</span>
+                        <span>Revisões interativas</span>
+                    </a>
                 @endif
 
                 {{-- ══════════════════════════════════════════ --}}
@@ -90,6 +95,14 @@
                         <a href="{{ route('admin.plans.index') }}"
                             class="sidebar-link {{ request()->routeIs('admin.plans.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">diamond</span> Planos e SaaS
+                        </a>
+                        <a href="{{ route('admin.usage.index') }}"
+                            class="sidebar-link {{ request()->routeIs('admin.usage.*') ? 'active' : '' }}">
+                            <span class="material-symbols-outlined text-[20px]">data_usage</span> Consumo mensal
+                        </a>
+                        <a href="{{ route('admin.courtesies.index') }}"
+                            class="sidebar-link {{ request()->routeIs('admin.courtesies.*') ? 'active' : '' }}">
+                            <span class="material-symbols-outlined text-[20px]">redeem</span> Cortesias
                         </a>
                         <a href="{{ route('admin.audit-logs.index') }}"
                             class="sidebar-link {{ request()->routeIs('admin.audit-logs.*') ? 'active' : '' }}">
@@ -190,6 +203,18 @@
                                 href="{{ route('learning-materials.index') }}">
                                 <span class="material-symbols-outlined text-[20px]" aria-hidden="true">auto_stories</span>
                                 Materiais
+                            </a>
+                            <a class="sidebar-link {{ request()->routeIs('lessons.*') ? 'active' : '' }}"
+                                href="{{ route('lessons.index') }}">
+                                <span class="material-symbols-outlined text-[20px]">co_present</span> Aulas
+                            </a>
+                            <a class="sidebar-link {{ request()->routeIs('activities.*') ? 'active' : '' }}"
+                                href="{{ route('activities.index') }}">
+                                <span class="material-symbols-outlined text-[20px]">task_alt</span> Atividades
+                            </a>
+                            <a class="sidebar-link {{ request()->routeIs('revisions.*') ? 'active' : '' }}"
+                                href="{{ route('revisions.index') }}">
+                                <span class="material-symbols-outlined text-[20px]">psychology</span> Revisões
                             </a>
                             @if(auth()->user()->type === 'teacher')
                                 <a href="{{ route('institution.reports') }}"

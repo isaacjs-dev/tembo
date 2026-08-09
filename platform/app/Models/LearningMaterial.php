@@ -64,4 +64,9 @@ class LearningMaterial extends Model
     {
         return $this->hasMany(LearningMaterialProgress::class);
     }
+
+    public function revisionSources()
+    {
+        return $this->morphMany(RevisionSource::class, 'source');
+    }
 }

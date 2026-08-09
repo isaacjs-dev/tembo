@@ -76,4 +76,9 @@ class Exam extends Model
     {
         return $this->hasMany(ExamCopy::class);
     }
+
+    public function revisionSources()
+    {
+        return $this->morphMany(RevisionSource::class, 'source');
+    }
 }

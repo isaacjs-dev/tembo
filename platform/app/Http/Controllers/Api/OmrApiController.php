@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\QuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Jobs\ConsolidateAnswersJob;
 use App\Models\Exam;
 use App\Models\ExamCopy;
 use App\Models\OmrScan;
 use App\Models\OmrScanPage;
+use App\Models\User;
+use App\Services\MonthlyUsageService;
 use App\Services\OfflineOmrQrService;
 use App\Services\OmrGradingService;
 use Illuminate\Http\Request;
@@ -21,6 +24,7 @@ class OmrApiController extends Controller
     public function __construct(
         private OmrGradingService $gradingService,
         private OfflineOmrQrService $offlineQrService,
+        private MonthlyUsageService $monthlyUsage,
     ) {}
 
     public function index(Request $request)
@@ -101,6 +105,14 @@ class OmrApiController extends Controller
             throw ValidationException::withMessages([
                 'detected_answers' => 'As respostas e confianças devem ser objetos JSON.',
             ]);
+        }
+
+        $quotaSubject = User::query()->findOrFail(
+            Exam::withoutGlobalScopes()->whereKey($validated['exam_id'])->value('author_id')
+        );
+        $quota = $this->monthlyUsage->snapshot($quotaSubject, MonthlyUsageService::OMR_SCANS);
+        if ($quota['remaining'] !== null && $quota['remaining'] < 1) {
+            throw new QuotaExceededException(MonthlyUsageService::OMR_SCANS, 1, $quota['remaining']);
         }
 
         $qrPayload = isset($validated['qr_payload'])

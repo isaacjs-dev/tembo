@@ -115,6 +115,12 @@
     </aside>
 </div>
 
+@if(!$material->exists)
+    <label class="mt-6 flex items-start gap-3 rounded-xl border-2 border-sky-200 bg-sky-50 p-4">
+        <input type="checkbox" name="generate_review" value="1" @checked(old('generate_review'))>
+        <span><strong>Gerar rascunho de revisão deste material</strong><br><span class="text-sm text-gray-600">A revisão será aberta no editor antes da publicação.</span></span>
+    </label>
+@endif
 <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
     <a href="{{ route('learning-materials.index') }}"
         class="duo-button-secondary rounded-xl px-6 py-3 text-center font-extrabold">Cancelar</a>

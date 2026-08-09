@@ -59,6 +59,21 @@
         </div>
     </div>
 
+    @if($personalUsage)
+        <section class="mb-8 rounded-2xl border-2 border-duo-border bg-white p-6" aria-labelledby="personal-usage-title">
+            <div class="flex flex-wrap items-end justify-between gap-2">
+                <div><h2 id="personal-usage-title" class="text-xl font-extrabold">Seus créditos deste mês</h2><p class="text-sm text-gray-600">Limites individuais do professor. Renovação automática no primeiro dia de cada mês.</p></div>
+                <span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-bold text-sky-900">Não limita turmas, alunos, atividades, revisões, exportações ou IA externa</span>
+            </div>
+            <div class="mt-5 grid gap-4 md:grid-cols-3">
+                @foreach(['monthly_omr_scans'=>'Leituras OMR','monthly_exam_publications'=>'Provas publicadas','monthly_questions_created'=>'Questões cadastradas'] as $key=>$label)
+                    @php($usageItem=$personalUsage[$key])
+                    <div class="rounded-xl bg-gray-50 p-4"><p class="text-sm font-bold text-gray-700">{{ $label }}</p><p class="mt-1 text-2xl font-black text-primary-dark">{{ $usageItem['consumed'] }} / {{ is_null($usageItem['limit'])?'Ilimitado':$usageItem['limit'] }}</p><p class="text-xs text-gray-600">Restante: {{ is_null($usageItem['remaining'])?'Ilimitado':$usageItem['remaining'] }}</p></div>
+                @endforeach
+            </div>
+        </section>
+    @endif
+
     <!-- Main Grid Section -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
         <!-- Recent Activity -->

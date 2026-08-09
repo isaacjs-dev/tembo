@@ -132,6 +132,20 @@ class DemoDatabaseSeederTest extends TestCase
         $this->assertDatabaseHas('event_logs', ['event_code' => 'billing.payment_pending']);
         $this->assertDatabaseHas('event_logs', ['event_code' => 'billing.courtesy_granted']);
 
+        $this->assertDatabaseHas('lessons', ['organization_id' => $horizonte->id, 'status' => 'published']);
+        $this->assertDatabaseHas('activities', ['organization_id' => $horizonte->id, 'status' => 'published']);
+        foreach (['published', 'draft', 'in_review', 'changes_requested', 'suspended'] as $status) {
+            $this->assertDatabaseHas('revisions', ['organization_id' => $horizonte->id, 'status' => $status]);
+        }
+        foreach (['multiple_choice', 'true_false', 'matching', 'fill_blank', 'ordering', 'flashcard', 'short_answer'] as $type) {
+            $this->assertDatabaseHas('revision_items', ['type' => $type]);
+        }
+        $this->assertDatabaseHas('revision_attempts', ['status' => 'completed']);
+        $this->assertDatabaseHas('revision_attempts', ['status' => 'in_progress']);
+        $this->assertDatabaseHas('student_gamification_profiles', ['student_id' => $student->id]);
+        $this->assertDatabaseHas('courtesy_grants', ['target_scope' => 'organization', 'target_id' => $horizonte->id, 'status' => 'active']);
+        $this->assertDatabaseHas('usage_events', ['user_id' => $teacher->id, 'event_type' => 'consume']);
+
         $this->assertSoftDeleted('users', [
             'email' => 'aluno.lixeira@demo.avaliation.test',
             'organization_id' => $horizonte->id,

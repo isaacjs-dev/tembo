@@ -79,6 +79,16 @@
                 Continuar avaliação
             </a>
         @else
+            @if($blockingRevision)
+                <div class="mb-6 rounded-xl border-2 border-amber-300 bg-amber-50 p-5 text-left text-amber-950">
+                    <h2 class="font-extrabold">Revisão obrigatória antes da avaliação</h2>
+                    <p class="mt-2">Conclua “{{ $blockingRevision->title }}” para liberar o início desta prova.</p>
+                    <a href="{{ route('student.revisions.show', $blockingRevision) }}"
+                        class="duo-button-primary mt-4 inline-flex rounded-xl px-5 py-3 font-extrabold">
+                        Fazer revisão agora
+                    </a>
+                </div>
+            @endif
             @if($submission?->status === 'submitted')
                 <div class="bg-amber-50 text-amber-900 p-5 rounded-xl border-2 border-amber-200 mb-6 font-bold">
                     A tentativa {{ $submission->attempt_number }} foi enviada e aguarda correção.
@@ -107,7 +117,7 @@
                         Ao iniciar, o cronômetro individual começa e continua contando mesmo se você fechar a página.
                     </p>
                 </form>
-            @elseif(!$submission || $submission->status !== 'in_progress')
+            @elseif(!$blockingRevision && (!$submission || $submission->status !== 'in_progress'))
                 <div class="bg-gray-100 text-gray-700 p-4 rounded-xl font-bold">
                     Todas as tentativas permitidas foram utilizadas.
                 </div>

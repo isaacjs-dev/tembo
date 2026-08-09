@@ -1,8 +1,11 @@
 <?php
 
+use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\CourtesyController;
 use App\Http\Controllers\Admin\PlanController;
+use App\Http\Controllers\Admin\UsageAdminController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\BNCcController;
 use App\Http\Controllers\ConfigController;
@@ -18,17 +21,20 @@ use App\Http\Controllers\Institution\TrashController;
 use App\Http\Controllers\InstitutionController;
 use App\Http\Controllers\InstitutionRoleController;
 use App\Http\Controllers\LearningMaterialController;
+use App\Http\Controllers\LessonController;
 use App\Http\Controllers\OmrController;
 use App\Http\Controllers\OmrTemplateController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicStorageController;
 use App\Http\Controllers\QuestionController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\RevisionController;
 use App\Http\Controllers\SchoolClassController;
 use App\Http\Controllers\Settings\PrintPreferencesController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentLearningController;
 use App\Http\Controllers\StudentPortalController;
+use App\Http\Controllers\StudentRevisionController;
 use App\Http\Controllers\TaxonomyController;
 use App\Http\Controllers\TeacherController;
 use App\Models\Plan;
@@ -86,6 +92,13 @@ Route::middleware(['auth', 'active_account', 'verified_account', 'password_chang
             ->middleware('throttle:30,1')
             ->name('exam.submit');
         Route::get('/exam/{exam}/results', [StudentPortalController::class, 'results'])->name('exam.results');
+        Route::get('/revisions', [StudentRevisionController::class, 'index'])->name('revisions.index');
+        Route::get('/revisions/{revision}', [StudentRevisionController::class, 'show'])->name('revisions.show');
+        Route::post('/revisions/{revision}/start', [StudentRevisionController::class, 'start'])->middleware('throttle:30,1')->name('revisions.start');
+        Route::get('/revisions/{revision}/attempts/{attempt}', [StudentRevisionController::class, 'execute'])->name('revisions.execute');
+        Route::post('/revisions/{revision}/attempts/{attempt}/items/{item}', [StudentRevisionController::class, 'answer'])->middleware('throttle:120,1')->name('revisions.answer');
+        Route::post('/revisions/{revision}/attempts/{attempt}/complete', [StudentRevisionController::class, 'complete'])->middleware('throttle:30,1')->name('revisions.complete');
+        Route::get('/revisions/{revision}/attempts/{attempt}/result', [StudentRevisionController::class, 'result'])->name('revisions.result');
     });
 
     Route::prefix('guardian')->name('guardian.')->middleware('role:guardian')->group(function () {
@@ -191,6 +204,17 @@ Route::middleware(['auth', 'active_account', 'verified_account', 'password_chang
     });
 
     Route::middleware('role:institution_admin|teacher|global_admin')->group(function () {
+        Route::resource('lessons', LessonController::class)->except('show');
+        Route::resource('activities', ActivityController::class)->except('show');
+        Route::post('revisions/{revision}/items', [RevisionController::class, 'storeItem'])->name('revisions.items.store');
+        Route::put('revisions/{revision}/items/{item}', [RevisionController::class, 'updateItem'])->name('revisions.items.update');
+        Route::delete('revisions/{revision}/items/{item}', [RevisionController::class, 'destroyItem'])->name('revisions.items.destroy');
+        Route::post('revisions/{revision}/items/reorder', [RevisionController::class, 'reorder'])->name('revisions.items.reorder');
+        Route::match(['get', 'post'], 'revisions/{revision}/prompt', [RevisionController::class, 'prompt'])->name('revisions.prompt');
+        Route::post('revisions/{revision}/import', [RevisionController::class, 'import'])->name('revisions.import');
+        Route::post('revisions/{revision}/status', [RevisionController::class, 'status'])->name('revisions.status');
+        Route::get('revisions/{revision}/report', [RevisionController::class, 'report'])->name('revisions.report');
+        Route::resource('revisions', RevisionController::class)->except('show');
         Route::get('questions/{question}/share', [QuestionController::class, 'share'])->name('questions.share');
         Route::post('questions/{question}/share', [QuestionController::class, 'storeShare'])->name('questions.storeShare');
         Route::post('questions/{question}/duplicate', [QuestionController::class, 'duplicate'])->name('questions.duplicate');
@@ -232,6 +256,13 @@ Route::middleware(['auth', 'active_account', 'verified_account', 'password_chang
         Route::get('audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
         Route::resource('plans', PlanController::class);
         Route::resource('users', UserController::class);
+        Route::get('usage', [UsageAdminController::class, 'index'])->name('usage.index');
+        Route::post('usage/preview', [UsageAdminController::class, 'preview'])->name('usage.preview');
+        Route::post('usage/reset', [UsageAdminController::class, 'reset'])->name('usage.reset');
+        Route::post('courtesies/{courtesy}/suspend', [CourtesyController::class, 'suspend'])->name('courtesies.suspend');
+        Route::post('courtesies/{courtesy}/activate', [CourtesyController::class, 'activate'])->name('courtesies.activate');
+        Route::post('courtesies/{courtesy}/cancel', [CourtesyController::class, 'cancel'])->name('courtesies.cancel');
+        Route::resource('courtesies', CourtesyController::class)->except(['show', 'destroy']);
 
         Route::get('logs', [App\Http\Controllers\Admin\LogController::class, 'index'])->name('logs');
 

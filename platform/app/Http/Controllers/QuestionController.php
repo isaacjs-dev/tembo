@@ -8,6 +8,8 @@ use App\Models\KnowledgeArea;
 use App\Models\Organization;
 use App\Models\Question;
 use App\Models\User;
+use App\Services\MonthlyUsageService;
+use App\Services\RevisionBuilderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -96,7 +98,7 @@ class QuestionController extends Controller
         return view('questions.create', compact('knowledgeAreas', 'disciplines'));
     }
 
-    public function store(Request $request)
+    public function store(Request $request, MonthlyUsageService $usage, RevisionBuilderService $revisions)
     {
         $validated = $this->validateQuestion($request);
         $content = $this->buildQuestionContent($validated);
@@ -106,25 +108,37 @@ class QuestionController extends Controller
             $orgId = auth()->user()->activeOrganizations()->first()?->id ?? Organization::first()?->id ?? 1;
         }
 
-        $question = Question::create([
-            'organization_id' => $orgId,
-            'owner_id' => auth()->id(),
-            'type' => $validated['type'],
-            'visibility_scope' => $validated['visibility_scope'],
-            'content' => $content,
-            'knowledge_area_id' => $validated['knowledge_area_id'] ?? null,
-            'discipline_id' => $validated['discipline_id'] ?? null,
-            'level' => $validated['level'] ?? null,
-            'stage' => $validated['stage'],
-            'grade' => $validated['grade'],
-        ]);
+        $question = DB::transaction(function () use ($validated, $content, $orgId, $usage) {
+            $question = Question::create([
+                'organization_id' => $orgId,
+                'owner_id' => auth()->id(),
+                'type' => $validated['type'],
+                'visibility_scope' => $validated['visibility_scope'],
+                'content' => $content,
+                'knowledge_area_id' => $validated['knowledge_area_id'] ?? null,
+                'discipline_id' => $validated['discipline_id'] ?? null,
+                'level' => $validated['level'] ?? null,
+                'stage' => $validated['stage'],
+                'grade' => $validated['grade'],
+            ]);
 
-        if (isset($validated['bncc_skills'])) {
-            $question->bnccSkills()->sync($validated['bncc_skills']);
-        }
+            if (isset($validated['bncc_skills'])) {
+                $question->bnccSkills()->sync($validated['bncc_skills']);
+            }
+            if (isset($validated['custom_skills'])) {
+                $question->customSkills()->sync($validated['custom_skills']);
+            }
 
-        if (isset($validated['custom_skills'])) {
-            $question->customSkills()->sync($validated['custom_skills']);
+            $usage->consume(auth()->user(), MonthlyUsageService::QUESTIONS_CREATED, 1, "question:create:{$question->id}", $question, auth()->user());
+
+            return $question;
+        });
+
+        if ($request->boolean('generate_review')) {
+            $revision = $revisions->createDraft($question, auth()->user());
+
+            return redirect()->route('revisions.edit', $revision)
+                ->with('status', 'Questão criada e rascunho de revisão preparado. Escolha as turmas antes de publicar.');
         }
 
         return redirect()->route('questions.index')->with('status', 'Questão criada com sucesso!');
@@ -238,7 +252,7 @@ class QuestionController extends Controller
         return redirect()->route('questions.index')->with('status', 'Questão excluída.');
     }
 
-    public function duplicate(string $id)
+    public function duplicate(string $id, MonthlyUsageService $usage)
     {
         // Pega a questão original (mesmo a organização ou se é pública)
         $organization_id = auth()->user()->organization_id;
@@ -255,7 +269,7 @@ class QuestionController extends Controller
             ->with(['bnccSkills:id', 'customSkills:id'])
             ->findOrFail($id);
 
-        $copy = DB::transaction(function () use ($original, $organization_id, $user_id) {
+        $copy = DB::transaction(function () use ($original, $organization_id, $user_id, $usage) {
             // Preserve every taxonomy column, including fields added in future migrations.
             $copy = $original->replicate([
                 'organization_id',
@@ -274,6 +288,7 @@ class QuestionController extends Controller
 
             $copy->bnccSkills()->sync($original->bnccSkills->modelKeys());
             $copy->customSkills()->sync($original->customSkills->modelKeys());
+            $usage->consume(auth()->user(), MonthlyUsageService::QUESTIONS_CREATED, 1, "question:create:{$copy->id}", $copy, auth()->user(), ['source_question_id' => $original->id]);
 
             return $copy;
         });

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Exam;
 use App\Models\ExamAnswer;
 use App\Models\ExamSubmission;
+use App\Models\Revision;
 use App\Services\ExamAccessService;
 use App\Services\LearningRecommendationService;
 use App\Services\OmrGradingService;
@@ -135,6 +136,10 @@ class StudentPortalController extends Controller
             && $attemptsUsed < $attemptsAllowed;
         $release = $this->access->releaseSettings($exam);
         $availability = $this->access->availability($exam);
+        $blockingRevision = $this->blockingRevision($exam, $request);
+        if ($blockingRevision) {
+            $canStart = false;
+        }
 
         return view('student.exam_intro', compact(
             'exam',
@@ -145,6 +150,7 @@ class StudentPortalController extends Controller
             'release',
             'availability',
             'supportsOnline',
+            'blockingRevision',
         ));
     }
 
@@ -152,6 +158,12 @@ class StudentPortalController extends Controller
     {
         $exam = $this->access->findForStudent($request->user(), $id);
         $this->access->ensureCanAccess($exam, $request->user(), $request);
+
+        if ($blockingRevision = $this->blockingRevision($exam, $request)) {
+            throw ValidationException::withMessages([
+                'revision' => "Conclua a revisão obrigatória \"{$blockingRevision->title}\" antes de iniciar esta avaliação.",
+            ]);
+        }
 
         $existing = $this->inProgressSubmission($exam, $request);
         if ($existing && $this->deadlineReached($existing)) {
@@ -680,5 +692,26 @@ class StudentPortalController extends Controller
                     'action' => 'Retome o conteúdo, registre suas dúvidas e pratique questões do mesmo tema.',
                 ];
             });
+    }
+
+    private function blockingRevision(Exam $exam, Request $request): ?Revision
+    {
+        $classIds = $request->user()->schoolClasses()->pluck('school_classes.id');
+
+        return Revision::query()
+            ->where('organization_id', $request->user()->organization_id)
+            ->where('status', 'published')
+            ->where('is_required', true)
+            ->where('timing', 'before')
+            ->where('block_exam', true)
+            ->where(fn ($query) => $query->whereNull('available_at')->orWhere('available_at', '<=', now()))
+            ->whereHas('sources', fn ($query) => $query
+                ->where('source_type', $exam->getMorphClass())
+                ->where('source_id', $exam->id))
+            ->whereHas('schoolClasses', fn ($query) => $query->whereIn('school_classes.id', $classIds))
+            ->whereDoesntHave('attempts', fn ($query) => $query
+                ->where('student_id', $request->user()->id)
+                ->where('status', 'completed'))
+            ->first();
     }
 }

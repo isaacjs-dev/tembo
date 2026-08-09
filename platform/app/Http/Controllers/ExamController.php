@@ -15,6 +15,8 @@ use App\Models\User;
 use App\Services\AnswerSheetGeneratorService;
 use App\Services\ConfigPrecedenceResolver;
 use App\Services\ExamPrintService;
+use App\Services\MonthlyUsageService;
+use App\Services\RevisionBuilderService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -50,6 +52,7 @@ class ExamController extends Controller
         ]);
 
         $settings = $this->settingsFromRequest($request);
+        $settings['generate_review'] = $request->boolean('generate_review');
 
         $exam = Exam::create([
             'organization_id' => auth()->user()->organization_id,
@@ -112,7 +115,7 @@ class ExamController extends Controller
         return view('exams.edit', compact('exam', 'availableClasses', 'disciplines', 'knowledgeAreas', 'printSettings'));
     }
 
-    public function update(Request $request, string $id)
+    public function update(Request $request, string $id, MonthlyUsageService $usage, RevisionBuilderService $revisions)
     {
         $exam = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
@@ -146,12 +149,34 @@ class ExamController extends Controller
             $updateData['access_code'] = $this->generateAccessCode($exam->organization_id);
         }
 
-        $exam->update($updateData);
+        DB::transaction(function () use ($exam, $updateData, $validated, $usage, $previousStatus): void {
+            if ($validated['status'] === 'published' && $previousStatus !== 'published') {
+                $usage->consume(
+                    auth()->user(),
+                    MonthlyUsageService::EXAM_PUBLICATIONS,
+                    1,
+                    "exam:first-publish:{$exam->id}",
+                    $exam,
+                    auth()->user(),
+                );
+            }
+            $exam->update($updateData);
+        });
 
         AuditLog::log('exam_updated', Exam::class, $exam->id, [
             'status' => ['old' => $previousStatus, 'new' => $exam->status],
             'settings_changed' => $previousSettings !== $settings,
         ]);
+
+        if ($validated['status'] === 'published'
+            && ($settings['generate_review'] ?? false)
+            && ! $exam->revisionSources()->exists()) {
+            $revisions->createDraft(
+                $exam->load('questions'),
+                auth()->user(),
+                $exam->schoolClasses()->pluck('school_classes.id')->all(),
+            );
+        }
 
         return redirect()->route('exams.edit', $exam->id)->with('status', 'Configurações atualizadas!');
     }

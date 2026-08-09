@@ -129,6 +129,16 @@ class User extends Authenticatable implements MustVerifyEmailContract
         return $this->hasMany(LearningMaterialProgress::class, 'student_id');
     }
 
+    public function revisionAttempts()
+    {
+        return $this->hasMany(RevisionAttempt::class, 'student_id');
+    }
+
+    public function gamificationProfile()
+    {
+        return $this->hasOne(StudentGamificationProfile::class, 'student_id');
+    }
+
     /** Convites enviados */
     public function sentInvites()
     {

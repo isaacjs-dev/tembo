@@ -8,11 +8,12 @@ use App\Models\ExamSubmission;
 use App\Models\Question;
 use App\Models\SchoolClass;
 use App\Models\User;
+use App\Services\MonthlyUsageService;
 use Illuminate\Http\Request;
 
 class InstitutionController extends Controller
 {
-    public function dashboard(Request $request)
+    public function dashboard(Request $request, MonthlyUsageService $usage)
     {
         $orgId = auth()->user()->organization_id;
 
@@ -34,7 +35,14 @@ class InstitutionController extends Controller
             ->take(5)
             ->get();
 
-        return view('institution.dashboard', compact('stats', 'recentActivities'));
+        $personalUsage = null;
+        if ($request->user()->type === 'teacher') {
+            $personalUsage = collect(MonthlyUsageService::RESOURCES)->mapWithKeys(fn (string $resource) => [
+                $resource => $usage->snapshot($request->user(), $resource),
+            ]);
+        }
+
+        return view('institution.dashboard', compact('stats', 'recentActivities', 'personalUsage'));
     }
 
     public function settings()

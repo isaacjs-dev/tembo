@@ -150,6 +150,9 @@
                         'max_teachers' => ['label' => 'Máximo de Professores', 'desc' => 'Total de professores vinculados', 'icon' => 'school'],
                         'max_classes' => ['label' => 'Máximo de Turmas', 'desc' => 'Turmas ativas simultâneas', 'icon' => 'class'],
                         'max_exams' => ['label' => 'Máximo de Provas', 'desc' => 'Avaliações criadas por período', 'icon' => 'quiz'],
+                        'monthly_omr_scans' => ['label' => 'Leituras OMR mensais', 'desc' => 'Cartões completos por professor/mês', 'icon' => 'document_scanner'],
+                        'monthly_exam_publications' => ['label' => 'Provas mensais', 'desc' => 'Primeiras publicações por professor/mês', 'icon' => 'publish'],
+                        'monthly_questions_created' => ['label' => 'Questões mensais', 'desc' => 'Novas questões por professor/mês', 'icon' => 'help'],
                     ];
                 @endphp
                 @foreach($limitsConfig as $key => $cfg)

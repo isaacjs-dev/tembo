@@ -44,6 +44,9 @@ class PlanController extends Controller
             'limits.max_teachers' => 'nullable|integer|min:0',
             'limits.max_classes' => 'nullable|integer|min:0',
             'limits.max_exams' => 'nullable|integer|min:0',
+            'limits.monthly_omr_scans' => 'nullable|integer|min:0',
+            'limits.monthly_exam_publications' => 'nullable|integer|min:0',
+            'limits.monthly_questions_created' => 'nullable|integer|min:0',
             // Features
             'features.export_pdf' => 'nullable|boolean',
             'features.omr' => 'nullable|boolean',
@@ -100,6 +103,9 @@ class PlanController extends Controller
             'limits.max_teachers' => 'nullable|integer|min:0',
             'limits.max_classes' => 'nullable|integer|min:0',
             'limits.max_exams' => 'nullable|integer|min:0',
+            'limits.monthly_omr_scans' => 'nullable|integer|min:0',
+            'limits.monthly_exam_publications' => 'nullable|integer|min:0',
+            'limits.monthly_questions_created' => 'nullable|integer|min:0',
             'features.export_pdf' => 'nullable|boolean',
             'features.omr' => 'nullable|boolean',
             'features.sharing' => 'nullable|boolean',
@@ -147,7 +153,10 @@ class PlanController extends Controller
      */
     private function syncLimitsAndFeatures(Plan $plan, Request $request): void
     {
-        $limitKeys = ['max_students', 'max_teachers', 'max_classes', 'max_exams'];
+        $limitKeys = [
+            'max_students', 'max_teachers', 'max_classes', 'max_exams',
+            'monthly_omr_scans', 'monthly_exam_publications', 'monthly_questions_created',
+        ];
         foreach ($limitKeys as $key) {
             $value = $request->input("limits.$key");
             PlanLimit::updateOrCreate(

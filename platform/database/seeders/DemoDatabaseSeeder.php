@@ -24,6 +24,7 @@ class DemoDatabaseSeeder extends Seeder
             CustomSkillSeeder::class,
             QuestionSeeder::class,
             DemoScenarioSeeder::class,
+            PedagogicalDemoSeeder::class,
         ]);
     }
 }

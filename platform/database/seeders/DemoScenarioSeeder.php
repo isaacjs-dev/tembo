@@ -272,6 +272,7 @@ class DemoScenarioSeeder extends Seeder
             'view_reports',
             'view_omr',
             'manage_omr',
+            'review_revisions',
         ]);
         UserOrganization::where('user_id', $coordinator->id)
             ->where('organization_id', $organization->id)

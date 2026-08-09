@@ -7,6 +7,8 @@ use App\Http\Middleware\EnsurePasswordChanged;
 use App\Http\Middleware\EnsureVerifiedAccount;
 use App\Http\Middleware\RestrictLogAccess;
 use App\Http\Middleware\RestrictTrashAccess;
+use App\Exceptions\QuotaExceededException;
+use Illuminate\Http\Request;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -37,5 +39,15 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (QuotaExceededException $exception, Request $request) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => $exception->getMessage(),
+                    'resource_key' => $exception->resourceKey,
+                    'remaining' => $exception->remaining,
+                ], 429);
+            }
+
+            return back()->withInput()->withErrors(['quota' => $exception->getMessage()]);
+        });
     })->create();

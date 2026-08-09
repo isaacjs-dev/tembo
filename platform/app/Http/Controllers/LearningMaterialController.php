@@ -7,6 +7,7 @@ use App\Models\CustomSkill;
 use App\Models\Discipline;
 use App\Models\LearningMaterial;
 use App\Models\SchoolClass;
+use App\Services\RevisionBuilderService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -60,7 +61,7 @@ class LearningMaterialController extends Controller
         return view('learning-materials.create', $this->formOptions($request));
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, RevisionBuilderService $revisions): RedirectResponse
     {
         Gate::authorize('create', LearningMaterial::class);
         $validated = $this->validated($request);
@@ -79,6 +80,17 @@ class LearningMaterialController extends Controller
 
             return $material;
         });
+
+        if ($request->boolean('generate_review')) {
+            $revision = $revisions->createDraft(
+                $material,
+                $request->user(),
+                $material->schoolClasses()->pluck('school_classes.id')->all(),
+            );
+
+            return redirect()->route('revisions.edit', $revision)
+                ->with('status', 'Material criado e rascunho de revisão preparado.');
+        }
 
         return redirect()
             ->route('learning-materials.edit', $material)

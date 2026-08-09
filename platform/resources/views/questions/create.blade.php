@@ -296,6 +296,13 @@
 
                 @include('questions.partials.rubric-card')
 
+                <label class="flex items-start gap-3 rounded-2xl border-2 border-sky-200 bg-sky-50 p-4">
+                    <input type="checkbox" name="generate_review" value="1" @checked(old('generate_review'))
+                        class="mt-1 size-5 rounded border-gray-400 text-primary focus:ring-primary">
+                    <span><strong class="block text-gray-900">Criar também um rascunho de revisão</strong>
+                        <span class="text-sm text-gray-600">Você escolherá as turmas e poderá importar mais exercícios por JSON.</span></span>
+                </label>
+
                 <div class="pt-6 border-t-2 border-duo-border flex justify-end">
                     <button type="submit"
                         class="duo-button-primary px-8 py-4 rounded-xl font-extrabold text-sm uppercase tracking-wider">

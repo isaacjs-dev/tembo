@@ -169,6 +169,10 @@
             </div>
 
             <div class="flex flex-col-reverse gap-3 border-t-2 border-duo-border pt-6 sm:flex-row sm:justify-end">
+                <label class="mr-auto flex items-center gap-3 rounded-xl bg-sky-50 px-4 py-3 text-sm font-bold">
+                    <input type="checkbox" name="generate_review" value="1" @checked(old('generate_review'))>
+                    Gerar revisão na primeira publicação
+                </label>
                 <a href="{{ route('exams.index') }}" class="btn-secondary text-center">Cancelar</a>
                 <button type="submit" class="btn-primary justify-center text-xs uppercase tracking-wider">
                     Criar rascunho e adicionar questões

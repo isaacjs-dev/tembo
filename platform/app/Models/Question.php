@@ -70,4 +70,9 @@ class Question extends Model
     {
         return $this->belongsToMany(CustomSkill::class, 'question_custom_skill', 'question_id', 'custom_skill_id')->withTimestamps();
     }
+
+    public function revisionSources()
+    {
+        return $this->morphMany(RevisionSource::class, 'source');
+    }
 }

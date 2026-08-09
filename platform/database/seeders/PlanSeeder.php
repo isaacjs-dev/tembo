@@ -32,6 +32,9 @@ class PlanSeeder extends Seeder
                     'max_classes' => 2,
                     'max_exams' => 5,
                     'max_teachers' => 1,
+                    'monthly_omr_scans' => 25,
+                    'monthly_exam_publications' => 5,
+                    'monthly_questions_created' => 100,
                 ],
                 'features' => [
                     'export_pdf' => false,
@@ -59,6 +62,9 @@ class PlanSeeder extends Seeder
                     'max_classes' => 20,
                     'max_exams' => 50,
                     'max_teachers' => 10,
+                    'monthly_omr_scans' => 1000,
+                    'monthly_exam_publications' => 50,
+                    'monthly_questions_created' => 2000,
                 ],
                 'features' => [
                     'export_pdf' => true,
@@ -83,6 +89,9 @@ class PlanSeeder extends Seeder
                     'max_classes' => null,
                     'max_exams' => null,
                     'max_teachers' => null,
+                    'monthly_omr_scans' => null,
+                    'monthly_exam_publications' => null,
+                    'monthly_questions_created' => null,
                 ],
                 'features' => [
                     'export_pdf' => true,

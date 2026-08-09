@@ -7,6 +7,8 @@ use App\Models\ExamCopy;
 use App\Models\OmrAuditLog;
 use App\Models\OmrScan;
 use App\Models\OmrScanPage;
+use App\Models\User;
+use App\Services\MonthlyUsageService;
 use App\Services\OfflineOmrQrService;
 use App\Services\OmrGradingService;
 use Illuminate\Bus\Queueable;
@@ -37,8 +39,11 @@ class ConsolidateAnswersJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(OmrGradingService $gradingService, OfflineOmrQrService $offlineQrService): void
-    {
+    public function handle(
+        OmrGradingService $gradingService,
+        OfflineOmrQrService $offlineQrService,
+        MonthlyUsageService $monthlyUsage,
+    ): void {
         Log::info("Starting consolidation for session: {$this->sessionId}");
 
         DB::beginTransaction();
@@ -205,6 +210,19 @@ class ConsolidateAnswersJob implements ShouldQueue
                 'status' => $requiresReview ? 'reviewing' : 'processed',
                 'source' => 'mobile',
             ]);
+
+            $exam->loadMissing('author');
+            if ($exam->author) {
+                $monthlyUsage->consume(
+                    $exam->author,
+                    MonthlyUsageService::OMR_SCANS,
+                    1,
+                    "omr:completed-session:{$this->organizationId}:{$this->sessionId}",
+                    $scan,
+                    User::query()->find($firstPage->uploaded_by),
+                    ['pages' => $pages->count(), 'exam_id' => $exam->id],
+                );
+            }
 
             // Audit
             OmrAuditLog::create([

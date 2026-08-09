@@ -77,6 +77,7 @@ composer dev
 composer test
 npm run test:js
 npm run build
+npm run test:e2e
 php vendor/bin/pint --test
 ```
 
