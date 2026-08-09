@@ -31,7 +31,9 @@ class QuestionController extends Controller
         $organizationId = $this->currentOrganizationId();
 
         $query = $library->forScope($user, $tab)
-            ->with(['owner', 'discipline', 'knowledgeArea']);
+            ->with(['owner', 'discipline', 'knowledgeArea'])
+            ->withExists(['publicCatalogSubmissions as has_active_public_submission' => fn ($submissions) => $submissions
+                ->whereIn('status', ['pending', 'in_review'])]);
 
         // Busca por texto no enunciado
         if ($search = $request->input('search')) {

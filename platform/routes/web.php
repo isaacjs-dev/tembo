@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\CourtesyController;
 use App\Http\Controllers\Admin\PlanController;
+use App\Http\Controllers\Admin\PublicCatalogModerationController;
 use App\Http\Controllers\Admin\UsageAdminController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\BNCcController;
@@ -25,6 +26,7 @@ use App\Http\Controllers\LessonController;
 use App\Http\Controllers\OmrController;
 use App\Http\Controllers\OmrTemplateController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PublicCatalogController;
 use App\Http\Controllers\PublicStorageController;
 use App\Http\Controllers\QuestionController;
 use App\Http\Controllers\QuestionResourceController;
@@ -264,6 +266,17 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
         Route::resource('question-resources', QuestionResourceController::class)
             ->parameters(['question-resources' => 'questionResource'])
             ->except(['show']);
+        Route::prefix('public-catalog')->name('public-catalog.')->group(function () {
+            Route::get('submissions', [PublicCatalogController::class, 'index'])->name('index');
+            Route::get('submit', [PublicCatalogController::class, 'createSubmission'])->name('submissions.create');
+            Route::post('submissions', [PublicCatalogController::class, 'storeSubmission'])
+                ->middleware('throttle:20,1')->name('submissions.store');
+            Route::post('submissions/{submission}/withdraw', [PublicCatalogController::class, 'withdraw'])
+                ->middleware('throttle:10,1')->name('submissions.withdraw');
+            Route::get('report', [PublicCatalogController::class, 'createReport'])->name('reports.create');
+            Route::post('reports', [PublicCatalogController::class, 'storeReport'])
+                ->middleware('throttle:20,1')->name('reports.store');
+        });
 
         Route::resource('exams', ExamController::class);
         Route::patch('exams/{exam}/draft', [ExamController::class, 'autosaveDraft'])->name('exams.autosaveDraft');
@@ -307,6 +320,12 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
         Route::post('usage/preview', [UsageAdminController::class, 'preview'])->name('usage.preview');
         Route::post('usage/reset', [UsageAdminController::class, 'reset'])->name('usage.reset');
         Route::post('courtesies/{courtesy}/suspend', [CourtesyController::class, 'suspend'])->name('courtesies.suspend');
+        Route::get('public-catalog', [PublicCatalogModerationController::class, 'index'])->name('public-catalog.index');
+        Route::get('public-catalog/submissions/{submission}', [PublicCatalogModerationController::class, 'show'])->name('public-catalog.show');
+        Route::post('public-catalog/submissions/{submission}/start', [PublicCatalogModerationController::class, 'start'])->name('public-catalog.start');
+        Route::post('public-catalog/submissions/{submission}/decide', [PublicCatalogModerationController::class, 'decide'])->name('public-catalog.decide');
+        Route::get('public-catalog/submissions/{submission}/evidence', [PublicCatalogModerationController::class, 'evidence'])->name('public-catalog.evidence');
+        Route::post('public-catalog/reports/{report}/resolve', [PublicCatalogModerationController::class, 'resolveReport'])->name('public-catalog.reports.resolve');
         Route::post('courtesies/{courtesy}/activate', [CourtesyController::class, 'activate'])->name('courtesies.activate');
         Route::post('courtesies/{courtesy}/cancel', [CourtesyController::class, 'cancel'])->name('courtesies.cancel');
         Route::resource('courtesies', CourtesyController::class)->except(['show', 'destroy']);

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Question extends Model
@@ -67,6 +68,27 @@ class Question extends Model
     public function resourceLinks(): HasMany
     {
         return $this->hasMany(QuestionResourceLink::class)->orderBy('sort_order');
+    }
+
+    public function publicCatalogSubmissions(): MorphMany
+    {
+        return $this->morphMany(PublicCatalogSubmission::class, 'submittable');
+    }
+
+    public function publicCatalogEntries(): MorphMany
+    {
+        return $this->morphMany(PublicCatalogEntry::class, 'entryable');
+    }
+
+    public function hasActivePublicSubmission(): bool
+    {
+        if (array_key_exists('has_active_public_submission', $this->attributes)) {
+            return (bool) $this->getAttribute('has_active_public_submission');
+        }
+
+        return $this->publicCatalogSubmissions()
+            ->whereIn('status', PublicCatalogSubmission::ACTIVE_STATUSES)
+            ->exists();
     }
 
     public function knowledgeArea()

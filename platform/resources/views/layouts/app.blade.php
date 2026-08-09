@@ -108,6 +108,10 @@
                             class="sidebar-link {{ request()->routeIs('admin.audit-logs.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">history</span> Logs de Auditoria
                         </a>
+                        <a href="{{ route('admin.public-catalog.index') }}"
+                            class="sidebar-link {{ request()->routeIs('admin.public-catalog.*') ? 'active' : '' }}">
+                            <span class="material-symbols-outlined text-[20px]">fact_check</span> Moderação pública
+                        </a>
                         <a href="{{ route('admin.users.index') }}"
                             class="sidebar-link {{ request()->routeIs('admin.users.*') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">group</span> Usuários
@@ -234,6 +238,10 @@
                             <a class="sidebar-link {{ request()->routeIs('question-resources.*') ? 'active' : '' }}"
                                 href="{{ route('question-resources.index') }}">
                                 <span class="material-symbols-outlined text-[20px]">collections_bookmark</span> Apoios de questões
+                            </a>
+                            <a class="sidebar-link {{ request()->routeIs('public-catalog.*') ? 'active' : '' }}"
+                                href="{{ route('public-catalog.index') }}">
+                                <span class="material-symbols-outlined text-[20px]">public</span> Minhas submissões
                             </a>
                             <a class="sidebar-link {{ request()->routeIs('exams.*') ? 'active' : '' }}"
                                 href="{{ route('exams.index') }}">

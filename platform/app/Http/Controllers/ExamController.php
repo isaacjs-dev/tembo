@@ -19,6 +19,7 @@ use App\Services\ExamPresentationService;
 use App\Services\ExamPrintService;
 use App\Services\ExamWizardService;
 use App\Services\MonthlyUsageService;
+use App\Services\QuestionLibraryService;
 use App\Services\RevisionBuilderService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -308,13 +309,9 @@ class ExamController extends Controller
             'points' => 'required|numeric|min:0',
         ]);
 
-        $question = Question::whereKey($validated['question_id'])
+        $question = app(QuestionLibraryService::class)->visibleTo(auth()->user())
+            ->whereKey($validated['question_id'])
             ->where('organization_id', $exam->organization_id)
-            ->where(function ($query) {
-                $query->where('owner_id', auth()->id())
-                    ->orWhere('visibility_scope', 'org_public')
-                    ->orWhereHas('shares', fn ($share) => $share->where('shared_with_user_id', auth()->id()));
-            })
             ->firstOrFail();
 
         DB::transaction(function () use ($exam, $question, $validated) {
@@ -407,7 +404,8 @@ class ExamController extends Controller
 
         $examQuestionIds = $exam->questions()->pluck('questions.id')->toArray();
 
-        $query = Question::where('organization_id', $organization_id)
+        $query = app(QuestionLibraryService::class)->visibleTo(auth()->user())
+            ->where('organization_id', $organization_id)
             ->with(['discipline', 'knowledgeArea', 'owner']);
 
         if ($tab === 'shared') {
@@ -485,13 +483,9 @@ class ExamController extends Controller
         ]);
 
         $requestedIds = collect($validated['question_ids'])->map(fn ($questionId) => (int) $questionId)->values();
-        $allowedIds = Question::where('organization_id', $exam->organization_id)
+        $allowedIds = app(QuestionLibraryService::class)->visibleTo(auth()->user())
+            ->where('organization_id', $exam->organization_id)
             ->whereIn('id', $requestedIds)
-            ->where(function ($query) {
-                $query->where('owner_id', auth()->id())
-                    ->orWhere('visibility_scope', 'org_public')
-                    ->orWhereHas('shares', fn ($share) => $share->where('shared_with_user_id', auth()->id()));
-            })
             ->pluck('id')
             ->map(fn ($questionId) => (int) $questionId);
 
@@ -1017,6 +1011,16 @@ class ExamController extends Controller
             ->where('author_id', auth()->id())
             ->with('questions')
             ->findOrFail($id);
+
+        $availableQuestionIds = app(QuestionLibraryService::class)->visibleTo(auth()->user())
+            ->where('organization_id', $original->organization_id)
+            ->whereKey($original->questions->modelKeys())
+            ->pluck('id');
+        if ($availableQuestionIds->count() !== $original->questions->count()) {
+            throw ValidationException::withMessages([
+                'questions' => 'A avaliaÃ§Ã£o possui uma ou mais questÃµes que nÃ£o estÃ£o disponÃ­veis para novo uso.',
+            ]);
+        }
 
         $copy = Exam::create([
             'organization_id' => auth()->user()->organization_id,

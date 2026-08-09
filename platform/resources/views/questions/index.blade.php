@@ -296,6 +296,23 @@
                             </div>
 
                             <div class="flex flex-wrap items-center justify-end gap-1">
+                                @if($isOwner && $question->visibility_scope !== 'platform_public')
+                                    @if($question->has_active_public_submission)
+                                        <span class="badge badge-warning">Em moderação</span>
+                                    @else
+                                        <a href="{{ route('public-catalog.submissions.create', ['type' => 'question', 'id' => $question->id]) }}"
+                                            class="btn-secondary btn-sm !px-3 !py-1.5 text-xs">
+                                            <span aria-hidden="true" class="material-symbols-outlined text-[14px]">publish</span>
+                                            Enviar ao catálogo
+                                        </a>
+                                    @endif
+                                @elseif($question->visibility_scope === 'platform_public' && !$isOwner)
+                                    <a href="{{ route('public-catalog.reports.create', ['type' => 'question', 'id' => $question->id]) }}"
+                                        class="btn-ghost btn-sm !px-3 !py-1.5 text-xs text-red-700">
+                                        <span aria-hidden="true" class="material-symbols-outlined text-[14px]">flag</span>
+                                        Denunciar
+                                    </a>
+                                @endif
                                 {{-- Adicionar à Prova --}}
                                 @if($canAttachDirectly)
                                 <div class="relative" x-data="{ showExamPicker: false, points: 1 }" @click.away="showExamPicker = false">
