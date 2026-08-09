@@ -9,46 +9,37 @@ use App\Models\Question;
 use App\Models\User;
 use App\Rules\ActiveOrganizationMember;
 use App\Services\MonthlyUsageService;
+use App\Services\QuestionLibraryService;
 use App\Services\QuestionResourceService;
 use App\Services\RevisionBuilderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class QuestionController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, QuestionLibraryService $library)
     {
-        $user = auth()->user();
+        Gate::authorize('viewAny', Question::class);
+        $user = $request->user();
         $user_id = $user->id;
-        $tab = $request->input('tab', 'mine');
+        $tab = $library->normalizeScope($request->string('tab')->toString());
 
         $organizationId = $this->currentOrganizationId();
 
-        $query = Question::where('organization_id', $organizationId)
+        $query = $library->forScope($user, $tab)
             ->with(['owner', 'discipline', 'knowledgeArea']);
-
-        // Filtro por aba
-        if ($tab === 'shared') {
-            $query->where('owner_id', '!=', $user_id)
-                ->whereHas('shares', fn ($sq) => $sq->where('shared_with_user_id', $user_id));
-        } elseif ($tab === 'public') {
-            $query->where('owner_id', '!=', $user_id)
-                ->where('visibility_scope', 'org_public');
-        } else {
-            // "mine" (default)
-            $query->where('owner_id', $user_id);
-        }
 
         // Busca por texto no enunciado
         if ($search = $request->input('search')) {
-            $query->where('content', 'like', '%'.$search.'%');
+            $query->where('content->statement', 'like', '%'.$search.'%');
         }
 
         // Filtro por disciplina
-        if ($discipline = $request->input('discipline_id')) {
+        if ($tab !== 'platform' && ($discipline = $request->input('discipline_id'))) {
             $query->where('discipline_id', $discipline);
         }
 
@@ -62,7 +53,16 @@ class QuestionController extends Controller
             $query->where('level', $level);
         }
 
-        $questions = $query->latest()->paginate(12)->withQueryString();
+        if ($stage = $request->input('stage')) {
+            $query->where('stage', $stage);
+        }
+
+        if ($grade = $request->input('grade')) {
+            $query->where('grade', $grade);
+        }
+
+        $request->input('sort') === 'oldest' ? $query->oldest() : $query->latest();
+        $questions = $query->paginate(12)->withQueryString();
 
         // Dados para os filtros
         $disciplines = Discipline::where('organization_id', $organizationId)
@@ -77,21 +77,14 @@ class QuestionController extends Controller
             ->latest()
             ->get();
 
-        // Contadores por aba (sem filtros de busca)
-        $baseQuery = Question::where('organization_id', $organizationId);
-        $counts = [
-            'mine' => (clone $baseQuery)->where('owner_id', $user_id)->count(),
-            'shared' => (clone $baseQuery)->where('owner_id', '!=', $user_id)
-                ->whereHas('shares', fn ($sq) => $sq->where('shared_with_user_id', $user_id))->count(),
-            'public' => (clone $baseQuery)->where('owner_id', '!=', $user_id)
-                ->where('visibility_scope', 'org_public')->count(),
-        ];
+        $counts = $library->counts($user);
 
         return view('questions.index', compact('questions', 'disciplines', 'tab', 'counts', 'myExams'));
     }
 
     public function create(QuestionResourceService $resources)
     {
+        Gate::authorize('create', Question::class);
         $organizationId = $this->currentOrganizationId();
         $knowledgeAreas = KnowledgeArea::where('organization_id', $organizationId)->orderBy('name')->get();
         $disciplines = Discipline::where('organization_id', $organizationId)->orderBy('name')->get();
@@ -110,6 +103,7 @@ class QuestionController extends Controller
         RevisionBuilderService $revisions,
         QuestionResourceService $resources,
     ) {
+        Gate::authorize('create', Question::class);
         $orgId = $this->currentOrganizationId();
         $validated = $this->validateQuestion($request, $orgId);
         $content = $this->buildQuestionContent($validated);
@@ -157,6 +151,7 @@ class QuestionController extends Controller
         $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
+        Gate::authorize('update', $question);
 
         $knowledgeAreas = KnowledgeArea::where('organization_id', $organizationId)->orderBy('name')->get();
         $disciplines = Discipline::where('organization_id', $organizationId)->orderBy('name')->get();
@@ -178,6 +173,7 @@ class QuestionController extends Controller
         $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
+        Gate::authorize('update', $question);
 
         $validated = $this->validateQuestion($request, $organizationId);
         $content = $this->buildQuestionContent($validated);
@@ -214,6 +210,7 @@ class QuestionController extends Controller
         $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
+        Gate::authorize('share', $question);
 
         $teachers = User::query()
             ->where('status', 'active')
@@ -232,6 +229,7 @@ class QuestionController extends Controller
         $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
+        Gate::authorize('share', $question);
 
         $validated = $request->validate([
             'teacher_ids' => 'nullable|array',
@@ -261,28 +259,27 @@ class QuestionController extends Controller
         $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
+        Gate::authorize('delete', $question);
 
         $question->delete();
 
         return redirect()->route('questions.index')->with('status', 'Questão excluída.');
     }
 
-    public function duplicate(string $id, MonthlyUsageService $usage, QuestionResourceService $resources)
-    {
-        // Pega a questão original (mesmo a organização ou se é pública)
+    public function duplicate(
+        string $id,
+        MonthlyUsageService $usage,
+        QuestionResourceService $resources,
+        QuestionLibraryService $library,
+    ) {
         $organization_id = $this->currentOrganizationId();
         $user_id = auth()->id();
 
-        $original = Question::where('organization_id', $organization_id)
-            ->where(function ($q) use ($user_id) {
-                $q->where('owner_id', $user_id)
-                    ->orWhere('visibility_scope', 'org_public')
-                    ->orWhereHas('shares', function ($sq) use ($user_id) {
-                        $sq->where('shared_with_user_id', $user_id);
-                    });
-            })
+        $original = $library->visibleTo(auth()->user())
             ->with(['bnccSkills:id', 'customSkills:id', 'resourceLinks.version'])
             ->findOrFail($id);
+        Gate::authorize('duplicate', $original);
+        $sameOrganization = (int) $original->organization_id === (int) $organization_id;
 
         $resourceIds = $original->resourceLinks->pluck('question_resource_id')->unique();
         if ($resourceIds->isNotEmpty()
@@ -298,7 +295,7 @@ class QuestionController extends Controller
             ]);
         }
 
-        $copy = DB::transaction(function () use ($original, $organization_id, $user_id, $usage) {
+        $copy = DB::transaction(function () use ($original, $organization_id, $user_id, $usage, $sameOrganization) {
             // Preserve every taxonomy column, including fields added in future migrations.
             $copy = $original->replicate([
                 'organization_id',
@@ -313,10 +310,15 @@ class QuestionController extends Controller
             $copy->owner_id = $user_id;
             $copy->visibility_scope = 'private';
             $copy->source_question_id = $original->id;
+            if (! $sameOrganization) {
+                // Taxonomy foreign keys belong to a workspace and must not cross tenants.
+                $copy->knowledge_area_id = null;
+                $copy->discipline_id = null;
+            }
             $copy->save();
 
-            $copy->bnccSkills()->sync($original->bnccSkills->modelKeys());
-            $copy->customSkills()->sync($original->customSkills->modelKeys());
+            $copy->bnccSkills()->sync($sameOrganization ? $original->bnccSkills->modelKeys() : []);
+            $copy->customSkills()->sync($sameOrganization ? $original->customSkills->modelKeys() : []);
             foreach ($original->resourceLinks as $link) {
                 $copy->resources()->attach($link->question_resource_id, [
                     'question_resource_version_id' => $link->question_resource_version_id,

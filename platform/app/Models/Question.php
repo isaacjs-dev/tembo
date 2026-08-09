@@ -12,6 +12,8 @@ class Question extends Model
 {
     use HasFactory, SoftDeletes;
 
+    public const VISIBILITY_SCOPES = ['private', 'shared_specific', 'org_public', 'platform_public'];
+
     protected $fillable = [
         'organization_id',
         'owner_id',
