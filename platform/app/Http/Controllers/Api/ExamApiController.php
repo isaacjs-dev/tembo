@@ -13,7 +13,7 @@ class ExamApiController extends Controller
     {
         $user = $request->user();
         $orgId = $user->organization_id;
-        $canReadInstitutionExams = in_array($user->type, ['admin', 'institution_admin', 'global_admin'], true);
+        $canReadInstitutionExams = $user->hasWorkspaceRole('admin', 'institution_admin', 'global_admin');
 
         $exams = Exam::where('organization_id', $orgId)
             // A printed card remains valid after the assessment is closed.
@@ -44,7 +44,7 @@ class ExamApiController extends Controller
     {
         $user = $request->user();
         $orgId = $user->organization_id;
-        $canReadInstitutionExams = in_array($user->type, ['admin', 'institution_admin', 'global_admin'], true);
+        $canReadInstitutionExams = $user->hasWorkspaceRole('admin', 'institution_admin', 'global_admin');
 
         abort_unless(
             (int) $exam->organization_id === (int) $orgId
@@ -76,8 +76,8 @@ class ExamApiController extends Controller
 
         // Students in the classes assigned to this exam
         $classIds = $exam->schoolClasses->pluck('id');
-        $students = User::where('organization_id', $orgId)
-            ->where('type', 'student')
+        $students = User::query()
+            ->memberOfOrganization((int) $orgId, 'student')
             ->whereHas('schoolClasses', fn ($q) => $q->whereIn('school_classes.id', $classIds))
             ->with('studentProfile:id,user_id,registration_number')
             ->orderBy('name')

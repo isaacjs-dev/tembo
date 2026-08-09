@@ -5,12 +5,12 @@ namespace App\Http\Controllers\Institution;
 use App\Http\Controllers\Controller;
 use App\Models\GuardianStudentLink;
 use App\Models\User;
+use App\Rules\ActiveOrganizationMember;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Spatie\Permission\Models\Role;
@@ -29,8 +29,7 @@ class GuardianLinkController extends Controller
             ->paginate(20);
 
         $students = User::query()
-            ->where('organization_id', $organizationId)
-            ->where('type', 'student')
+            ->memberOfOrganization($organizationId, 'student')
             ->where('status', 'active')
             ->orderBy('name')
             ->get(['id', 'name', 'email']);
@@ -47,13 +46,7 @@ class GuardianLinkController extends Controller
             'student_id' => [
                 'required',
                 'integer',
-                Rule::exists('users', 'id')->where(
-                    fn ($query) => $query
-                        ->where('organization_id', $organizationId)
-                        ->where('type', 'student')
-                        ->where('status', 'active')
-                        ->whereNull('deleted_at')
-                ),
+                new ActiveOrganizationMember($organizationId, 'student'),
             ],
             'guardian_name' => ['nullable', 'string', 'max:255'],
             'guardian_email' => ['required', 'email:rfc', 'max:255'],
@@ -70,13 +63,10 @@ class GuardianLinkController extends Controller
                 ->first();
 
             if ($guardian) {
-                if (
-                    $guardian->trashed()
-                    ||
-                    $guardian->type !== 'guardian'
-                    || (int) $guardian->organization_id !== $organizationId
+                $membership = $guardian->organizations()->whereKey($organizationId)->first();
+                if ($guardian->trashed()
                     || $guardian->status !== 'active'
-                ) {
+                    || ($membership && ($membership->pivot->status !== 'active' || $membership->pivot->role_in_org !== 'guardian'))) {
                     throw ValidationException::withMessages([
                         'guardian_email' => 'Este e-mail já pertence a uma conta incompatível com este vínculo.',
                     ]);
@@ -105,6 +95,14 @@ class GuardianLinkController extends Controller
                 $guardian->assignRole('guardian');
                 $createdGuardian = $guardian;
             }
+
+            $guardian->organizations()->syncWithoutDetaching([
+                $organizationId => [
+                    'role_in_org' => 'guardian',
+                    'status' => 'active',
+                    'joined_at' => now(),
+                ],
+            ]);
 
             if (! $guardian->hasVerifiedEmail()) {
                 $settings = is_array($guardian->settings) ? $guardian->settings : [];

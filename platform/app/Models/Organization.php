@@ -13,6 +13,7 @@ class Organization extends Model
 
     protected $fillable = [
         'name',
+        'workspace_type',
         'subdomain',
         'active',
         'allow_class_copy',
@@ -33,6 +34,11 @@ class Organization extends Model
         'logs_access_users' => 'array',
         'settings' => 'array',
     ];
+
+    public function isPersonalWorkspace(): bool
+    {
+        return $this->workspace_type === 'personal';
+    }
 
     /* ── Relationships ── */
 
@@ -108,12 +114,18 @@ class Organization extends Model
 
     public function canAddStudent(): bool
     {
-        return $this->canCreateResource('max_students', $this->users()->where('type', 'student')->count());
+        return $this->canCreateResource(
+            'max_students',
+            User::query()->memberOfOrganization((int) $this->id, 'student')->count(),
+        );
     }
 
     public function canAddTeacher(): bool
     {
-        return $this->canCreateResource('max_teachers', $this->users()->where('type', 'teacher')->count());
+        return $this->canCreateResource(
+            'max_teachers',
+            User::query()->memberOfOrganization((int) $this->id, 'teacher')->count(),
+        );
     }
 
     public function canAddClass(): bool

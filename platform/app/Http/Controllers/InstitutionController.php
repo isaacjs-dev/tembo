@@ -18,8 +18,8 @@ class InstitutionController extends Controller
         $orgId = auth()->user()->organization_id;
 
         $stats = [
-            'students_count' => User::where('organization_id', $orgId)->where('type', 'student')->count(),
-            'teachers_count' => User::where('organization_id', $orgId)->where('type', 'teacher')->count(),
+            'students_count' => User::query()->memberOfOrganization((int) $orgId, 'student')->count(),
+            'teachers_count' => User::query()->memberOfOrganization((int) $orgId, 'teacher')->count(),
             'classes_count' => SchoolClass::where('organization_id', $orgId)->count(),
             'exams_count' => Exam::where('organization_id', $orgId)->count(),
             'submissions_count' => ExamSubmission::whereHas('exam', function ($q) use ($orgId) {
@@ -36,7 +36,7 @@ class InstitutionController extends Controller
             ->get();
 
         $personalUsage = null;
-        if ($request->user()->type === 'teacher') {
+        if ($request->user()->hasWorkspaceRole('teacher')) {
             $personalUsage = collect(MonthlyUsageService::RESOURCES)->mapWithKeys(fn (string $resource) => [
                 $resource => $usage->snapshot($request->user(), $resource),
             ]);

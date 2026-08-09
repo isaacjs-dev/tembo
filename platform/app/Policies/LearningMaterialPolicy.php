@@ -9,7 +9,7 @@ class LearningMaterialPolicy
 {
     public function before(User $user): ?bool
     {
-        if (! in_array($user->type, ['teacher', 'institution_admin', 'global_admin'], true)) {
+        if (! $user->hasWorkspaceRole('teacher', 'admin', 'institution_admin', 'global_admin')) {
             return false;
         }
 
@@ -47,7 +47,7 @@ class LearningMaterialPolicy
             return false;
         }
 
-        return in_array($user->type, ['institution_admin', 'global_admin'], true)
+        return $user->hasWorkspaceRole('admin', 'institution_admin', 'global_admin')
             || (int) $material->author_id === (int) $user->id;
     }
 }

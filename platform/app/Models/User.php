@@ -156,6 +156,37 @@ class User extends Authenticatable implements MustVerifyEmailContract
             : null;
     }
 
+    /** Resolve the active role in one workspace without relying on the global account type. */
+    public function roleInOrganization(?int $organizationId = null): ?string
+    {
+        if ($this->type === 'global_admin') {
+            return 'global_admin';
+        }
+
+        $organizationId ??= (int) $this->organization_id;
+        if ($organizationId < 1) {
+            return null;
+        }
+
+        $organization = $this->organizations()
+            ->whereKey($organizationId)
+            ->wherePivot('status', 'active')
+            ->first();
+
+        if ($organization) {
+            return $organization->pivot->role_in_org;
+        }
+
+        return ! $this->organizations()->exists() && (int) $this->organization_id === $organizationId
+            ? $this->type
+            : null;
+    }
+
+    public function hasWorkspaceRole(string ...$roles): bool
+    {
+        return in_array($this->roleInOrganization(), $roles, true);
+    }
+
     /** Subscription individual (morph) */
     public function subscription()
     {

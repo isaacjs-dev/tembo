@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Plan;
 use App\Models\SchoolClass;
 use App\Models\Subscription;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -17,7 +18,7 @@ class BillingController extends Controller
      */
     public function index()
     {
-        abort_unless(in_array(auth()->user()->type, ['institution_admin', 'global_admin']), 403);
+        $this->authorizePlanOwner();
         $organization = auth()->user()->organization;
         $activeSubscription = $organization->subscriptions()
             ->where('status', 'active')
@@ -52,7 +53,7 @@ class BillingController extends Controller
      */
     public function changePlan(Request $request)
     {
-        abort_unless(in_array(auth()->user()->type, ['institution_admin', 'global_admin']), 403);
+        $this->authorizePlanOwner();
         $validated = $request->validate([
             'plan_id' => 'required|exists:plans,id',
         ]);
@@ -143,7 +144,7 @@ class BillingController extends Controller
      */
     public function cancelPlan(Request $request)
     {
-        abort_unless(in_array(auth()->user()->type, ['institution_admin', 'global_admin']), 403);
+        $this->authorizePlanOwner();
         $organization = auth()->user()->organization;
 
         $validated = $request->validate([
@@ -183,11 +184,25 @@ class BillingController extends Controller
     /**
      * Retorna uso atual da organização.
      */
+    private function authorizePlanOwner(): void
+    {
+        $user = auth()->user();
+        $organization = $user?->organization;
+        $isOwner = $organization && (int) $organization->owner_user_id === (int) $user->id;
+        $isLegacyOwner = $organization
+            && $organization->owner_user_id === null
+            && $user->type === 'institution_admin'
+            && ! $user->organizations()->exists()
+            && (int) $user->getRawOriginal('organization_id') === (int) $organization->id;
+
+        abort_unless($isOwner || $isLegacyOwner, 403);
+    }
+
     private function getUsage($organization): array
     {
         return [
-            'teachers' => $organization->users()->where('type', 'teacher')->count(),
-            'students' => $organization->users()->where('type', 'student')->count(),
+            'teachers' => User::query()->memberOfOrganization((int) $organization->id, 'teacher')->count(),
+            'students' => User::query()->memberOfOrganization((int) $organization->id, 'student')->count(),
             'classes' => SchoolClass::withoutGlobalScopes()
                 ->where('organization_id', $organization->id)->count(),
         ];

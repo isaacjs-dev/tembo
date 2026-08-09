@@ -28,7 +28,7 @@ class LearningMaterialController extends Controller
         $materials = LearningMaterial::query()
             ->where('organization_id', $organizationId)
             ->when(
-                $user->type === 'teacher',
+                $user->hasWorkspaceRole('teacher'),
                 fn (Builder $query) => $query->where('author_id', $user->id),
             )
             ->when($request->filled('status'), function (Builder $query) use ($request): void {
@@ -229,7 +229,7 @@ class LearningMaterialController extends Controller
         $query = SchoolClass::query()
             ->where('organization_id', $this->organizationId($request));
 
-        if ($user->type === 'teacher') {
+        if ($user->hasWorkspaceRole('teacher')) {
             $query->where(function (Builder $query) use ($user): void {
                 $query->where(function (Builder $query) use ($user): void {
                     $query->where('owner_type', 'user')->where('owner_id', $user->id);

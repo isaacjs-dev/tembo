@@ -38,6 +38,7 @@ class RegisteredUserController extends Controller
     {
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'account_type' => ['nullable', 'in:personal,institution'],
             'organization_name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
@@ -45,44 +46,63 @@ class RegisteredUserController extends Controller
 
         $user = DB::transaction(function () use ($request): User {
             $organizationName = trim((string) $request->input('organization_name'));
-            if ($organizationName === '') {
+            $accountType = $request->input('account_type')
+                ?: ($organizationName === '' ? 'personal' : 'institution');
+            $isPersonal = $accountType === 'personal';
+
+            if ($organizationName === '' && $isPersonal) {
                 $organizationName = 'Espaço de '.$request->string('name')->trim();
+            }
+            if ($organizationName === '') {
+                throw ValidationException::withMessages([
+                    'organization_name' => 'Informe o nome da instituição.',
+                ]);
             }
 
             $organization = Organization::create([
                 'name' => $organizationName,
                 'subdomain' => $this->availableSubdomain($organizationName),
+                'workspace_type' => $isPersonal ? 'personal' : 'institutional',
                 'active' => true,
             ]);
+
+            $userType = $isPersonal ? 'teacher' : 'institution_admin';
+            $membershipRole = $isPersonal ? 'teacher' : 'admin';
 
             $user = User::create([
                 'organization_id' => $organization->id,
                 'name' => $request->name,
                 'email' => mb_strtolower($request->email),
                 'password' => Hash::make($request->password),
-                'type' => 'institution_admin',
+                'type' => $userType,
                 'status' => 'active',
                 'settings' => ['requires_email_verification' => true],
             ]);
 
-            Role::findOrCreate('institution_admin', 'web');
-            $user->assignRole('institution_admin');
+            Role::findOrCreate($userType, 'web');
+            $user->assignRole($userType);
             $organization->update(['owner_user_id' => $user->id]);
             $user->organizations()->syncWithoutDetaching([
                 $organization->id => [
-                    'role_in_org' => 'admin',
+                    'role_in_org' => $membershipRole,
                     'status' => 'active',
                     'joined_at' => now(),
                 ],
             ]);
 
             if ($plan = Plan::query()->where('slug', 'start')->where('status', 'active')->first()) {
-                Subscription::create([
-                    'organization_id' => $organization->id,
+                $subscription = [
                     'plan_id' => $plan->id,
                     'status' => 'active',
                     'starts_at' => now(),
-                ]);
+                ];
+                if ($isPersonal) {
+                    $subscription['subscriber_type'] = User::class;
+                    $subscription['subscriber_id'] = $user->id;
+                } else {
+                    $subscription['organization_id'] = $organization->id;
+                }
+                Subscription::create($subscription);
             }
 
             return $user;

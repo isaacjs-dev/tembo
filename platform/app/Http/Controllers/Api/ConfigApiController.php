@@ -409,7 +409,7 @@ class ConfigApiController extends Controller
 
     private function ensureCanManage(User $user): void
     {
-        abort_unless(in_array($user->type, ['institution_admin', 'global_admin'], true), 403);
+        abort_unless($user->hasWorkspaceRole('admin', 'institution_admin', 'global_admin'), 403);
         abort_unless($user->organization_id, 422, 'Usuário sem organização ativa.');
     }
 }

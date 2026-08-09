@@ -122,7 +122,7 @@ class InviteManagerService
         $limiterService = app(PlanLimiterService::class);
 
         if ($targetRole === 'teacher') {
-            $current = $organization->users()->where('type', 'teacher')->count();
+            $current = User::query()->memberOfOrganization((int) $organization->id, 'teacher')->count();
             if (! $limiterService->canCreate($organization, 'max_teachers', $current)) {
                 throw ValidationException::withMessages([
                     'limit' => 'Limite de professores do plano foi atingido.',
@@ -131,7 +131,7 @@ class InviteManagerService
         }
 
         if ($targetRole === 'student') {
-            $current = $organization->users()->where('type', 'student')->count();
+            $current = User::query()->memberOfOrganization((int) $organization->id, 'student')->count();
             if (! $limiterService->canCreate($organization, 'max_students', $current)) {
                 throw ValidationException::withMessages([
                     'limit' => 'Limite de alunos do plano foi atingido.',

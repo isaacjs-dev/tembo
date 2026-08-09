@@ -33,7 +33,7 @@ class RestrictTrashAccess
         }
 
         // Institution admin pode se flag ativa
-        if ($user->type === 'institution_admin' && $org->can_access_trash) {
+        if ($user->hasWorkspaceRole('admin', 'institution_admin') && $org->can_access_trash) {
             return $next($request);
         }
 

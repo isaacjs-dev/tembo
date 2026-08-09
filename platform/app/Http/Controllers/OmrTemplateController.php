@@ -128,13 +128,27 @@ class OmrTemplateController extends Controller
     private function authorizeEdit(OmrTemplate $template): void
     {
         $user = auth()->user();
+        abort_if($template->is_system, 403);
         if ($user && $user->type === 'global_admin') {
             return;
         }
         abort_if($template->is_system, 403, 'Template do sistema é somente leitura.');
 
-        $visible = OmrTemplate::visible($user)->whereKey($template->id)->exists();
+        $sameWorkspace = (int) $template->organization_id === (int) $user?->organization_id;
+        $ownsTemplate = (int) $template->created_by === (int) $user?->id
+            || ($template->owner_type === User::class && (int) $template->owner_id === (int) $user?->id);
+        $workspaceRole = request()->attributes->get('workspace_role');
+        $managesWorkspace = in_array($workspaceRole, ['admin', 'institution_admin'], true);
+        $visible = $sameWorkspace && ($ownsTemplate || $managesWorkspace);
         abort_unless($visible, 403, 'Sem permissão para editar este template.');
+    }
+
+    private function authorizeView(OmrTemplate $template): void
+    {
+        abort_unless(
+            OmrTemplate::visible(auth()->user())->whereKey($template->id)->exists(),
+            403,
+        );
     }
 
     private function validateTemplate(Request $request): array
@@ -228,6 +242,7 @@ class OmrTemplateController extends Controller
 
     public function exportJson(OmrTemplate $template)
     {
+        $this->authorizeView($template);
         $template->load('questions');
 
         return response()->json($template->toEngineJson());

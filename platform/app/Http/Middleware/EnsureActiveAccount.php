@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Organization;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,12 +19,23 @@ class EnsureActiveAccount
         }
 
         $inactiveAccount = $user->status !== 'active';
+        $originalWorkspaceId = (int) $request->attributes->get('original_workspace_id');
+        $inactiveOriginalWorkspace = $user->organization_id === null
+            && $originalWorkspaceId > 0
+            && Organization::withTrashed()->whereKey($originalWorkspaceId)
+                ->where(fn ($query) => $query->where('active', false)->orWhereNotNull('deleted_at'))
+                ->exists();
         $inactiveOrganization = $user->type !== 'global_admin'
-            && $user->organization_id !== null
-            && (! $user->organization || ! $user->organization->active);
+            && (($user->organization_id !== null && (! $user->organization || ! $user->organization->active))
+                || $inactiveOriginalWorkspace);
+        $inactiveOriginalMembership = $user->organization_id === null
+            && $originalWorkspaceId > 0
+            && $user->organizations()->exists()
+            && ! $user->belongsToActiveOrganization($originalWorkspaceId);
         $invalidOrganizationContext = $user->type !== 'global_admin'
-            && $user->organization_id !== null
-            && ! $user->canUseOrganizationContext((int) $user->organization_id);
+            && (($user->organization_id !== null
+                && ! $user->canUseOrganizationContext((int) $user->organization_id))
+                || $inactiveOriginalMembership);
 
         if (! $inactiveAccount && ! $inactiveOrganization && ! $invalidOrganizationContext) {
             return $next($request);

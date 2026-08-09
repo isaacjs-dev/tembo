@@ -23,15 +23,9 @@ class QuestionController extends Controller
         $user_id = $user->id;
         $tab = $request->input('tab', 'mine');
 
-        // Todas as orgs ativas do professor (pivot + legado)
-        $orgIds = $user->activeOrganizations()->pluck('organizations.id')->toArray();
-        if ($user->organization_id
-            && $user->canUseOrganizationContext((int) $user->organization_id)
-            && ! in_array($user->organization_id, $orgIds)) {
-            $orgIds[] = $user->organization_id;
-        }
+        $organizationId = $this->currentOrganizationId();
 
-        $query = Question::whereIn('organization_id', $orgIds)
+        $query = Question::where('organization_id', $organizationId)
             ->with(['owner', 'discipline', 'knowledgeArea']);
 
         // Filtro por aba
@@ -69,18 +63,20 @@ class QuestionController extends Controller
         $questions = $query->latest()->paginate(12)->withQueryString();
 
         // Dados para os filtros
-        $disciplines = Discipline::orderBy('name')->get();
+        $disciplines = Discipline::where('organization_id', $organizationId)
+            ->orderBy('name')
+            ->get();
 
         // Provas do usuário (para "Adicionar à Prova")
         $myExams = Exam::where('author_id', $user_id)
-            ->whereIn('organization_id', $orgIds)
+            ->where('organization_id', $organizationId)
             ->whereIn('status', ['draft', 'published'])
             ->select('id', 'title', 'status')
             ->latest()
             ->get();
 
         // Contadores por aba (sem filtros de busca)
-        $baseQuery = Question::whereIn('organization_id', $orgIds);
+        $baseQuery = Question::where('organization_id', $organizationId);
         $counts = [
             'mine' => (clone $baseQuery)->where('owner_id', $user_id)->count(),
             'shared' => (clone $baseQuery)->where('owner_id', '!=', $user_id)

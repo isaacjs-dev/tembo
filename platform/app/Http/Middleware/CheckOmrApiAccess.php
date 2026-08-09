@@ -21,7 +21,8 @@ class CheckOmrApiAccess
         }
 
         // Check plan feature (chave 'omr' é a semeada em PlanSeeder para pro/enterprise)
-        if (! in_array($user->type, ['teacher', 'admin', 'institution_admin', 'global_admin'], true)) {
+        $workspaceRole = $request->attributes->get('workspace_role');
+        if (! in_array($workspaceRole, ['teacher', 'admin', 'institution_admin', 'global_admin'], true)) {
             return response()->json(['error' => 'Acesso não autorizado ao OMR.'], 403);
         }
 

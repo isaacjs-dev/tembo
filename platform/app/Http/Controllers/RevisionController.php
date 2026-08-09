@@ -21,7 +21,7 @@ class RevisionController extends Controller
     public function index(Request $request, PedagogicalAccessService $access): View
     {
         $revisions = Revision::query()->where('organization_id', $request->user()->organization_id)
-            ->when($request->user()->type === 'teacher' && ! $access->canReview($request->user(), $request->user()->organization_id), fn ($q) => $q->where('author_id', $request->user()->id))
+            ->when($request->user()->hasWorkspaceRole('teacher') && ! $access->canReview($request->user(), $request->user()->organization_id), fn ($q) => $q->where('author_id', $request->user()->id))
             ->with(['author', 'discipline', 'schoolClasses'])->withCount(['items', 'attempts'])->latest()->paginate(15);
 
         return view('revisions.index', compact('revisions'));

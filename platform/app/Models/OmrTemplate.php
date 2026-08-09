@@ -116,29 +116,30 @@ class OmrTemplate extends Model
     public function scopeVisible($query, ?User $user = null)
     {
         $user = $user ?? auth()->user();
+        $organizationId = $user?->organization_id ? (int) $user->organization_id : null;
 
-        if ($user && $user->type === 'global_admin') {
-            return $query;
-        }
-
-        $orgIds = [];
-        if ($user) {
-            $orgIds = $user->activeOrganizations()->pluck('organizations.id')->toArray();
-            if ($user->organization_id && ! in_array($user->organization_id, $orgIds)) {
-                $orgIds[] = $user->organization_id;
-            }
-        }
-
-        return $query->where(function ($q) use ($orgIds, $user) {
+        return $query->where(function ($q) use ($organizationId, $user) {
             $q->where('visibility_scope', 'system')
                 ->orWhere('is_system', true)
-                ->orWhere('is_default', true);
-            if (! empty($orgIds)) {
-                $q->orWhereIn('organization_id', $orgIds);
-            }
-            if ($user) {
-                $q->orWhere(function ($q2) use ($user) {
-                    $q2->where('owner_type', User::class)->where('owner_id', $user->id);
+                ->orWhere(function ($systemDefault) {
+                    $systemDefault->whereNull('organization_id')->where('is_default', true);
+                });
+
+            if ($organizationId) {
+                $q->orWhere(function ($workspace) use ($organizationId, $user) {
+                    $workspace->where('organization_id', $organizationId)
+                        ->where(function ($visibility) use ($user) {
+                            $visibility->where('visibility_scope', 'org_public')
+                                ->orWhere('is_default', true);
+
+                            if ($user) {
+                                $visibility->orWhere('created_by', $user->id)
+                                    ->orWhere(function ($owner) use ($user) {
+                                        $owner->where('owner_type', User::class)
+                                            ->where('owner_id', $user->id);
+                                    });
+                            }
+                        });
                 });
             }
         });

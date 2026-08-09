@@ -3,7 +3,10 @@ import type { LoginRequest, LoginResponse, UserData } from '@/types/api';
 
 export const authService = {
   async login(data: LoginRequest): Promise<LoginResponse> {
-    const response = await api.post<LoginResponse>('/auth/login', data);
+    const { workspace_id, ...credentials } = data;
+    const response = await api.post<LoginResponse>('/auth/login', credentials, {
+      headers: workspace_id ? { 'X-Workspace-Id': String(workspace_id) } : undefined,
+    });
     return response.data;
   },
 

@@ -33,7 +33,7 @@ class RestrictLogAccess
         }
 
         // Institution admin pode se flag ativa
-        if ($user->type === 'institution_admin' && $org->can_access_logs) {
+        if ($user->hasWorkspaceRole('admin', 'institution_admin') && $org->can_access_logs) {
             return $next($request);
         }
 

@@ -71,8 +71,8 @@ class OmrController extends Controller
             ->orderBy('title')
             ->get();
 
-        $students = User::where('organization_id', $orgId)
-            ->where('type', 'student')
+        $students = User::query()
+            ->memberOfOrganization((int) $orgId, 'student')
             ->orderBy('name')
             ->get();
 
@@ -348,12 +348,8 @@ class OmrController extends Controller
             ->findOrFail($id);
 
         // Alunos da organização (FK legado OU pivot user_organization ativa).
-        $students = User::where('type', 'student')
-            ->where(function ($q) use ($orgId) {
-                $q->where('organization_id', $orgId)
-                    ->orWhereHas('organizations', fn ($q2) => $q2->where('organizations.id', $orgId)
-                        ->where('user_organization.status', 'active'));
-            })
+        $students = User::query()
+            ->memberOfOrganization((int) $orgId, 'student')
             ->orderBy('name')
             ->get();
 
@@ -500,12 +496,8 @@ class OmrController extends Controller
 
         // Mesmos alunos listados em /institution/students (StudentController@index):
         // vinculados por FK legado OU pela pivot user_organization ativa.
-        $students = User::where('type', 'student')
-            ->where(function ($q) use ($orgId) {
-                $q->where('organization_id', $orgId)
-                    ->orWhereHas('organizations', fn ($q2) => $q2->where('organizations.id', $orgId)
-                        ->where('user_organization.status', 'active'));
-            })
+        $students = User::query()
+            ->memberOfOrganization((int) $orgId, 'student')
             ->orderBy('name')
             ->get();
 
