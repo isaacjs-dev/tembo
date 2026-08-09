@@ -94,7 +94,11 @@ class InvitesAndLinksTest extends TestCase
     {
         [$org, $plan] = $this->createOrgWithPlan();
 
-        $inviter = User::factory()->create(['organization_id' => $org->id]);
+        $inviter = User::factory()->create([
+            'type' => 'institution_admin',
+            'organization_id' => $org->id,
+        ]);
+        $inviter->assignRole('institution_admin');
         $invitee = User::factory()->create(['email' => 'decline@test.com']);
 
         $service = new InviteManagerService;
@@ -113,7 +117,11 @@ class InvitesAndLinksTest extends TestCase
     public function test_duplicate_invite_is_blocked(): void
     {
         [$org, $plan] = $this->createOrgWithPlan();
-        $inviter = User::factory()->create(['organization_id' => $org->id]);
+        $inviter = User::factory()->create([
+            'type' => 'institution_admin',
+            'organization_id' => $org->id,
+        ]);
+        $inviter->assignRole('institution_admin');
 
         $service = new InviteManagerService;
         $service->send($inviter, 'dup@test.com', 'teacher', $org);
@@ -137,8 +145,14 @@ class InvitesAndLinksTest extends TestCase
             'joined_at' => now(),
         ]);
 
+        $admin = User::factory()->create([
+            'type' => 'institution_admin',
+            'organization_id' => $org->id,
+        ]);
+        $admin->assignRole('institution_admin');
+
         $linker = new UserLinkerService;
-        $linker->unlink($teacher, $org->id);
+        $linker->unlink($admin, $teacher, $org->id);
 
         $this->assertDatabaseHas('user_organization', [
             'user_id' => $teacher->id,

@@ -11,6 +11,7 @@ use App\Rules\ActiveOrganizationMember;
 use App\Services\AcademicRelationshipService;
 use App\Services\ClassOwnershipService;
 use App\Services\EntitlementService;
+use App\Services\InstitutionPermissionService;
 use App\Services\InviteManagerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +21,7 @@ class SchoolClassController extends Controller
     public function index()
     {
         $orgId = $this->currentOrganizationId();
-        $this->authorizeClassCreation();
+        $this->authorizeClassViewing();
         // Turmas da organização + turmas onde é professor atribuído
         $user = auth()->user();
         $schoolClasses = SchoolClass::where('organization_id', $orgId)
@@ -217,7 +218,7 @@ class SchoolClassController extends Controller
             ->firstOrFail();
 
         $inviteManager = app(InviteManagerService::class);
-        $inviteManager->cancel($invite);
+        $inviteManager->cancel($invite, auth()->user());
 
         return back()->with('status', 'Transferência cancelada.');
     }
@@ -242,7 +243,11 @@ class SchoolClassController extends Controller
         $user = auth()->user();
 
         abort_unless(
-            $user->hasWorkspaceRole('admin', 'institution_admin', 'global_admin')
+            app(InstitutionPermissionService::class)->allows(
+                $user,
+                'manage_classes',
+                (int) $class->organization_id,
+            )
                 || ($user->organization->isPersonalWorkspace() && $class->isOwnedBy($user)),
             403,
         );
@@ -254,8 +259,24 @@ class SchoolClassController extends Controller
     {
         $user = auth()->user();
         abort_unless(
-            $user->hasWorkspaceRole('admin', 'institution_admin', 'global_admin')
-                || ($user->hasWorkspaceRole('teacher') && $user->organization?->isPersonalWorkspace()),
+            app(InstitutionPermissionService::class)->allows(
+                $user,
+                'manage_classes',
+                (int) $user->organization_id,
+            ),
+            403,
+        );
+    }
+
+    private function authorizeClassViewing(): void
+    {
+        $user = auth()->user();
+        abort_unless(
+            app(InstitutionPermissionService::class)->allows(
+                $user,
+                'view_classes',
+                (int) $user->organization_id,
+            ),
             403,
         );
     }

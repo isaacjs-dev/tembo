@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Institution;
 
 use App\Http\Controllers\Controller;
 use App\Models\Invite;
+use App\Services\InstitutionPermissionService;
 use App\Services\InviteManagerService;
 use App\Services\UserLinkerService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class InviteController extends Controller
 {
@@ -34,7 +36,11 @@ class InviteController extends Controller
      */
     public function create()
     {
-        return view('institution.invites.create');
+        $user = auth()->user();
+        $allowedRoles = app(InstitutionPermissionService::class)
+            ->invitationalRoles($user, (int) $user->organization_id);
+
+        return view('institution.invites.create', compact('allowedRoles'));
     }
 
     /**
@@ -42,12 +48,14 @@ class InviteController extends Controller
      */
     public function store(Request $request)
     {
+        $user = auth()->user();
+        $allowedRoles = app(InstitutionPermissionService::class)
+            ->invitationalRoles($user, (int) $user->organization_id);
         $validated = $request->validate([
             'email' => 'required|email|max:255',
-            'target_role' => 'required|in:admin,teacher,student',
+            'target_role' => ['required', Rule::in($allowedRoles)],
         ]);
 
-        $user = auth()->user();
         $org = $user->organization;
 
         $this->inviteManager->send($user, $validated['email'], $validated['target_role'], $org);
@@ -61,7 +69,8 @@ class InviteController extends Controller
      */
     public function destroy(Invite $invite)
     {
-        $this->inviteManager->cancel($invite);
+        abort_unless((int) $invite->organization_id === (int) auth()->user()->organization_id, 404);
+        $this->inviteManager->cancel($invite, auth()->user());
 
         return redirect()->route('institution.invites.index')
             ->with('status', 'Convite cancelado.');

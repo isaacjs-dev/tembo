@@ -10,6 +10,7 @@ use App\Services\AcademicRelationshipService;
 use App\Services\InviteManagerService;
 use App\Services\OrganizationMembershipService;
 use App\Services\UserFinderService;
+use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -123,6 +124,10 @@ class TeacherController extends Controller
             'organization_id' => $org->id,
             'type' => 'teacher',
             'status' => $validated['status'],
+            'settings' => [
+                'requires_email_verification' => true,
+                'must_change_password' => true,
+            ],
         ]);
 
         $teacher->assignRole('teacher');
@@ -135,6 +140,8 @@ class TeacherController extends Controller
                 'joined_at' => now(),
             ],
         ]);
+
+        event(new Registered($teacher));
 
         AuditLog::log('created', User::class, $teacher->id, [
             'new' => ['name' => $teacher->name, 'email' => $teacher->email, 'type' => 'teacher'],
