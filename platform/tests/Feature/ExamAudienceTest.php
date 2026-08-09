@@ -8,6 +8,7 @@ use App\Models\Exam;
 use App\Models\Organization;
 use App\Models\SchoolClass;
 use App\Models\User;
+use App\Services\ExamAudienceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
@@ -212,12 +213,14 @@ class ExamAudienceTest extends TestCase
         $this->withoutMiddleware(CheckOmrApiAccess::class)
             ->getJson('/api/v1/exams')
             ->assertOk()
-            ->assertJsonPath('exams.0.discipline.id', $discipline->id);
+            ->assertJsonPath('exams.0.discipline.id', $discipline->id)
+            ->assertJsonPath('exams.0.version', 1);
 
         $response = $this->withoutMiddleware(CheckOmrApiAccess::class)
             ->getJson("/api/v1/exams/{$exam->id}/download")
             ->assertOk()
             ->assertJsonPath('exam.discipline.id', $discipline->id)
+            ->assertJsonPath('exam.version', 1)
             ->assertJsonCount(2, 'students');
 
         $this->assertEqualsCanonicalizing(
@@ -225,6 +228,24 @@ class ExamAudienceTest extends TestCase
             collect($response->json('students'))->pluck('id')->all(),
         );
         $this->assertArrayNotHasKey('_wizard', $response->json('exam.settings'));
+    }
+
+    public function test_inactive_direct_student_is_removed_from_effective_exam_audience(): void
+    {
+        $organization = $this->organization('Instituição A');
+        $teacher = $this->user($organization, 'teacher');
+        $student = $this->user($organization, 'student');
+        $exam = $this->exam($organization, $teacher);
+        $exam->students()->attach($student->id, [
+            'organization_id' => $organization->id,
+            'assigned_by' => $teacher->id,
+        ]);
+        $student->organizations()->attach($organization->id, [
+            'role_in_org' => 'student',
+            'status' => 'inactive',
+        ]);
+
+        $this->assertSame([], app(ExamAudienceService::class)->studentIds($exam));
     }
 
     public function test_duplication_preserves_authorized_discipline_and_rejects_same_tenant_idor(): void

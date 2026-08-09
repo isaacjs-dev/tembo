@@ -139,16 +139,27 @@
                             <div x-show="wizardStep === 'application'" class="space-y-2" x-cloak>
                                 <label for="application_mode" class="input-label">Modalidade</label>
                                 <select id="application_mode" name="application_mode" @change="queueWizardAutosave('application')" class="input-field">
-                                    <option value="hybrid" @selected(old('application_mode', $exam->settings['application_mode'] ?? 'hybrid') === 'hybrid')>
-                                        Híbrida — on-line e impressa
-                                    </option>
-                                    <option value="online" @selected(old('application_mode', $exam->settings['application_mode'] ?? '') === 'online')>
-                                        Somente on-line
-                                    </option>
-                                    <option value="paper" @selected(old('application_mode', $exam->settings['application_mode'] ?? '') === 'paper')>
-                                        Somente impressa / cartão-resposta
-                                    </option>
+                                    @foreach($applicationModes as $mode => $label)
+                                        <option value="{{ $mode }}" @selected(old('application_mode', $exam->settings['application_mode'] ?? 'hybrid') === $mode)>
+                                            {{ $label }}
+                                        </option>
+                                    @endforeach
                                 </select>
+                            </div>
+                            <div x-show="wizardStep === 'application'" class="space-y-2" x-cloak>
+                                <label for="digital_presentation" class="input-label">Apresentação digital</label>
+                                <select id="digital_presentation" name="digital_presentation"
+                                    @change="queueWizardAutosave('application')" class="input-field">
+                                    <option value="auto" @selected(old('digital_presentation', $exam->settings['digital_presentation'] ?? 'auto') === 'auto')>Automática pelo conteúdo</option>
+                                    <option value="paginated" @selected(old('digital_presentation', $exam->settings['digital_presentation'] ?? '') === 'paginated')>Quantidade fixa por tela</option>
+                                    <option value="full" @selected(old('digital_presentation', $exam->settings['digital_presentation'] ?? '') === 'full')>Avaliação inteira</option>
+                                </select>
+                            </div>
+                            <div x-show="wizardStep === 'application'" class="space-y-2" x-cloak>
+                                <label for="questions_per_page" class="input-label">Questões por tela</label>
+                                <input type="number" id="questions_per_page" name="questions_per_page"
+                                    value="{{ old('questions_per_page', $exam->settings['questions_per_page'] ?? 5) }}"
+                                    min="1" max="20" @input="queueWizardAutosave('application')" class="input-field">
                             </div>
                             <div x-show="wizardStep === 'application'" class="space-y-2" x-cloak>
                                 <label for="attempts" class="input-label">Tentativas Permitidas</label>
@@ -1207,7 +1218,7 @@
                     wizardPayload(step) {
                         const fields = {
                             information: ['title', 'instructions'],
-                            application: ['application_mode', 'time_limit', 'attempts', 'available_from', 'available_until'],
+                            application: ['application_mode', 'digital_presentation', 'questions_per_page', 'time_limit', 'attempts', 'available_from', 'available_until'],
                             appearance: ['shuffle_questions', 'shuffle_options'],
                             publication: ['show_score', 'show_answers', 'show_feedback', 'results_available_from'],
                         }[step] || [];

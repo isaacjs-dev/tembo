@@ -99,6 +99,10 @@
                     <input type="checkbox" name="shuffle_options_mc" value="1" class="rounded border-gray-300">
                     Embaralhar alternativas
                 </label>
+                <label class="inline-flex items-center gap-2 text-sm font-bold text-gray-600 pb-3">
+                    <input type="checkbox" name="individualize" value="1" class="rounded border-gray-300">
+                    Uma por aluno do público
+                </label>
                 <button type="submit" class="btn-primary btn-sm flex items-center gap-1">
                     <span class="material-symbols-outlined text-[18px]">print</span> Gerar Cartão-Resposta (PDF)
                 </button>

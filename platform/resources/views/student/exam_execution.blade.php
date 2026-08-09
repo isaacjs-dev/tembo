@@ -60,8 +60,13 @@
 
         <div id="timerAnnouncement" class="sr-only" aria-live="assertive"></div>
 
-        <div class="space-y-8 mb-40">
-            @foreach($exam->questions as $index => $question)
+        <div class="space-y-8 mb-40" id="questionBlocks">
+            @php $questionNumber = 0; @endphp
+            @foreach($questionBlocks as $blockIndex => $block)
+                <section data-question-block="{{ $blockIndex }}" @if($blockIndex > 0) hidden @endif
+                    class="space-y-8" aria-label="Bloco {{ $blockIndex + 1 }} de {{ $questionBlocks->count() }}">
+            @foreach($block as $question)
+                @php $questionNumber++; @endphp
                 @php $savedAnswer = $savedAnswers[$question->id] ?? null; @endphp
                 <fieldset class="bg-white rounded-2xl border-2 border-duo-border p-5 md:p-8 shadow-sm"
                     id="question-{{ $question->id }}" data-question-id="{{ $question->id }}">
@@ -69,10 +74,10 @@
                         <span class="flex items-start gap-3 md:gap-4">
                             <span aria-hidden="true"
                                 class="shrink-0 w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center font-extrabold text-gray-700 border-2 border-gray-300">
-                                {{ $index + 1 }}
+                                {{ $questionNumber }}
                             </span>
                             <span class="text-base md:text-lg font-bold text-gray-900 leading-relaxed pt-1">
-                                <span class="sr-only">Questão {{ $index + 1 }}. </span>
+                                <span class="sr-only">Questão {{ $questionNumber }}. </span>
                                 {{ $question->content['statement'] }}
                             </span>
                         </span>
@@ -145,7 +150,7 @@
                             </div>
                         @else
                             <label for="answer-{{ $question->id }}" class="sr-only">
-                                Resposta da questão {{ $index + 1 }}
+                                Resposta da questão {{ $questionNumber }}
                             </label>
                             <textarea id="answer-{{ $question->id }}" name="answers[{{ $question->id }}]" rows="7"
                                 maxlength="20000" placeholder="Digite sua resposta. Ela será salva automaticamente."
@@ -156,6 +161,23 @@
                     </div>
                 </fieldset>
             @endforeach
+                </section>
+            @endforeach
+
+            @if($questionBlocks->count() > 1)
+                <nav class="sticky bottom-24 z-20 flex items-center justify-between gap-3 rounded-xl border-2 border-gray-300 bg-white p-3 shadow-lg"
+                    aria-label="Navegação entre blocos da avaliação">
+                    <button type="button" id="previousQuestionBlock" class="btn-secondary" disabled>
+                        Anterior
+                    </button>
+                    <span id="questionBlockStatus" class="text-sm font-extrabold text-gray-700" aria-live="polite">
+                        Bloco 1 de {{ $questionBlocks->count() }}
+                    </span>
+                    <button type="button" id="nextQuestionBlock" class="btn-primary">
+                        Próximo
+                    </button>
+                </nav>
+            @endif
         </div>
 
         <div
@@ -217,6 +239,10 @@
                 const progressText = document.getElementById('progressText');
                 const progressPercent = document.getElementById('progressPercent');
                 const questionFields = [...form.querySelectorAll('[data-question-id]')];
+                const questionBlocks = [...form.querySelectorAll('[data-question-block]')];
+                const previousQuestionBlock = document.getElementById('previousQuestionBlock');
+                const nextQuestionBlock = document.getElementById('nextQuestionBlock');
+                const questionBlockStatus = document.getElementById('questionBlockStatus');
                 const dialog = document.getElementById('submitDialog');
                 const pendingSummary = document.getElementById('pendingSummary');
                 const submitError = document.getElementById('submitError');
@@ -226,6 +252,29 @@
                 let queued = false;
                 let autoSubmitting = false;
                 let draftRevision = 0;
+                let currentQuestionBlock = 0;
+
+                const showQuestionBlock = (index) => {
+                    currentQuestionBlock = Math.min(Math.max(index, 0), Math.max(questionBlocks.length - 1, 0));
+                    questionBlocks.forEach((block, blockIndex) => {
+                        block.hidden = blockIndex !== currentQuestionBlock;
+                    });
+                    if (previousQuestionBlock) previousQuestionBlock.disabled = currentQuestionBlock === 0;
+                    if (nextQuestionBlock) nextQuestionBlock.disabled = currentQuestionBlock === questionBlocks.length - 1;
+                    if (questionBlockStatus) {
+                        questionBlockStatus.textContent = `Bloco ${currentQuestionBlock + 1} de ${questionBlocks.length}`;
+                    }
+                };
+
+                previousQuestionBlock?.addEventListener('click', () => {
+                    showQuestionBlock(currentQuestionBlock - 1);
+                    document.getElementById('questionBlocks')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+                nextQuestionBlock?.addEventListener('click', () => {
+                    showQuestionBlock(currentQuestionBlock + 1);
+                    document.getElementById('questionBlocks')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+                showQuestionBlock(0);
 
                 const collectAnswers = () => {
                     const answers = {};

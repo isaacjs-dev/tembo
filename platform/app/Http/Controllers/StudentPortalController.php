@@ -7,6 +7,7 @@ use App\Models\ExamAnswer;
 use App\Models\ExamSubmission;
 use App\Models\Revision;
 use App\Services\ExamAccessService;
+use App\Services\ExamPresentationService;
 use App\Services\LearningRecommendationService;
 use App\Services\OmrGradingService;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,7 @@ class StudentPortalController extends Controller
     public function __construct(
         private readonly ExamAccessService $access,
         private readonly OmrGradingService $grading,
+        private readonly ExamPresentationService $presentation,
     ) {}
 
     public function index(Request $request): View
@@ -256,7 +258,9 @@ class StudentPortalController extends Controller
             );
         }
 
-        return view('student.exam_execution', compact('exam', 'submission', 'savedAnswers'));
+        $questionBlocks = $this->presentation->blocks($exam->questions, $exam->settings ?? []);
+
+        return view('student.exam_execution', compact('exam', 'submission', 'savedAnswers', 'questionBlocks'));
     }
 
     public function autosave(Request $request, string $id): JsonResponse

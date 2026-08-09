@@ -10,11 +10,12 @@ use App\Models\ExamSubmission;
 use App\Models\KnowledgeArea;
 use App\Models\OmrTemplate;
 use App\Models\Question;
-use App\Models\SchoolClass;
 use App\Models\User;
 use App\Services\AnswerSheetGeneratorService;
 use App\Services\ConfigPrecedenceResolver;
+use App\Services\ExamApplicationModeService;
 use App\Services\ExamAudienceService;
+use App\Services\ExamPresentationService;
 use App\Services\ExamPrintService;
 use App\Services\ExamWizardService;
 use App\Services\MonthlyUsageService;
@@ -42,9 +43,12 @@ class ExamController extends Controller
         return view('exams.index', compact('exams'));
     }
 
-    public function create()
+    public function create(ExamApplicationModeService $applicationModes)
     {
-        return view('exams.create', ['wizardSteps' => ExamWizardService::STEPS]);
+        return view('exams.create', [
+            'wizardSteps' => ExamWizardService::STEPS,
+            'applicationModes' => $applicationModes->options(),
+        ]);
     }
 
     public function store(Request $request, ExamWizardService $wizard)
@@ -112,8 +116,12 @@ class ExamController extends Controller
         return view('exams.show', compact('exam', 'audienceStudents', 'submissions', 'printSettings', 'cardTemplates'));
     }
 
-    public function edit(string $id, ExamAudienceService $audiences, ExamWizardService $wizard)
-    {
+    public function edit(
+        string $id,
+        ExamAudienceService $audiences,
+        ExamWizardService $wizard,
+        ExamApplicationModeService $applicationModes,
+    ) {
         $organization_id = auth()->user()->organization_id;
         $user_id = auth()->id();
 
@@ -132,6 +140,7 @@ class ExamController extends Controller
         $printSettings = $this->getPrintSettings(auth()->user());
         $wizardState = $wizard->state($exam);
         $wizardSteps = ExamWizardService::STEPS;
+        $applicationModes = $applicationModes->options();
 
         return view('exams.edit', compact(
             'exam',
@@ -143,6 +152,7 @@ class ExamController extends Controller
             'printSettings',
             'wizardState',
             'wizardSteps',
+            'applicationModes',
         ));
     }
 
@@ -781,7 +791,7 @@ class ExamController extends Controller
         return $pdf->download('avaliacao_'.str_replace(' ', '_', strtolower($exam->title)).'.pdf');
     }
 
-    public function printAdvanced(Request $request, string $id)
+    public function printAdvanced(Request $request, string $id, ExamAudienceService $audiences)
     {
         if (! auth()->user()->hasFeature('export_pdf')) {
             return back()->withErrors(['O plano atual da sua instituição não permite exportação de PDFs.']);
@@ -794,7 +804,9 @@ class ExamController extends Controller
 
         $validated = $request->validate([
             'quantity' => 'required|integer|min:1|max:200',
-            'school_class_id' => 'nullable|exists:school_classes,id',
+            'school_class_id' => ['nullable', 'integer'],
+            'individualize' => ['nullable', 'boolean'],
+            'output_type' => ['nullable', Rule::in(ExamPrintService::OUTPUT_TYPES)],
             'shuffle_questions' => 'nullable|boolean',
             'shuffle_options_mc' => 'nullable|boolean',
             'shuffle_options_tf' => 'nullable|boolean',
@@ -815,6 +827,7 @@ class ExamController extends Controller
         }
 
         $options = [
+            'output_type' => $validated['output_type'] ?? 'both',
             'group_disciplines' => $request->boolean('group_disciplines'),
             'shuffle_disciplines' => $request->boolean('shuffle_disciplines'),
             'show_discipline_name' => $request->boolean('show_discipline_name'),
@@ -829,6 +842,36 @@ class ExamController extends Controller
             'question_separator' => $finalSeparator,
         ];
 
+        $schoolClassId = isset($validated['school_class_id']) ? (int) $validated['school_class_id'] : null;
+        $schoolClass = $schoolClassId
+            ? $exam->schoolClasses->firstWhere('id', $schoolClassId)
+            : null;
+        if ($schoolClassId && ! $schoolClass) {
+            throw ValidationException::withMessages([
+                'school_class_id' => 'A turma selecionada não pertence ao público desta avaliação.',
+            ]);
+        }
+
+        $studentIds = [];
+        if ($request->boolean('individualize')) {
+            $allowedStudentIds = collect($audiences->studentIds($exam));
+            $studentIds = $schoolClass
+                ? $schoolClass->students()->pluck('users.id')->intersect($allowedStudentIds)->values()->all()
+                : $allowedStudentIds->values()->all();
+
+            if ($studentIds === []) {
+                throw ValidationException::withMessages([
+                    'individualize' => 'Vincule ao menos um aluno ao público selecionado antes de individualizar as cópias.',
+                ]);
+            }
+            if (count($studentIds) > 200) {
+                throw ValidationException::withMessages([
+                    'individualize' => 'O PDF aceita até 200 alunos por lote. Selecione uma turma menor para continuar.',
+                ]);
+            }
+            $validated['quantity'] = count($studentIds);
+        }
+
         // Calibração OMR fixa (não exposta ao usuário por enquanto)
         $calibration = [
             'offset_x' => 0,
@@ -838,19 +881,43 @@ class ExamController extends Controller
 
         // Cartão-resposta OMR do lote: usa a MESMA geração legível pelo motor (geometria
         // absoluta + QR assinado com `g`), não mais o cartão de tabela antigo.
-        $numQ = $exam->questions->count();
-        $template = $exam->cardTemplate;
-        if (! $template || ! $template->is_active) {
-            // Escolhe o menor template do sistema que comporte a prova.
-            $template = OmrTemplate::where('is_system', true)->where('is_active', true)
-                ->where('max_questions', '>=', $numQ)->orderBy('max_questions')->first()
-                ?? OmrTemplate::where('is_default', true)->where('is_active', true)->first();
-        }
+        $outputType = $validated['output_type'] ?? 'both';
+        $needsAnswerSheet = in_array($outputType, ['answer_sheet', 'both'], true);
+        $template = null;
+        if ($needsAnswerSheet) {
+            $numQ = $exam->questions->count();
+            $template = $exam->cardTemplate;
+            if (! $template || ! $template->is_active) {
+                // Escolhe o menor template do sistema que comporte a prova.
+                $template = OmrTemplate::where('is_system', true)->where('is_active', true)
+                    ->where('max_questions', '>=', $numQ)->orderBy('max_questions')->first()
+                    ?? OmrTemplate::where('is_default', true)->where('is_active', true)->first();
+            }
 
-        if (! $template) {
-            return back()->withInput()->withErrors([
-                'print' => 'Nenhum template OMR ativo comporta esta avaliação. Ative ou crie um template antes de gerar o lote.',
+            if (! $template) {
+                return back()->withInput()->withErrors([
+                    'print' => 'Nenhum template OMR ativo comporta esta avaliação. Ative ou crie um template antes de gerar o lote.',
+                ]);
+            }
+
+            $templateVersion = (int) ($exam->card_template_id === $template->id && $exam->card_template_version
+                ? $exam->card_template_version
+                : $template->current_version);
+            $options['card_template_id'] = $template->id;
+            $options['card_template_version'] = $templateVersion;
+            $printLayout = array_merge($template->layoutForVersion($templateVersion), [
+                'frame_left_mm' => 8.0,
+                'frame_top_mm' => 54.0,
+                'frame_width_mm' => 174.0,
             ]);
+            $options['template_snapshot'] = [
+                'id' => (int) $template->id,
+                'version' => $templateVersion,
+                'name' => $template->name,
+                'layout_config' => $printLayout,
+                'header_config' => $template->header_config,
+                'logo_path' => $template->logo_path,
+            ];
         }
 
         try {
@@ -858,28 +925,29 @@ class ExamController extends Controller
                 $exam,
                 $validated,
                 $options,
-                $template
+                $template,
+                $schoolClassId,
+                $studentIds,
+                $needsAnswerSheet,
             ): array {
                 $printService = app(ExamPrintService::class);
                 $copies = $printService->generateCopies(
                     $exam,
                     $validated['quantity'],
                     $options,
-                    $validated['school_class_id'] ?? null
+                    $schoolClassId,
+                    $studentIds,
                 );
 
                 // Frame ajustado para a área de conteúdo da folha. A geometria
                 // final ainda é validada pelo gerador antes de qualquer commit.
-                $loteLayout = array_merge($template->currentLayout(), [
-                    'frame_left_mm' => 8.0,
-                    'frame_top_mm' => 54.0,
-                    'frame_width_mm' => 174.0,
-                ]);
-                $generator = app(AnswerSheetGeneratorService::class);
                 $cardPagesByCopy = [];
-
-                foreach ($copies as $copy) {
-                    $cardPagesByCopy[$copy->id] = $generator->buildCardPages($exam, $copy, $template, 'hybrid', $loteLayout);
+                if ($needsAnswerSheet) {
+                    $loteLayout = $options['template_snapshot']['layout_config'];
+                    $generator = app(AnswerSheetGeneratorService::class);
+                    foreach ($copies as $copy) {
+                        $cardPagesByCopy[$copy->id] = $generator->buildCardPages($exam, $copy, $template, 'hybrid', $loteLayout);
+                    }
                 }
 
                 return [$copies, $cardPagesByCopy];
@@ -892,7 +960,15 @@ class ExamController extends Controller
             ]);
         }
 
-        $pdf = Pdf::loadView('exams.pdf_advanced', compact('exam', 'copies', 'calibration', 'options', 'cardPagesByCopy'));
+        $copies->load('student:id,name');
+        $pdf = Pdf::loadView('exams.pdf_advanced', compact(
+            'exam',
+            'copies',
+            'calibration',
+            'options',
+            'cardPagesByCopy',
+            'outputType',
+        ));
 
         return $pdf->stream('lote_'.str_replace(' ', '_', strtolower($exam->title)).'.pdf');
     }
@@ -964,7 +1040,8 @@ class ExamController extends Controller
         Exam $exam,
         ExamPrintService $printService,
         AnswerSheetGeneratorService $generatorService,
-        ConfigPrecedenceResolver $configResolver
+        ConfigPrecedenceResolver $configResolver,
+        ExamAudienceService $audiences,
     ) {
         $user = $request->user();
 
@@ -982,22 +1059,41 @@ class ExamController extends Controller
             'group_disciplines' => 'nullable|boolean',
             'shuffle_disciplines' => 'nullable|boolean',
             'school_class_id' => 'nullable|integer',
+            'individualize' => ['nullable', 'boolean'],
             'card_template_id' => 'nullable|integer',
         ]);
 
         $quantity = $validated['quantity'];
         $schoolClassId = null;
+        $schoolClass = null;
         if (! empty($validated['school_class_id'])) {
-            $schoolClassId = SchoolClass::withoutGlobalScopes()
-                ->where('organization_id', $exam->organization_id)
-                ->whereKey($validated['school_class_id'])
-                ->value('id');
+            $schoolClass = $exam->schoolClasses()->whereKey($validated['school_class_id'])->first();
+            $schoolClassId = $schoolClass?->id;
 
             if (! $schoolClassId) {
                 throw ValidationException::withMessages([
-                    'school_class_id' => 'A turma selecionada não pertence à instituição desta avaliação.',
+                    'school_class_id' => 'A turma selecionada não pertence ao público desta avaliação.',
                 ]);
             }
+        }
+
+        $studentIds = [];
+        if ($request->boolean('individualize')) {
+            $allowedStudentIds = collect($audiences->studentIds($exam));
+            $studentIds = $schoolClass
+                ? $schoolClass->students()->pluck('users.id')->intersect($allowedStudentIds)->values()->all()
+                : $allowedStudentIds->values()->all();
+            if ($studentIds === []) {
+                throw ValidationException::withMessages([
+                    'individualize' => 'Vincule ao menos um aluno ao público selecionado antes de individualizar os cartões.',
+                ]);
+            }
+            if (count($studentIds) > 200) {
+                throw ValidationException::withMessages([
+                    'individualize' => 'O PDF aceita até 200 alunos por lote. Selecione uma turma menor para continuar.',
+                ]);
+            }
+            $quantity = count($studentIds);
         }
 
         $options = $request->only([
@@ -1007,6 +1103,7 @@ class ExamController extends Controller
             'group_disciplines',
             'shuffle_disciplines',
         ]);
+        $options['output_type'] = 'answer_sheet';
 
         $organizationId = $exam->organization_id;
         $userId = $user->id;
@@ -1045,8 +1142,20 @@ class ExamController extends Controller
             ])->save();
         }
 
+        $templateVersion = (int) $exam->card_template_version;
+        $options['card_template_id'] = $template->id;
+        $options['card_template_version'] = $templateVersion;
+        $options['template_snapshot'] = [
+            'id' => (int) $template->id,
+            'version' => $templateVersion,
+            'name' => $template->name,
+            'layout_config' => $template->layoutForVersion($templateVersion),
+            'header_config' => $template->header_config,
+            'logo_path' => $template->logo_path,
+        ];
+
         // Gera as cópias (embaralhamento) e inclui todas elas no mesmo PDF.
-        $copies = $printService->generateCopies($exam, $quantity, $options, $schoolClassId);
+        $copies = $printService->generateCopies($exam, $quantity, $options, $schoolClassId, $studentIds);
         if ($copies->isEmpty()) {
             return back()->withErrors('Não foi possível gerar as cópias da prova.');
         }
@@ -1069,10 +1178,12 @@ class ExamController extends Controller
     {
         return [
             'settings_form' => ['nullable', 'boolean'],
-            'application_mode' => ['nullable', 'in:online,paper,hybrid'],
+            'application_mode' => ['nullable', Rule::in(array_keys(ExamApplicationModeService::MODES))],
             'instructions' => ['nullable', 'string', 'max:10000'],
             'time_limit' => ['nullable', 'integer', 'min:1', 'max:1440'],
             'attempts' => ['nullable', 'integer', 'min:1', 'max:20'],
+            'digital_presentation' => ['nullable', Rule::in(ExamPresentationService::MODES)],
+            'questions_per_page' => ['nullable', 'integer', 'min:1', 'max:20'],
             'available_from' => ['nullable', 'date'],
             'available_until' => ['nullable', 'date', 'after:available_from'],
             'results_available_from' => ['nullable', 'date'],
@@ -1099,6 +1210,8 @@ class ExamController extends Controller
             'instructions' => null,
             'time_limit' => null,
             'attempts' => 1,
+            'digital_presentation' => 'auto',
+            'questions_per_page' => 5,
             'available_from' => null,
             'available_until' => null,
             'results_available_from' => null,
@@ -1115,6 +1228,8 @@ class ExamController extends Controller
             'instructions',
             'time_limit',
             'attempts',
+            'digital_presentation',
+            'questions_per_page',
             'available_from',
             'available_until',
             'results_available_from',
@@ -1130,6 +1245,7 @@ class ExamController extends Controller
                 'instructions' => filled($value) ? trim((string) $value) : null,
                 'time_limit' => filled($value) ? (int) $value : null,
                 'attempts' => filled($value) ? (int) $value : 1,
+                'questions_per_page' => filled($value) ? (int) $value : 5,
                 'available_from', 'available_until', 'results_available_from' => filled($value)
                     ? Carbon::parse($value)->toIso8601String()
                     : null,
@@ -1177,6 +1293,8 @@ class ExamController extends Controller
         $publicationSettings = array_merge([
             'application_mode' => 'hybrid',
             'attempts' => 1,
+            'digital_presentation' => 'auto',
+            'questions_per_page' => 5,
             'time_limit' => null,
             'available_from' => null,
             'available_until' => null,
@@ -1186,8 +1304,10 @@ class ExamController extends Controller
             'results_available_from' => null,
         ], $settings);
         Validator::make($publicationSettings, [
-            'application_mode' => ['required', Rule::in(['online', 'paper', 'hybrid'])],
+            'application_mode' => ['required', Rule::in(array_keys(ExamApplicationModeService::MODES))],
             'attempts' => ['required', 'integer', 'min:1', 'max:20'],
+            'digital_presentation' => ['required', Rule::in(ExamPresentationService::MODES)],
+            'questions_per_page' => ['required', 'integer', 'min:1', 'max:20'],
             'time_limit' => ['nullable', 'integer', 'min:1', 'max:1440'],
             'available_from' => ['nullable', 'date'],
             'available_until' => ['nullable', 'date', 'after:available_from'],

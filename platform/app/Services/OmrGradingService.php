@@ -161,28 +161,31 @@ class OmrGradingService
             return ['score' => 0, 'total_points' => 0, 'details' => []];
         }
 
-        foreach ($exam->questions as $question) {
-            $maxPts = $question->pivot->points ?? 1;
+        foreach ($this->gradingQuestions($exam, $copy) as $question) {
+            $questionId = (int) $question['id'];
+            $questionType = (string) $question['type'];
+            $content = is_array($question['content'] ?? null) ? $question['content'] : [];
+            $maxPts = (float) ($question['points'] ?? 1);
             $totalPoints += $maxPts;
 
-            $rawAnswer = $answers[$question->id] ?? null;
+            $rawAnswer = $answers[$questionId] ?? null;
             $visualAnswer = $rawAnswer;
 
             // Reverse-map shuffled options if copy has option mapping
             $originalAnswer = $visualAnswer;
             if ($copy && $visualAnswer !== null) {
-                $optMap = $copy->options_map[$question->id] ?? null;
+                $optMap = $copy->options_map[$questionId] ?? null;
                 if ($optMap && isset($optMap[$visualAnswer])) {
                     $originalAnswer = $optMap[$visualAnswer];
                 }
             }
 
             // Normalizar resposta e gabarito
-            $options = $question->content['options'] ?? [];
-            $normalizedAnswer = self::normalizeAnswer($originalAnswer, $question->type, $options);
+            $options = $content['options'] ?? [];
+            $normalizedAnswer = self::normalizeAnswer($originalAnswer, $questionType, $options);
             $normalizedCorrect = self::normalizeAnswer(
-                $question->content['correct_option'] ?? null,
-                $question->type,
+                $content['correct_option'] ?? null,
+                $questionType,
                 $options
             );
 
@@ -190,26 +193,26 @@ class OmrGradingService
             $status = 'graded';
             if (self::isInvalidAnswer($normalizedAnswer)) {
                 Log::warning('OmrGrading: resposta inválida', [
-                    'question_id' => $question->id,
-                    'type' => $question->type,
+                    'question_id' => $questionId,
+                    'type' => $questionType,
                     'raw' => $originalAnswer,
                 ]);
                 $status = 'invalid_answer';
             }
             if (self::isInvalidAnswer($normalizedCorrect)) {
                 Log::warning('OmrGrading: gabarito inválido/ausente', [
-                    'question_id' => $question->id,
-                    'type' => $question->type,
-                    'correct_raw' => $question->content['correct_option'] ?? null,
+                    'question_id' => $questionId,
+                    'type' => $questionType,
+                    'correct_raw' => $content['correct_option'] ?? null,
                 ]);
                 $status = 'invalid_gabarito';
             }
 
-            $isCorrect = $this->compareAnswers($normalizedAnswer, $normalizedCorrect, $question->type);
+            $isCorrect = $this->compareAnswers($normalizedAnswer, $normalizedCorrect, $questionType);
             $points = $isCorrect ? $maxPts : 0;
             $totalScore += $points;
 
-            $details[$question->id] = [
+            $details[$questionId] = [
                 'visual' => $visualAnswer,
                 'original' => $originalAnswer,
                 'normalized' => self::isInvalidAnswer($normalizedAnswer) ? null : $normalizedAnswer,
@@ -263,7 +266,7 @@ class OmrGradingService
                         'score' => (float) ($mappedSubmission->score ?? 0),
                         'total_points' => (float) (
                             $lockedScan->total_points
-                            ?? $exam->questions->sum(fn ($question) => (float) ($question->pivot->points ?? 0))
+                            ?? collect($this->gradingQuestions($exam, $copy))->sum('points')
                         ),
                         'details' => $lockedScan->grading_details ?? [],
                     ];
@@ -318,29 +321,32 @@ class OmrGradingService
         $totalPoints = 0;
         $details = [];
 
-        foreach ($exam->questions as $question) {
-            $visualAnswer = $answers[$question->id] ?? null;
+        foreach ($this->gradingQuestions($exam, $copy) as $question) {
+            $questionId = (int) $question['id'];
+            $questionType = (string) $question['type'];
+            $content = is_array($question['content'] ?? null) ? $question['content'] : [];
+            $visualAnswer = $answers[$questionId] ?? null;
 
             // Reverse-map if copy has shuffled options
             $originalAnswer = $visualAnswer;
             if ($copy && $visualAnswer !== null) {
-                $optMap = $copy->options_map[$question->id] ?? null;
+                $optMap = $copy->options_map[$questionId] ?? null;
                 if ($optMap && isset($optMap[$visualAnswer])) {
                     $originalAnswer = $optMap[$visualAnswer];
                 }
             }
 
             // Normalizar resposta e gabarito
-            $options = $question->content['options'] ?? [];
-            $normalizedAnswer = self::normalizeAnswer($originalAnswer, $question->type, $options);
+            $options = $content['options'] ?? [];
+            $normalizedAnswer = self::normalizeAnswer($originalAnswer, $questionType, $options);
             $normalizedCorrect = self::normalizeAnswer(
-                $question->content['correct_option'] ?? null,
-                $question->type,
+                $content['correct_option'] ?? null,
+                $questionType,
                 $options
             );
 
-            $isCorrect = $this->compareAnswers($normalizedAnswer, $normalizedCorrect, $question->type);
-            $maxPts = $question->pivot->points ?? 1;
+            $isCorrect = $this->compareAnswers($normalizedAnswer, $normalizedCorrect, $questionType);
+            $maxPts = (float) ($question['points'] ?? 1);
             $points = $isCorrect ? $maxPts : 0;
             $totalScore += $points;
             $totalPoints += $maxPts;
@@ -353,7 +359,7 @@ class OmrGradingService
                 $status = 'invalid_gabarito';
             }
 
-            $details[$question->id] = [
+            $details[$questionId] = [
                 'visual' => $visualAnswer,
                 'original' => $originalAnswer,
                 'normalized' => self::isInvalidAnswer($normalizedAnswer) ? null : $normalizedAnswer,
@@ -364,7 +370,7 @@ class OmrGradingService
             ];
 
             ExamAnswer::updateOrCreate(
-                ['exam_submission_id' => $submission->id, 'question_id' => $question->id],
+                ['exam_submission_id' => $submission->id, 'question_id' => $questionId],
                 [
                     'answer_data' => [
                         'selected' => self::isInvalidAnswer($normalizedAnswer) ? null : $normalizedAnswer,
@@ -398,17 +404,21 @@ class OmrGradingService
         ?ExamCopy $copy
     ): bool {
         $storedAnswers = $submission->answers->keyBy('question_id');
+        $gradingQuestions = $this->gradingQuestions($exam, $copy);
 
-        if ($storedAnswers->count() !== $exam->questions->count()) {
+        if ($storedAnswers->count() !== count($gradingQuestions)) {
             return false;
         }
 
-        foreach ($exam->questions as $question) {
-            $visualAnswer = $answers[$question->id] ?? null;
+        foreach ($gradingQuestions as $question) {
+            $questionId = (int) $question['id'];
+            $questionType = (string) $question['type'];
+            $content = is_array($question['content'] ?? null) ? $question['content'] : [];
+            $visualAnswer = $answers[$questionId] ?? null;
             $originalAnswer = $visualAnswer;
 
             if ($copy && $visualAnswer !== null) {
-                $optionMap = $copy->options_map[$question->id] ?? null;
+                $optionMap = $copy->options_map[$questionId] ?? null;
                 if ($optionMap && isset($optionMap[$visualAnswer])) {
                     $originalAnswer = $optionMap[$visualAnswer];
                 }
@@ -416,11 +426,11 @@ class OmrGradingService
 
             $normalized = self::normalizeAnswer(
                 $originalAnswer,
-                $question->type,
-                $question->content['options'] ?? []
+                $questionType,
+                $content['options'] ?? []
             );
             $normalized = self::isInvalidAnswer($normalized) ? null : $normalized;
-            $stored = $storedAnswers->get($question->id);
+            $stored = $storedAnswers->get($questionId);
 
             if (! $stored || data_get($stored->answer_data, 'selected') !== $normalized) {
                 return false;
@@ -428,5 +438,27 @@ class OmrGradingService
         }
 
         return true;
+    }
+
+    /** @return array<int, array{id:int,type:string,content:array<string,mixed>,points:float}> */
+    private function gradingQuestions(Exam $exam, ?ExamCopy $copy): array
+    {
+        if ($copy && is_array($copy->question_snapshot) && $copy->question_snapshot !== []) {
+            return collect($copy->question_snapshot)->map(fn (array $question): array => [
+                'id' => (int) $question['id'],
+                'type' => (string) $question['type'],
+                'content' => is_array($question['content'] ?? null) ? $question['content'] : [],
+                'points' => (float) ($question['points'] ?? 1),
+            ])->values()->all();
+        }
+
+        $exam->loadMissing('questions');
+
+        return $exam->questions->map(fn ($question): array => [
+            'id' => (int) $question->id,
+            'type' => (string) $question->type,
+            'content' => is_array($question->content) ? $question->content : [],
+            'points' => (float) ($question->pivot->points ?? 1),
+        ])->values()->all();
     }
 }

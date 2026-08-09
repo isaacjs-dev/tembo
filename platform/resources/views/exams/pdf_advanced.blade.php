@@ -58,6 +58,10 @@
 
 @php
     $letters = ['A', 'B', 'C', 'D', 'E'];
+    $outputType = $outputType ?? 'legacy_all';
+    $includeExam = in_array($outputType, ['exam', 'both', 'legacy_all'], true);
+    $includeAnswerSheet = in_array($outputType, ['answer_sheet', 'both', 'legacy_all'], true);
+    $includeAnswerKey = in_array($outputType, ['answer_key', 'legacy_all'], true);
 @endphp
 
 @foreach($copies as $copyIndex => $copy)
@@ -69,12 +73,14 @@
     @endphp
 
     {{-- 1. Student Exam Pages --}}
+    @if($includeExam)
     <div class="watermark">Versão #{{ $copy->copy_number }} - {{ $copy->validation_hash }}</div>
 
     <div class="header">
         <h1>{{ $exam->title }}</h1>
         @if($exam->organization) <p style="margin:0;">{{ $exam->organization->name }}</p> @endif
         <p style="margin:5px 0 0 0; font-size: 12px; color: #555;">Caderno de Prova - Versão {{ $copy->copy_number }}</p>
+        @if($copy->student)<p style="margin:4px 0 0; font-size: 12px;"><strong>Aluno:</strong> {{ $copy->student->name }}</p>@endif
     </div>
 
     @foreach($orderedQuestions as $index => $question)
@@ -119,9 +125,11 @@
         </div>
     @endforeach
 
-    <div class="page-break"></div>
+    @if($includeAnswerSheet || $includeAnswerKey)<div class="page-break"></div>@endif
+    @endif
 
     {{-- 2. Cartão-Resposta (OMR) — geometria nova (marcadores + QR assinado com `g`), legível pelo motor --}}
+    @if($includeAnswerSheet)
     @php $cardPages = $cardPagesByCopy[$copy->id] ?? []; @endphp
     @foreach($cardPages as $cardPage)
         @php
@@ -138,7 +146,7 @@
                     <tr>
                         <td>
                             <div class="omr-inst">{{ $exam->organization?->name ?? 'DADOS DA INSTITUIÇÃO' }}</div>
-                            <div class="omr-field"><strong>NOME:</strong> <span class="omr-dotted" style="width: 86mm;">&nbsp;</span> <strong style="margin-left:6px;">DATA:</strong> ____/____/______</div>
+                            <div class="omr-field"><strong>NOME:</strong> {{ $copy->student?->name ?? '' }} <span class="omr-dotted" style="width: {{ $copy->student ? '42mm' : '86mm' }};">&nbsp;</span> <strong style="margin-left:6px;">DATA:</strong> ____/____/______</div>
                             <div class="omr-field"><strong>MATRÍCULA / Nº:</strong> <span class="omr-dotted" style="width: 24mm;">&nbsp;</span> <strong style="margin-left:8px;">TURMA:</strong> <span class="omr-dotted" style="width: 18mm;">&nbsp;</span> <strong style="margin-left:8px;">VERSÃO:</strong> <span class="omr-badge">#{{ $copy->copy_number }}</span></div>
                         </td>
                         <td class="omr-qr-cell" style="width: 30mm;">
@@ -175,14 +183,14 @@
             @endforeach
         </div>
 
-        @if(!$loop->last)
+        @if(!$loop->last || $includeAnswerKey)
             <div class="page-break"></div>
         @endif
     @endforeach
-
-    <div class="page-break"></div>
+    @endif
 
     {{-- 3. Professor Answer Key (Gabarito do Professor) --}}
+    @if($includeAnswerKey)
     <div class="header">
         <h2>GABARITO DO PROFESSOR (Versão {{ $copy->copy_number }})</h2>
         <p>A ordem das alternativas cadastradas foi permutada e estas são as respostas corrigidas para a versão {{ $copy->copy_number }}.</p>
@@ -225,6 +233,7 @@
             </div>
         @endforeach
     </div>
+    @endif
 
     @if(!$loop->last)
         <div class="page-break"></div>

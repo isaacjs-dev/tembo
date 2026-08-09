@@ -73,6 +73,8 @@ test('professor navega pelo wizard recuperável de oito etapas', async ({ page }
 
     await wizard.getByRole('button', { name: /Aplicação/ }).click();
     await expect(page.getByLabel('Modalidade')).toBeVisible();
+    await expect(page.getByLabel('Apresentação digital')).toBeVisible();
+    await expect(page.getByLabel('Questões por tela')).toBeVisible();
     await expect(page.getByText('Rascunho salvo')).toBeVisible();
     await expectResponsive(page);
     expect(errors).toEqual([]);

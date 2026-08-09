@@ -42,7 +42,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
       data,
       downloadedAt: new Date().toISOString(),
     });
-    const version = Number(data.exam.settings?.layout_version ?? 1);
+    const version = Number(data.exam.version ?? 1);
     await saveLocalExam(examId, JSON.stringify(data), version);
     set({ cachedExams });
   },
@@ -69,7 +69,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
         if (legacyData) {
           const legacy = JSON.parse(legacyData) as Record<number, CachedExam>;
           await Promise.all(Object.values(legacy).map((cached) => {
-            const version = Number(cached.data.exam.settings?.layout_version ?? 1);
+            const version = Number(cached.data.exam.version ?? 1);
             return saveLocalExam(cached.examId, JSON.stringify(cached.data), version);
           }));
           rows = await getAllLocalExams();

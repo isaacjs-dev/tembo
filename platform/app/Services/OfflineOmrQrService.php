@@ -134,16 +134,20 @@ class OfflineOmrQrService
         $start = (int) ($payload['qs'] ?? 1);
         $questionMap = array_values($copy->questions_map ?? []);
         $exam->loadMissing('questions');
+        $snapshotById = collect($copy->question_snapshot ?? [])->keyBy(fn (array $question): int => (int) $question['id']);
         $mismatches = [];
 
         foreach ($answers as $offset => $visualAnswer) {
             $questionId = $questionMap[$start + $offset - 1] ?? null;
             $question = $questionId ? $exam->questions->firstWhere('id', $questionId) : null;
-            if (! $question) {
+            $snapshot = $questionId ? $snapshotById->get((int) $questionId) : null;
+            if (! $question && ! $snapshot) {
                 continue;
             }
             $optionMap = $copy->options_map[$questionId] ?? null;
-            $correct = $question->content['correct_option'] ?? null;
+            $correct = is_array($snapshot)
+                ? data_get($snapshot, 'content.correct_option')
+                : ($question->content['correct_option'] ?? null);
             $officialVisual = is_array($optionMap) && $correct !== null
                 ? array_search((int) $correct, array_map('intval', array_values($optionMap)), true)
                 : false;

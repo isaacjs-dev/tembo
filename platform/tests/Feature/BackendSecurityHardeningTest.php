@@ -359,6 +359,70 @@ class BackendSecurityHardeningTest extends TestCase
         ]);
     }
 
+    public function test_individualized_copy_binds_omr_upload_to_its_student(): void
+    {
+        Storage::fake('local');
+        $organization = $this->organization();
+        $teacher = $this->user($organization, 'teacher');
+        $assignedStudent = $this->user($organization, 'student');
+        $otherStudent = $this->user($organization, 'student');
+        $exam = $this->exam($organization, $teacher);
+        $copy = ExamCopy::create([
+            'exam_id' => $exam->id,
+            'student_id' => $assignedStudent->id,
+            'copy_number' => 1,
+            'questions_map' => [],
+            'options_map' => [],
+            'validation_hash' => Str::random(40),
+        ]);
+
+        Sanctum::actingAs($teacher);
+        $payload = [
+            'exam_id' => $exam->id,
+            'copy_id' => $copy->id,
+            'page_index' => 1,
+            'total_pages' => 1,
+            'detected_answers' => json_encode([]),
+        ];
+
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', $payload + [
+                'session_id' => (string) Str::uuid(),
+                'student_id' => $otherStudent->id,
+                'image' => UploadedFile::fake()->image('wrong-student.jpg'),
+            ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('student_id');
+
+        $sessionId = (string) Str::uuid();
+        $this->post('/api/v1/omr/scans', $payload + [
+            'session_id' => $sessionId,
+            'image' => UploadedFile::fake()->image('assigned-student.jpg'),
+        ], ['Accept' => 'application/json'])->assertCreated();
+
+        $this->assertDatabaseHas('omr_scan_pages', [
+            'session_id' => $sessionId,
+            'copy_id' => $copy->id,
+            'student_id' => $assignedStudent->id,
+        ]);
+        $this->assertDatabaseHas('omr_scans', [
+            'session_id' => $sessionId,
+            'copy_id' => $copy->id,
+            'student_id' => $assignedStudent->id,
+        ]);
+
+        $assignedStudent->organizations()->attach($organization->id, [
+            'role_in_org' => 'student',
+            'status' => 'inactive',
+        ]);
+        $this->post('/api/v1/omr/scans', $payload + [
+            'session_id' => (string) Str::uuid(),
+            'image' => UploadedFile::fake()->image('inactive-student.jpg'),
+        ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('copy_id');
+    }
+
     public function test_omr_page_upload_is_private_and_idempotent_with_conflict_detection(): void
     {
         Storage::fake('local');

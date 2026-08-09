@@ -3,6 +3,8 @@
     <form action="{{ route('exams.printAdvanced', $exam->id) }}" method="POST" target="_blank" x-data="{
               copies: 1,
               schoolClassId: '',
+              outputType: 'both',
+              individualize: false,
               shuffleQuestions: false,
               shuffleMc: false,
               shuffleTf: false,
@@ -53,6 +55,16 @@
                     <div class="space-y-4">
                         <h4 class="font-bold text-sm text-gray-800 uppercase tracking-wider">Configurações Gerais</h4>
                         <div>
+                            <label for="output_type" class="input-label block">Saída do PDF</label>
+                            <select id="output_type" name="output_type" x-model="outputType" class="input-field w-full">
+                                <option value="exam">Somente Avaliação</option>
+                                <option value="answer_sheet">Somente cartão-resposta</option>
+                                <option value="both">Avaliação + cartão-resposta</option>
+                                <option value="answer_key">Somente gabarito do professor</option>
+                            </select>
+                            <p class="mt-1 text-[11px] text-gray-500">O gabarito nunca é anexado ao material do aluno sem seleção explícita.</p>
+                        </div>
+                        <div>
                             <label class="input-label block">Turma Base (opcional)</label>
                             <select name="school_class_id" x-model="schoolClassId" class="input-field w-full" @change="
                                     let sel = $event.target.options[$event.target.selectedIndex];
@@ -71,8 +83,17 @@
                         <div>
                             <label class="input-label block">Qtd. de Cópias (Provas)</label>
                             <input type="number" name="quantity" x-model.number="copies" min="1" max="200" required
+                                :readonly="individualize"
                                 class="input-field w-full">
                         </div>
+                        <label class="flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                            <input type="checkbox" name="individualize" value="1" x-model="individualize"
+                                class="mt-0.5 rounded border-gray-300 text-primary focus:ring-primary">
+                            <span>
+                                <span class="block text-sm font-bold text-gray-800">Uma cópia identificada por aluno</span>
+                                <span class="block text-[11px] text-gray-500">Usa a turma selecionada ou todo o público deduplicado da Avaliação.</span>
+                            </span>
+                        </label>
                     </div>
 
                     {{-- Embaralhamento Interno --}}
