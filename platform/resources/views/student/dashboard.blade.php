@@ -36,17 +36,27 @@
         @forelse($availableExams as $exam)
             @php
                 $submission = $submissions[$exam->id] ?? null;
+                $gradedSubmission = $gradedSubmissions[$exam->id] ?? null;
                 $meta = $portalMeta[$exam->id];
-                $releaseAvailable = in_array(true, $meta['release'], true);
+                $releaseAvailable = $meta['results_can_be_viewed'];
                 $availability = $meta['availability'];
-                $applicationModeLabel = match ($meta['application_mode']) {
-                    'online' => 'On-line',
-                    'printed_digital' => 'Impressa + resposta digital',
-                    'printed_omr' => 'Impressa + cartão OMR',
-                    'offline_omr' => 'OMR offline',
-                    'paper' => 'Impressa',
-                    default => 'Híbrida',
+                $applicationModeLabel = $meta['application_mode_label'];
+                $statusLabel = match (true) {
+                    $availability['state'] === 'upcoming' => 'Aguardando abertura',
+                    $submission?->status === 'graded' => 'Concluída',
+                    $submission?->status === 'submitted' => 'Em correção',
+                    $availability['state'] === 'closed' || $exam->status === 'closed' => 'Encerrada',
+                    $submission?->status === 'in_progress' => 'Em andamento',
+                    !$meta['supports_online'] => 'Aplicação presencial',
+                    default => 'Disponível',
                 };
+                $statusClasses = match ($statusLabel) {
+                    'Concluída' => 'bg-green-100 text-green-800',
+                    'Em correção' => 'bg-amber-100 text-amber-900',
+                    'Em andamento' => 'bg-blue-100 text-blue-800',
+                    default => 'bg-gray-100 text-gray-700',
+                };
+                $formatPortalDate = fn ($date) => $date?->timezone(config('app.timezone'))->format('d/m/Y H:i');
                 $deadlineExpired = $submission?->status === 'in_progress'
                     && $submission->deadline_at
                     && now()->greaterThanOrEqualTo($submission->deadline_at);
@@ -55,25 +65,24 @@
             <article class="bg-white rounded-2xl border-2 border-duo-border p-6 flex flex-col h-full shadow-sm">
                 <div class="flex items-start justify-between gap-3 mb-3">
                     <h2 class="text-xl font-extrabold text-duo-heading leading-tight">{{ $exam->title }}</h2>
-                    @if($submission)
-                        <span class="shrink-0 px-2.5 py-1 rounded-full text-xs font-extrabold uppercase
-                            {{ $submission->status === 'graded' ? 'bg-green-100 text-green-800' : ($submission->status === 'submitted' ? 'bg-amber-100 text-amber-900' : 'bg-blue-100 text-blue-800') }}">
-                            @if($submission->status === 'graded')
-                                Concluída
-                            @elseif($submission->status === 'submitted')
-                                Em correção
-                            @else
-                                Em andamento
-                            @endif
-                        </span>
-                    @else
-                        <span class="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-extrabold text-gray-700">
-                            {{ $applicationModeLabel }}
-                        </span>
-                    @endif
+                    <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-extrabold uppercase {{ $statusClasses }}">
+                        {{ $statusLabel }}
+                    </span>
                 </div>
 
-                <dl class="grid grid-cols-2 gap-3 text-sm text-gray-600 mb-6">
+                <dl class="grid grid-cols-1 gap-3 text-sm text-gray-600 sm:grid-cols-2 mb-6">
+                    <div>
+                        <dt class="font-medium">Professor</dt>
+                        <dd class="font-extrabold text-gray-800">{{ $exam->author?->name ?: 'Não informado' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="font-medium">Instituição</dt>
+                        <dd class="font-extrabold text-gray-800">{{ $exam->organization?->name ?: 'Professor independente' }}</dd>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <dt class="font-medium">Disciplina</dt>
+                        <dd class="font-extrabold text-gray-800">{{ $exam->discipline?->name ?: 'Não informada' }}</dd>
+                    </div>
                     <div>
                         <dt class="font-medium">Questões</dt>
                         <dd class="font-extrabold text-gray-800">{{ $exam->questions_count }}</dd>
@@ -88,11 +97,20 @@
                         <dt class="font-medium">Modalidade</dt>
                         <dd class="font-extrabold text-gray-800">{{ $applicationModeLabel }}</dd>
                     </div>
-                    <div class="col-span-2">
+                    <div class="sm:col-span-2">
                         <dt class="font-medium">Tentativas utilizadas</dt>
                         <dd class="font-extrabold text-gray-800">
                             {{ $meta['attempts_used'] }} de {{ $meta['attempts_allowed'] }}
+                            · {{ $meta['attempts_remaining'] }} restante(s)
                         </dd>
+                    </div>
+                    <div>
+                        <dt class="font-medium">Abertura</dt>
+                        <dd class="font-extrabold text-gray-800">{{ $formatPortalDate($availability['opens_at']) ?: 'Imediata' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="font-medium">Prazo geral</dt>
+                        <dd class="font-extrabold text-gray-800">{{ $formatPortalDate($availability['closes_at']) ?: 'Sem prazo' }}</dd>
                     </div>
                 </dl>
 
@@ -105,7 +123,7 @@
                         </a>
                     @elseif($submission?->status === 'graded' && $meta['results_available_at'] && now()->isBefore($meta['results_available_at']))
                         <div class="w-full rounded-lg bg-blue-50 p-3 text-center text-sm font-bold text-blue-900">
-                            Resultados em {{ $meta['results_available_at']->format('d/m/Y H:i') }}
+                            Resultados em {{ $formatPortalDate($meta['results_available_at']) }}
                         </div>
                     @elseif($submission?->status === 'submitted')
                         <div class="w-full text-center bg-amber-50 text-amber-900 border border-amber-200 p-3 rounded-lg font-bold text-sm">
@@ -113,7 +131,7 @@
                         </div>
                     @elseif($availability['state'] === 'upcoming')
                         <div class="w-full text-center bg-gray-100 text-gray-700 p-3 rounded-lg font-bold text-sm">
-                            Disponível em {{ $availability['opens_at']->format('d/m/Y H:i') }}
+                            Disponível em {{ $formatPortalDate($availability['opens_at']) }}
                         </div>
                     @elseif($exam->status === 'closed' || $availability['state'] === 'closed')
                         <div class="w-full text-center bg-gray-100 text-gray-700 p-3 rounded-lg font-bold text-sm">
@@ -143,6 +161,14 @@
                         <div class="w-full text-center bg-gray-100 text-gray-700 p-3 rounded-lg font-bold text-sm">
                             Avaliação concluída
                         </div>
+                    @endif
+
+                    @if($gradedSubmission && $submission?->id !== $gradedSubmission->id && $releaseAvailable)
+                        <a href="{{ route('student.exam.results', $exam) }}"
+                            class="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-green-700 bg-white py-2.5 text-center text-sm font-extrabold text-green-800 hover:bg-green-50">
+                            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">history</span>
+                            Ver resultado da tentativa {{ $gradedSubmission->attempt_number }}
+                        </a>
                     @endif
                 </div>
             </article>

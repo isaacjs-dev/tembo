@@ -50,9 +50,15 @@ class ExamAccessService
             return;
         }
 
+        if ($context === 'overview') {
+            $this->ensureOverviewAvailable($exam);
+
+            return;
+        }
+
         $this->ensureActiveWindow($exam);
 
-        if ($context !== 'overview' && ! $this->supportsOnline($exam)) {
+        if (! $this->supportsOnline($exam)) {
             throw new HttpException(403, 'Esta avaliação foi configurada somente para aplicação impressa.');
         }
     }
@@ -168,9 +174,21 @@ class ExamAccessService
         return in_array(true, $this->releaseSettings($exam), true);
     }
 
+    public function resultsCanBeViewed(Exam $exam): bool
+    {
+        return in_array($exam->status, ['published', 'closed'], true)
+            && $this->availability($exam)['state'] !== 'upcoming'
+            && $this->hasReleasedResults($exam);
+    }
+
     public function applicationMode(Exam $exam): string
     {
         return $this->applicationModes->mode($exam);
+    }
+
+    public function applicationModeLabel(Exam $exam): string
+    {
+        return $this->applicationModes->label($exam);
     }
 
     public function supportsOnline(Exam $exam): bool
@@ -202,6 +220,13 @@ class ExamAccessService
         }
         if ($availability['state'] === 'closed') {
             throw new HttpException(403, 'O prazo desta avaliação foi encerrado.');
+        }
+    }
+
+    private function ensureOverviewAvailable(Exam $exam): void
+    {
+        if (! in_array($exam->status, ['published', 'closed'], true)) {
+            throw new HttpException(403, 'Esta avaliação não está disponível.');
         }
     }
 
