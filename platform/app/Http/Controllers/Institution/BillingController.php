@@ -8,11 +8,14 @@ use App\Models\Plan;
 use App\Models\SchoolClass;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Services\PlanOwnershipService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class BillingController extends Controller
 {
+    public function __construct(private readonly PlanOwnershipService $planOwnership) {}
+
     /**
      * Dashboard de billing: plano atual, uso, status, vencimento.
      */
@@ -187,15 +190,8 @@ class BillingController extends Controller
     private function authorizePlanOwner(): void
     {
         $user = auth()->user();
-        $organization = $user?->organization;
-        $isOwner = $organization && (int) $organization->owner_user_id === (int) $user->id;
-        $isLegacyOwner = $organization
-            && $organization->owner_user_id === null
-            && $user->type === 'institution_admin'
-            && ! $user->organizations()->exists()
-            && (int) $user->getRawOriginal('organization_id') === (int) $organization->id;
-
-        abort_unless($isOwner || $isLegacyOwner, 403);
+        abort_unless($user, 403);
+        $this->planOwnership->authorize($user, $user->organization);
     }
 
     private function getUsage($organization): array

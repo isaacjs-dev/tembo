@@ -11,7 +11,7 @@ Fonte: `ai-docs/PRD.md`. Estados válidos: `pending`, `in_progress`, `done`, `bl
 | IAM-002 | Membership autoritativo e workspace pessoal | IAM-01..06 | IAM-001 | done | Usuário multi-contexto e professor independente |
 | IAM-003 | Relações acadêmicas tenant-aware | IAM-03, IAM-07 | IAM-002 | done | Pivôs validados e índices únicos |
 | IAM-004 | Matriz de policies, convites e desvinculação | IAM-05..08, IAM-10..12 | IAM-003 | done | Papéis não excedem escopo; conta global preservada |
-| IAM-005 | Plano somente pelo proprietário | IAM-09 | IAM-004 | pending | Diretor/coordenador/pedagogo rejeitados |
+| IAM-005 | Plano somente pelo proprietário | IAM-09 | IAM-004 | done | Diretor/coordenador/pedagogo rejeitados |
 | AUD-001 | Auditoria unificada e tenant-aware | IAM-10, IAM-12, REP-04 | IAM-004 | pending | Ator/contexto/before-after/origem e filtros seguros |
 | OMR-P0-001 | Fechar bypass QR/tenant e tornar imagens privadas | QR-01..03, IAM-11, OFF-01 | BASE-002 | done | QR adulterado/tenant externo rejeitado; arquivo autenticado |
 | OMR-P0-002 | Idempotência atômica e recibo determinístico | OMR-07, OFF-02..04 | OMR-P0-001 | done | Concorrência/retry produz uma página/operação |
