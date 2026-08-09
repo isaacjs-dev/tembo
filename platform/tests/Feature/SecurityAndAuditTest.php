@@ -261,6 +261,7 @@ class SecurityAndAuditTest extends TestCase
     public function plan_change_generates_audit_log(): void
     {
         [$org, $admin] = $this->createOrg();
+        $previousPlanId = $org->subscriptions()->where('status', 'active')->value('plan_id');
 
         $newPlan = Plan::create([
             'name' => 'Premium',
@@ -280,7 +281,12 @@ class SecurityAndAuditTest extends TestCase
         $this->assertDatabaseHas('audit_logs', [
             'action' => 'plan_changed',
             'user_id' => $admin->id,
+            'organization_id' => $org->id,
         ]);
+        $log = AuditLog::where('action', 'plan_changed')->latest('id')->firstOrFail();
+        $this->assertSame($previousPlanId, $log->before_json['plan_id']);
+        $this->assertSame('active', $log->before_json['status']);
+        $this->assertSame($newPlan->id, $log->after_json['plan_id']);
     }
 
     #[Test]

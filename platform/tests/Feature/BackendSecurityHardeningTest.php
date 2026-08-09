@@ -174,7 +174,7 @@ class BackendSecurityHardeningTest extends TestCase
             ->assertSee('own.event')
             ->assertDontSee('foreign.event')
             ->assertViewHas('logs', fn ($logs) => $logs->every(
-                fn (EventLog $log) => $log->organization_id === $organization->id
+                fn (AuditLog $log) => $log->organization_id === $organization->id
             ));
     }
 

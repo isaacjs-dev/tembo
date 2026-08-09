@@ -12,13 +12,19 @@
     </x-slot>
 
     <form method="GET" action="{{ route('institution.logs') }}"
-        class="mb-6 grid gap-3 rounded-2xl border-2 border-duo-border bg-white p-4 md:grid-cols-5">
+        class="mb-6 grid gap-3 rounded-2xl border-2 border-duo-border bg-white p-4 md:grid-cols-6">
         <input name="search" value="{{ request('search') }}" maxlength="100" placeholder="Buscar evento ou mensagem"
             class="rounded-xl border-gray-300 md:col-span-2">
         <select name="severity" class="input-field !py-2">
             <option value="">Todas as severidades</option>
             @foreach (['info' => 'Informação', 'warning' => 'Alerta', 'error' => 'Erro', 'critical' => 'Crítico'] as $value => $label)
                 <option value="{{ $value }}" @selected(request('severity') === $value)>{{ $label }}</option>
+            @endforeach
+        </select>
+        <select name="origin" class="input-field !py-2" aria-label="Origem">
+            <option value="">Todas as origens</option>
+            @foreach (['web' => 'Web', 'api' => 'API/Mobile', 'console' => 'Console', 'system' => 'Sistema'] as $value => $label)
+                <option value="{{ $value }}" @selected(request('origin') === $value)>{{ $label }}</option>
             @endforeach
         </select>
         <input type="date" name="from" value="{{ request('from') }}" class="input-field !py-2" aria-label="Data inicial">
@@ -53,17 +59,18 @@
                                 </span>
                             </td>
                             <td class="px-5 py-4 text-sm font-semibold text-gray-700">
-                                {{ $log->actor?->name ?? 'Sistema' }}
+                                {{ $log->user?->name ?? 'Sistema' }}
                             </td>
                             <td class="px-5 py-4">
-                                <p class="text-sm font-bold text-gray-700">{{ $log->event_code }}</p>
-                                @if ($log->message)
-                                    <p class="mt-1 max-w-xl text-xs text-gray-500">{{ $log->message }}</p>
+                                <p class="text-sm font-bold text-gray-700">{{ $log->action }}</p>
+                                @if (data_get($log->context_json, 'message'))
+                                    <p class="mt-1 max-w-xl text-xs text-gray-500">{{ data_get($log->context_json, 'message') }}</p>
                                 @endif
+                                <p class="mt-1 text-[11px] text-gray-400">{{ $log->origin }} · {{ $log->request_id ?? 'sem request ID histórico' }}</p>
                             </td>
                             <td class="px-5 py-4 text-xs text-gray-500">
-                                @if ($log->entity_type)
-                                    {{ class_basename($log->entity_type) }} #{{ $log->entity_id }}
+                                @if ($log->model_type)
+                                    {{ class_basename($log->model_type) }} #{{ $log->model_id }}
                                 @else
                                     —
                                 @endif
