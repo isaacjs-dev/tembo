@@ -20,15 +20,18 @@
     </x-slot>
 
     <div class="mx-auto mb-12 max-w-5xl">
-        <ol class="mb-6 grid grid-cols-2 gap-3" aria-label="Etapas da criação">
-            <li aria-current="step" class="rounded-xl border-2 border-primary bg-primary/5 p-4">
-                <span class="text-xs font-extrabold uppercase tracking-wider text-primary">Etapa 1</span>
-                <span class="mt-1 block font-extrabold text-duo-heading">Regras e disponibilidade</span>
-            </li>
-            <li class="rounded-xl border-2 border-duo-border bg-white p-4">
-                <span class="text-xs font-extrabold uppercase tracking-wider text-gray-500">Etapa 2</span>
-                <span class="mt-1 block font-extrabold text-gray-600">Questões, turmas e publicação</span>
-            </li>
+        <ol class="mb-6 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8" aria-label="Etapas da criação">
+            @foreach($wizardSteps as $stepLabel)
+                <li @if($loop->first) aria-current="step" @endif
+                    class="rounded-xl border-2 p-3 {{ $loop->first ? 'border-primary bg-primary/5' : 'border-duo-border bg-white' }}">
+                    <span class="text-[10px] font-extrabold uppercase tracking-wider {{ $loop->first ? 'text-primary' : 'text-gray-500' }}">
+                        Etapa {{ $loop->iteration }}
+                    </span>
+                    <span class="mt-1 block text-xs font-extrabold {{ $loop->first ? 'text-duo-heading' : 'text-gray-600' }}">
+                        {{ $stepLabel }}
+                    </span>
+                </li>
+            @endforeach
         </ol>
 
         @if ($errors->any())

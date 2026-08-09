@@ -117,6 +117,26 @@ class ExamConfigurationTest extends TestCase
         $this->assertSame(3, $exam->settings['attempts']);
         $this->assertFalse($exam->settings['show_score']);
         $this->assertMatchesRegularExpression('/^[A-Z0-9]{6}$/', $exam->access_code);
+        $this->assertContains('publication', $exam->settings['_wizard']['completed_steps']);
+    }
+
+    public function test_publication_rejects_an_invalid_persisted_application_contract(): void
+    {
+        $exam = $this->makeExam([
+            'application_mode' => 'unsupported',
+            'attempts' => 1,
+        ]);
+        $question = $this->makeQuestion();
+        $exam->questions()->attach($question->id, ['points' => 5, 'order' => 1]);
+
+        $this->actingAs($this->teacher)
+            ->put(route('exams.update', $exam), [
+                'title' => $exam->title,
+                'status' => 'published',
+            ])
+            ->assertSessionHasErrors('application_mode');
+
+        $this->assertSame('draft', $exam->fresh()->status);
     }
 
     public function test_scheduled_results_and_paper_mode_are_enforced_by_the_access_service(): void

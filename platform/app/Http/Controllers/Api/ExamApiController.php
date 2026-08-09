@@ -7,6 +7,7 @@ use App\Models\Exam;
 use App\Models\User;
 use App\Services\ExamAudienceService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 
 class ExamApiController extends Controller
 {
@@ -97,7 +98,7 @@ class ExamApiController extends Controller
                 'id' => $exam->id,
                 'title' => $exam->title,
                 'status' => $exam->status,
-                'settings' => $exam->settings,
+                'settings' => Arr::except($exam->settings ?? [], ['_wizard']),
                 'discipline' => $exam->discipline ? [
                     'id' => $exam->discipline->id,
                     'name' => $exam->discipline->name,

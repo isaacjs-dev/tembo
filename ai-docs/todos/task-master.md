@@ -17,7 +17,7 @@ Fonte: `ai-docs/PRD.md`. Estados válidos: `pending`, `in_progress`, `done`, `bl
 | OMR-P0-002 | Idempotência atômica e recibo determinístico | OMR-07, OFF-02..04 | OMR-P0-001 | done | Concorrência/retry produz uma página/operação |
 | OMR-P0-003 | Corrigir `v`, `tpl_v`, `rpp`, `qs/qe` e maps Mobile | OMR-01, OMR-06, OMR-10 | OMR-P0-001 | done | Paridade de fixtures single-page e shuffle |
 | ASM-001 | Disciplina e público por aluno/turma | ASM-04, IAM-07 | IAM-004 | done | Compatibilidade com códigos/turmas históricos |
-| ASM-002 | Wizard de oito etapas com recuperação | ASM-02, ASM-03 | ASM-001 | pending | Autosave e validação backend por etapa/publicação |
+| ASM-002 | Wizard de oito etapas com recuperação | ASM-02, ASM-03 | ASM-001 | done | Autosave e validação backend por etapa/publicação |
 | ASM-003 | Modalidades, outputs e cópias versionadas | ASM-01, ASM-05..07, ASM-10..11 | ASM-002 | pending | Digital/Avaliação/cartão/ambos/gabarito autorizados |
 | ASM-004 | Introdução e jornada completas do aluno | ASM-08, ASM-09 | ASM-003 | pending | Dados, estados, tentativas e resultado responsivos |
 | PED-001 | Estabilizar revisões, aulas e atividades existentes | PED-01 | IAM-004 | pending | Autoria e permissões cobertas por regressão |
