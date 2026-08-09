@@ -24,21 +24,37 @@ class QuestionResourceController extends Controller
     public function index(Request $request, QuestionResourceService $resources): View
     {
         Gate::authorize('viewAny', QuestionResource::class);
+        $scope = $resources->normalizeLibraryScope($request->string('scope')->toString());
 
-        $items = $resources->visibleTo($request->user())
+        $query = $resources->forLibraryScope($request->user(), $scope)
             ->when($request->filled('search'), function (Builder $query) use ($request): void {
                 $search = trim($request->string('search')->toString());
-                $query->where('title', 'like', "%{$search}%");
+                $query->where(function (Builder $query) use ($search): void {
+                    $query->where('title', 'like', "%{$search}%")
+                        ->orWhereHas('owner', fn (Builder $owner) => $owner
+                            ->where('name', 'like', "%{$search}%"))
+                        ->orWhereHas('currentVersion', fn (Builder $version) => $version
+                            ->where('content->body', 'like', "%{$search}%"));
+                });
             })
             ->when($request->filled('type'), fn (Builder $query) => $query
                 ->where('type', $request->string('type')->toString()))
-            ->with(['owner:id,name', 'currentVersion:id,question_resource_id,version_number,content'])
-            ->withCount('questions')
-            ->latest()
+            ->with(['owner:id,name', 'currentVersion'])
+            ->withCount(['questions' => fn (Builder $questions) => $questions
+                ->where('questions.organization_id', $request->user()->organization_id)]);
+
+        match ($request->string('sort')->toString()) {
+            'oldest' => $query->oldest(),
+            'title' => $query->orderBy('title'),
+            default => $query->latest(),
+        };
+
+        $items = $query
             ->paginate(12)
             ->withQueryString();
+        $counts = $resources->libraryCounts($request->user());
 
-        return view('question-resources.index', compact('items'));
+        return view('question-resources.index', compact('items', 'scope', 'counts'));
     }
 
     public function create(Request $request): View

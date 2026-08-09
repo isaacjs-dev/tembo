@@ -34,7 +34,8 @@ class QuestionResourcePolicy
 
     public function update(User $user, QuestionResource $resource): bool
     {
-        return (int) $user->organization_id === (int) $resource->organization_id
+        return $resource->visibility_scope !== 'platform_public'
+            && (int) $user->organization_id === (int) $resource->organization_id
             && ((int) $resource->owner_id === (int) $user->id
                 || $user->hasWorkspaceRole('admin', 'institution_admin', 'global_admin'));
     }

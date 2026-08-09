@@ -26,8 +26,11 @@ class QuestionResourceService
                             ->where(function (Builder $query) use ($user): void {
                                 $query->where('owner_id', $user->id)
                                     ->orWhere('visibility_scope', 'organization')
-                                    ->orWhereHas('shares', fn (Builder $shares) => $shares
-                                        ->where('shared_with_user_id', $user->id));
+                                    ->orWhere(function (Builder $query) use ($user): void {
+                                        $query->where('visibility_scope', 'shared_specific')
+                                            ->whereHas('shares', fn (Builder $shares) => $shares
+                                                ->where('shared_with_user_id', $user->id));
+                                    });
                             });
                     });
             });
@@ -49,7 +52,55 @@ class QuestionResourceService
 
         return (int) $resource->owner_id === (int) $user->id
             || $resource->visibility_scope === 'organization'
-            || $resource->shares()->where('shared_with_user_id', $user->id)->exists();
+            || ($resource->visibility_scope === 'shared_specific'
+                && $resource->shares()->where('shared_with_user_id', $user->id)->exists());
+    }
+
+    public function normalizeLibraryScope(?string $scope): string
+    {
+        return match ($scope) {
+            'personal' => 'mine',
+            'public' => 'institution',
+            'shared', 'institution', 'platform' => $scope,
+            default => 'mine',
+        };
+    }
+
+    public function forLibraryScope(User $user, ?string $scope): Builder
+    {
+        $scope = $this->normalizeLibraryScope($scope);
+        $organizationId = (int) $user->organization_id;
+        $query = $this->visibleTo($user);
+
+        return match ($scope) {
+            'shared' => $query
+                ->where('organization_id', $organizationId)
+                ->where('owner_id', '!=', $user->id)
+                ->where('visibility_scope', 'shared_specific'),
+            'institution' => $query
+                ->where('organization_id', $organizationId)
+                ->where('owner_id', '!=', $user->id)
+                ->where('visibility_scope', 'organization'),
+            'platform' => $query
+                ->where('visibility_scope', 'platform_public')
+                ->where(function (Builder $query) use ($user, $organizationId): void {
+                    $query->where('owner_id', '!=', $user->id)
+                        ->orWhere('organization_id', '!=', $organizationId);
+                }),
+            default => $query
+                ->where('organization_id', $organizationId)
+                ->where('owner_id', $user->id),
+        };
+    }
+
+    /** @return array{mine:int,shared:int,institution:int,platform:int} */
+    public function libraryCounts(User $user): array
+    {
+        return collect(['mine', 'shared', 'institution', 'platform'])
+            ->mapWithKeys(fn (string $scope): array => [
+                $scope => $this->forLibraryScope($user, $scope)->count(),
+            ])
+            ->all();
     }
 
     /**

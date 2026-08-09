@@ -23,13 +23,14 @@
     </x-slot>
 
     <!-- Tabs -->
-    <div class="grid grid-cols-3 gap-1 sm:gap-2 mb-6 border-b-2 border-duo-border pb-0"
+    <div class="grid grid-cols-2 gap-1 sm:grid-cols-4 sm:gap-2 mb-6 border-b-2 border-duo-border pb-0"
         aria-label="Visualizações do banco de questões">
         @php
             $tabs = [
-                'mine'   => ['label' => 'Minhas Questões',        'short' => 'Minhas',   'icon' => 'person', 'count' => $counts['mine']],
-                'shared' => ['label' => 'Compartilhadas Comigo',  'short' => 'Comigo',   'icon' => 'group',  'count' => $counts['shared']],
-                'public' => ['label' => 'Públicas da Instituição','short' => 'Públicas', 'icon' => 'public', 'count' => $counts['public']],
+                'mine' => ['label' => 'Minhas questões', 'short' => 'Minhas', 'icon' => 'person', 'count' => $counts['mine']],
+                'shared' => ['label' => 'Compartilhadas comigo', 'short' => 'Comigo', 'icon' => 'group', 'count' => $counts['shared']],
+                'institution' => ['label' => 'Institucionais', 'short' => 'Instituição', 'icon' => 'domain', 'count' => $counts['institution']],
+                'platform' => ['label' => 'Públicas da plataforma', 'short' => 'Públicas', 'icon' => 'public', 'count' => $counts['platform']],
             ];
         @endphp
         @foreach($tabs as $key => $t)
@@ -51,7 +52,7 @@
     </div>
 
     <!-- Search & Filters -->
-    <form method="GET" action="{{ route('questions.index') }}" class="mb-6" x-data="{ showFilters: {{ request()->hasAny(['discipline_id', 'type', 'level']) ? 'true' : 'false' }} }">
+    <form method="GET" action="{{ route('questions.index') }}" class="mb-6" x-data="{ showFilters: {{ request()->hasAny(['discipline_id', 'type', 'level', 'stage', 'grade', 'sort']) ? 'true' : 'false' }} }">
         <input type="hidden" name="tab" value="{{ $tab }}">
 
         <!-- Search Bar -->
@@ -76,7 +77,7 @@
                 <span aria-hidden="true" class="material-symbols-outlined text-[18px]">tune</span>
                 Filtros
             </button>
-            @if(request()->hasAny(['search', 'discipline_id', 'type', 'level']))
+            @if(request()->hasAny(['search', 'discipline_id', 'type', 'level', 'stage', 'grade', 'sort']))
                 <a href="{{ route('questions.index', ['tab' => $tab]) }}" class="text-sm font-bold text-red-400 hover:text-red-500 whitespace-nowrap">
                     Limpar
                 </a>
@@ -85,7 +86,8 @@
 
         <!-- Advanced Filters (collapsible) -->
         <div id="question-advanced-filters" x-show="showFilters" x-collapse
-            class="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 bg-white border-2 border-duo-border rounded-xl">
+            class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3 p-4 bg-white border-2 border-duo-border rounded-xl">
+            @if($tab !== 'platform')
             <div>
                 <label for="question-discipline-filter" class="input-label text-xs">Disciplina</label>
                 <select id="question-discipline-filter" name="discipline_id" class="input-field !py-2" onchange="this.form.submit()">
@@ -97,6 +99,7 @@
                     @endforeach
                 </select>
             </div>
+            @endif
             <div>
                 <label for="question-type-filter" class="input-label text-xs">Tipo</label>
                 <select id="question-type-filter" name="type" class="input-field !py-2" onchange="this.form.submit()">
@@ -117,6 +120,26 @@
                     <option value="very_hard" {{ request('level') === 'very_hard' ? 'selected' : '' }}>Muito Difícil</option>
                 </select>
             </div>
+            <div>
+                <label for="question-stage-filter" class="input-label text-xs">Etapa</label>
+                <select id="question-stage-filter" name="stage" class="input-field !py-2" onchange="this.form.submit()">
+                    <option value="">Todas</option>
+                    <option value="ef_iniciais" @selected(request('stage') === 'ef_iniciais')>EF Iniciais</option>
+                    <option value="ef_finais" @selected(request('stage') === 'ef_finais')>EF Finais</option>
+                    <option value="em" @selected(request('stage') === 'em')>Ensino Médio</option>
+                </select>
+            </div>
+            <div>
+                <label for="question-grade-filter" class="input-label text-xs">Ano/série</label>
+                <input id="question-grade-filter" name="grade" value="{{ request('grade') }}" class="input-field !py-2" maxlength="50" placeholder="Ex.: 6">
+            </div>
+            <div>
+                <label for="question-sort-filter" class="input-label text-xs">Ordenação</label>
+                <select id="question-sort-filter" name="sort" class="input-field !py-2" onchange="this.form.submit()">
+                    <option value="newest" @selected(request('sort', 'newest') === 'newest')>Mais recentes</option>
+                    <option value="oldest" @selected(request('sort') === 'oldest')>Mais antigas</option>
+                </select>
+            </div>
         </div>
     </form>
 
@@ -125,6 +148,8 @@
         @forelse($questions as $question)
             @php
                 $isOwner = $question->owner_id === auth()->id();
+                $isEditableOwner = $isOwner && $question->visibility_scope !== 'platform_public';
+                $canAttachDirectly = (int) $question->organization_id === (int) auth()->user()->organization_id;
                 $statement = $question->content['statement'] ?? 'Sem enunciado';
                 $options = $question->content['options'] ?? [];
                 $correctIdx = $question->content['correct_option'] ?? null;
@@ -265,13 +290,14 @@
                                 @if($isOwner)
                                     <span class="flex items-center gap-1">
                                         <span aria-hidden="true" class="material-symbols-outlined text-[14px]">visibility</span>
-                                        {{ $question->visibility_scope === 'org_public' ? 'Pública' : ($question->visibility_scope === 'shared_specific' ? 'Compartilhada' : 'Privada') }}
+                                        {{ $question->visibility_scope === 'org_public' ? 'Institucional' : ($question->visibility_scope === 'platform_public' ? 'Pública da plataforma' : ($question->visibility_scope === 'shared_specific' ? 'Compartilhada' : 'Privada')) }}
                                     </span>
                                 @endif
                             </div>
 
                             <div class="flex flex-wrap items-center justify-end gap-1">
                                 {{-- Adicionar à Prova --}}
+                                @if($canAttachDirectly)
                                 <div class="relative" x-data="{ showExamPicker: false, points: 1 }" @click.away="showExamPicker = false">
                                     <button type="button" @click="showExamPicker = !showExamPicker"
                                         class="btn-primary btn-sm !px-3 !py-1.5 text-xs !border-b-2">
@@ -317,8 +343,11 @@
                                         @endif
                                     </div>
                                 </div>
+                                @else
+                                    <span class="text-xs font-semibold text-gray-500" title="Duplique para criar uma cópia privada no seu espaço antes de usar.">Duplique para usar</span>
+                                @endif
 
-                                @if($isOwner)
+                                @if($isEditableOwner)
                                     <a href="{{ route('questions.share', $question->id) }}"
                                         class="p-2 rounded-xl transition-all duration-150 text-gray-400 hover:text-blue-500 hover:bg-blue-50"
                                         title="Compartilhar">
@@ -368,10 +397,15 @@
                     <p class="text-gray-400 mt-2 max-w-md mx-auto">
                         Outros professores ainda não compartilharam questões com você.
                     </p>
-                @else
+                @elseif($tab === 'institution')
                     <h2 class="text-xl font-bold text-duo-heading">Nenhuma questão pública</h2>
                     <p class="text-gray-400 mt-2 max-w-md mx-auto">
                         Não há questões públicas na instituição ainda.
+                    </p>
+                @else
+                    <h2 class="text-xl font-bold text-duo-heading">Nenhuma questão pública da plataforma</h2>
+                    <p class="text-gray-400 mt-2 max-w-md mx-auto">
+                        Nenhuma questão moderada está disponível com os filtros selecionados.
                     </p>
                 @endif
             </div>

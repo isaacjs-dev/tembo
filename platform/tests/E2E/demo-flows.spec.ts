@@ -44,6 +44,20 @@ test('professor acessa o gerenciador de materiais reutilizáveis', async ({ page
     const errors = await login(page, 'teacher@email.com');
     await page.goto('/question-resources');
     await expect(page.getByRole('heading', { name: 'Materiais de apoio', exact: true })).toBeVisible();
+    const resourceScopes = page.getByRole('navigation', { name: 'Escopos dos materiais de apoio' });
+    await expect(resourceScopes.getByRole('link')).toHaveCount(4);
+    await expect(resourceScopes.getByRole('link', { name: /Institui/ })).toBeVisible();
+    await expect(resourceScopes.getByRole('link', { name: /Públic/ })).toBeVisible();
+    await expectResponsive(page);
+
+    await page.goto('/questions?tab=platform');
+    await expect(page.getByRole('heading', { name: 'Banco de Questões', exact: true })).toBeVisible();
+    const questionScopes = page.getByLabel('Visualizações do banco de questões');
+    await expect(questionScopes.getByRole('link')).toHaveCount(4);
+    await expect(questionScopes.getByRole('link', { name: /Públic/ })).toHaveAttribute('aria-current', 'page');
+    await expectResponsive(page);
+
+    await page.goto('/question-resources');
     await page.getByRole('link', { name: 'Novo recurso' }).click();
     await expect(page.getByRole('heading', { name: 'Novo material de apoio' })).toBeVisible();
     await expect(page.getByLabel('Título')).toBeVisible();
