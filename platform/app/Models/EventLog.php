@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class EventLog extends Model
 {
+    protected static function booted(): void
+    {
+        static::created(fn (EventLog $event) => AuditLog::fromEvent($event));
+    }
+
     protected $fillable = [
         'organization_id',
         'actor_user_id',

@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Institution;
 
 use App\Http\Controllers\Controller;
-use App\Models\EventLog;
+use App\Models\AuditLog;
 use Illuminate\Http\Request;
 
 class LogController extends Controller
@@ -15,20 +15,24 @@ class LogController extends Controller
 
         $validated = $request->validate([
             'severity' => 'nullable|in:info,warning,error,critical',
+            'origin' => 'nullable|in:web,api,console,system',
+            'actor_id' => 'nullable|integer',
             'search' => 'nullable|string|max:100',
             'from' => 'nullable|date',
             'to' => 'nullable|date|after_or_equal:from',
         ]);
 
-        $logs = EventLog::query()
+        $logs = AuditLog::query()
             ->where('organization_id', $organizationId)
-            ->with(['actor:id,name,type'])
+            ->with(['user:id,name,type'])
             ->when($validated['severity'] ?? null, fn ($query, $severity) => $query->where('severity', $severity))
+            ->when($validated['origin'] ?? null, fn ($query, $origin) => $query->where('origin', $origin))
+            ->when($validated['actor_id'] ?? null, fn ($query, $actorId) => $query->where('user_id', $actorId))
             ->when($validated['search'] ?? null, function ($query, $search) {
                 $query->where(function ($nested) use ($search) {
-                    $nested->where('event_code', 'like', "%{$search}%")
-                        ->orWhere('message', 'like', "%{$search}%")
-                        ->orWhere('entity_type', 'like', "%{$search}%");
+                    $nested->where('action', 'like', "%{$search}%")
+                        ->orWhere('model_type', 'like', "%{$search}%")
+                        ->orWhere('request_id', $search);
                 });
             })
             ->when($validated['from'] ?? null, fn ($query, $from) => $query->whereDate('created_at', '>=', $from))

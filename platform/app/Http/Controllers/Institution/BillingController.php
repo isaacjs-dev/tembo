@@ -131,10 +131,18 @@ class BillingController extends Controller
             ]);
 
             AuditLog::log('plan_changed', Subscription::class, null, [
-                'from_plan' => $currentSub?->plan_id,
-                'to_plan' => $newPlan->id,
                 'organization_id' => $organization->id,
                 'prorata_extra_days' => $extraDays,
+                'before' => [
+                    'subscription_id' => $currentSub?->id,
+                    'plan_id' => $currentSub?->plan_id,
+                    'status' => $currentSub ? 'active' : null,
+                ],
+                'after' => [
+                    'plan_id' => $newPlan->id,
+                    'status' => 'active',
+                    'expires_at' => $expiresAt->toISOString(),
+                ],
             ]);
         });
 
@@ -177,6 +185,11 @@ class BillingController extends Controller
             AuditLog::log('plan_canceled', Subscription::class, $currentSub->id, [
                 'organization_id' => $organization->id,
                 'grace_until' => $graceUntil->toISOString(),
+                'before' => ['status' => 'active'],
+                'after' => [
+                    'status' => 'canceled',
+                    'expires_at' => $graceUntil->toISOString(),
+                ],
             ]);
         });
 

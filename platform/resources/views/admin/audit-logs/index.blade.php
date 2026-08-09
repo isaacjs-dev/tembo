@@ -15,7 +15,7 @@
 
     {{-- Filtros --}}
     <form method="GET" class="bg-white rounded-2xl border-2 border-duo-border p-5 mb-6">
-        <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-7 gap-4">
             <div>
                 <label for="audit-action" class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Ação</label>
                 <select id="audit-action" name="action"
@@ -31,6 +31,21 @@
                 <label for="audit-entity" class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Entidade</label>
                 <input id="audit-entity" type="text" name="model_type" value="{{ request('model_type') }}" placeholder="Ex: Plan"
                     class="w-full px-3 py-2 bg-white border-2 border-duo-border rounded-xl text-sm font-medium focus:border-primary focus:ring-0">
+            </div>
+            <div>
+                <label for="audit-organization" class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Instituição ID</label>
+                <input id="audit-organization" type="number" min="1" name="organization_id" value="{{ request('organization_id') }}"
+                    class="w-full px-3 py-2 bg-white border-2 border-duo-border rounded-xl text-sm font-medium focus:border-primary focus:ring-0">
+            </div>
+            <div>
+                <label for="audit-origin" class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Origem</label>
+                <select id="audit-origin" name="origin"
+                    class="w-full px-3 py-2 bg-white border-2 border-duo-border rounded-xl text-sm font-medium focus:border-primary focus:ring-0">
+                    <option value="">Todas</option>
+                    @foreach (['web' => 'Web', 'api' => 'API/Mobile', 'console' => 'Console', 'system' => 'Sistema'] as $value => $label)
+                        <option value="{{ $value }}" @selected(request('origin') === $value)>{{ $label }}</option>
+                    @endforeach
+                </select>
             </div>
             <div>
                 <label for="audit-date-from" class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">De</label>
@@ -62,6 +77,7 @@
                     <tr>
                         <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Data/Hora</th>
                         <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Usuário</th>
+                        <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Contexto</th>
                         <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Ação</th>
                         <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Entidade</th>
                         <th class="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">ID</th>
@@ -71,12 +87,18 @@
                 </thead>
                 <tbody class="divide-y-2 divide-duo-border" x-data="{ openLog: null }">
                     @forelse($logs as $log)
+                        @php $hasAuditDetails = $log->payload || $log->context_json || $log->before_json || $log->after_json; @endphp
                         <tr class="hover:bg-gray-50 transition-colors cursor-pointer"
                             @click="openLog = openLog === {{ $log->id }} ? null : {{ $log->id }}">
                             <td class="px-6 py-4 text-xs text-gray-500 whitespace-nowrap">
                                 {{ $log->created_at->format('d/m/Y H:i:s') }}</td>
                             <td class="px-6 py-4">
                                 <span class="text-sm font-bold text-gray-900">{{ $log->user?->name ?? 'Sistema' }}</span>
+                            </td>
+                            <td class="px-6 py-4 text-xs text-gray-500">
+                                <span class="font-bold uppercase">{{ $log->origin }}</span>
+                                <span class="block">{{ $log->organization?->name ?? 'Plataforma' }}</span>
+                                <span class="block font-mono text-[10px]">{{ $log->request_id ?? 'histórico' }}</span>
                             </td>
                             <td class="px-6 py-4">
                                 @php
@@ -92,7 +114,7 @@
                             <td class="px-6 py-4 text-sm text-gray-400">{{ $log->model_id ?? '—' }}</td>
                             <td class="px-6 py-4 text-xs text-gray-400 font-mono">{{ $log->ip_address ?? '—' }}</td>
                             <td class="px-6 py-4">
-                                @if($log->payload)
+                                @if($hasAuditDetails)
                                     <span aria-hidden="true" class="material-symbols-outlined text-gray-400 text-[18px]"
                                         :class="openLog === {{ $log->id }} ? 'rotate-180' : ''">expand_more</span>
                                 @else
@@ -101,22 +123,33 @@
                             </td>
                         </tr>
                         {{-- Expandable payload --}}
-                        @if($log->payload)
+                        @if($hasAuditDetails)
                             <tr x-show="openLog === {{ $log->id }}" x-transition class="bg-gray-50">
-                                <td colspan="7" class="px-6 py-4">
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        @if(isset($log->payload['old']))
+                                <td colspan="8" class="px-6 py-4">
+                                    @php
+                                        $auditBefore = $log->before_json ?? data_get($log->payload, 'old');
+                                        $auditAfter = $log->after_json ?? data_get($log->payload, 'new');
+                                    @endphp
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        @if($auditBefore)
                                             <div>
                                                 <p class="text-xs font-bold text-red-400 uppercase mb-2">Anterior</p>
                                                 <pre
-                                                    class="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 overflow-auto max-h-48">{{ json_encode($log->payload['old'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
+                                                    class="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 overflow-auto max-h-48">{{ json_encode($auditBefore, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
                                             </div>
                                         @endif
-                                        @if(isset($log->payload['new']))
+                                        @if($auditAfter)
                                             <div>
                                                 <p class="text-xs font-bold text-green-500 uppercase mb-2">Novo</p>
                                                 <pre
-                                                    class="bg-green-50 border border-green-200 rounded-xl p-3 text-xs text-green-700 overflow-auto max-h-48">{{ json_encode($log->payload['new'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
+                                                    class="bg-green-50 border border-green-200 rounded-xl p-3 text-xs text-green-700 overflow-auto max-h-48">{{ json_encode($auditAfter, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
+                                            </div>
+                                        @endif
+                                        @if($log->context_json)
+                                            <div>
+                                                <p class="text-xs font-bold text-blue-500 uppercase mb-2">Contexto</p>
+                                                <pre
+                                                    class="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 overflow-auto max-h-48">{{ json_encode($log->context_json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
                                             </div>
                                         @endif
                                     </div>
@@ -125,7 +158,7 @@
                         @endif
                     @empty
                         <tr>
-                            <td colspan="7" class="px-6 py-12 text-center">
+                            <td colspan="8" class="px-6 py-12 text-center">
                                 <span aria-hidden="true" class="material-symbols-outlined text-[48px] text-gray-300 mb-3">history</span>
                                 <h2 class="text-xl font-bold text-gray-800">Nenhum log encontrado.</h2>
                                 <p class="text-gray-500 mt-2">As ações realizadas no sistema serão registradas aqui.</p>

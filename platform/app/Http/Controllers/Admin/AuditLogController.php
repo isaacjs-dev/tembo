@@ -10,20 +10,34 @@ class AuditLogController extends Controller
 {
     public function index(Request $request)
     {
-        $query = AuditLog::with('user')->orderByDesc('created_at');
+        $validated = $request->validate([
+            'action' => 'nullable|string|max:100',
+            'user_id' => 'nullable|integer|exists:users,id',
+            'organization_id' => 'nullable|integer|exists:organizations,id',
+            'model_type' => 'nullable|string|max:150',
+            'origin' => 'nullable|in:web,api,console,system',
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date|after_or_equal:date_from',
+        ]);
+        $query = AuditLog::with(['user', 'organization'])->orderByDesc('created_at');
 
-        // Filtros
-        if ($request->filled('action')) {
-            $query->byAction($request->action);
+        if ($validated['action'] ?? null) {
+            $query->byAction($validated['action']);
         }
-        if ($request->filled('user_id')) {
-            $query->byUser($request->user_id);
+        if ($validated['user_id'] ?? null) {
+            $query->byUser((int) $validated['user_id']);
         }
-        if ($request->filled('model_type')) {
-            $query->where('model_type', 'like', "%{$request->model_type}%");
+        if ($validated['organization_id'] ?? null) {
+            $query->where('organization_id', $validated['organization_id']);
         }
-        if ($request->filled('date_from') && $request->filled('date_to')) {
-            $query->inPeriod($request->date_from, $request->date_to.' 23:59:59');
+        if ($validated['model_type'] ?? null) {
+            $query->where('model_type', 'like', "%{$validated['model_type']}%");
+        }
+        if ($validated['origin'] ?? null) {
+            $query->where('origin', $validated['origin']);
+        }
+        if (($validated['date_from'] ?? null) && ($validated['date_to'] ?? null)) {
+            $query->inPeriod($validated['date_from'], $validated['date_to'].' 23:59:59');
         }
 
         $logs = $query->paginate(25)->withQueryString();
