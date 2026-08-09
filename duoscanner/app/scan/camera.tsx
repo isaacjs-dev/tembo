@@ -15,12 +15,14 @@ import { validateQRPayload } from '@/lib/qr-validator';
 import { getResolvedConfig, getDataStrategy } from '@/lib/config-resolver';
 import { evaluatePreCapture, shouldAutoCapture, type PreCaptureValidation } from '@/lib/capture-engine';
 import { saveScanImage, generateLocalId } from '@/lib/image-utils';
+import { individualizedStudent } from '@/lib/exam-copy';
 import { CaptureOverlay } from '@/components/scan/CaptureOverlay';
 import { ScanModeIndicator } from '@/components/scan/ScanModeIndicator';
 import { GuidanceOverlay } from '@/components/scan/GuidanceOverlay';
 import { Button } from '@/components/ui/Button';
 import { colors } from '@/theme/colors';
 import { fonts } from '@/theme/typography';
+import type { ExamDownload } from '@/types/exam';
 import type { QRPayload } from '@/types/scan';
 
 type CameraState =
@@ -60,6 +62,11 @@ export default function CameraScreen() {
   const hasCache = qrData ? isExamCached(qrData.e) : false;
   const dataStrategy = getDataStrategy(config.scanMode, hasCache, isOnline);
   const resolvedExamId = qrData?.e || (paramExamId ? Number(paramExamId) : null);
+
+  const bindIndividualizedStudent = (data: ExamDownload, copyId: number) => {
+    const student = individualizedStudent(data, copyId);
+    if (student) updateCurrentScan(student);
+  };
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -135,6 +142,7 @@ export default function CameraScreen() {
               await cacheExam(eid, refreshed);
               const refreshedCopies = refreshed.copies.map((c) => ({ id: c.id, validation_hash: c.validation_hash }));
               if (validateQRAgainstExam(qr, eid, refreshedCopies).valid) {
+                bindIndividualizedStudent(refreshed, qr.c);
                 setExamTitle(refreshed.exam.title);
                 setCameraState('ready_to_capture');
                 return;
@@ -150,6 +158,7 @@ export default function CameraScreen() {
           setCameraState('qr_error');
           return;
         }
+        bindIndividualizedStudent(cached.data, qr.c);
         setExamTitle(cached.data.exam.title);
         setCameraState('ready_to_capture');
         return;
@@ -172,6 +181,7 @@ export default function CameraScreen() {
           return;
         }
 
+        bindIndividualizedStudent(data, qr.c);
         setExamTitle(data.exam.title);
         setCameraState('ready_to_capture');
         return;

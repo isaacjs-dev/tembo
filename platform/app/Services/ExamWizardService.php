@@ -191,9 +191,11 @@ class ExamWizardService
                 'instructions' => ['nullable', 'string', 'max:10000'],
             ],
             'application' => [
-                'application_mode' => ['required', Rule::in(['online', 'paper', 'hybrid'])],
+                'application_mode' => ['required', Rule::in(array_keys(ExamApplicationModeService::MODES))],
                 'time_limit' => ['nullable', 'integer', 'min:1', 'max:1440'],
                 'attempts' => ['required', 'integer', 'min:1', 'max:20'],
+                'digital_presentation' => ['sometimes', Rule::in(ExamPresentationService::MODES)],
+                'questions_per_page' => ['sometimes', 'integer', 'min:1', 'max:20'],
                 'available_from' => ['nullable', 'date'],
                 'available_until' => ['nullable', 'date', 'after:available_from'],
             ],
@@ -230,6 +232,14 @@ class ExamWizardService
             $settings['application_mode'] = $validated['application_mode'];
             $settings['time_limit'] = isset($validated['time_limit']) ? (int) $validated['time_limit'] : null;
             $settings['attempts'] = (int) $validated['attempts'];
+            $settings['digital_presentation'] = $validated['digital_presentation']
+                ?? $settings['digital_presentation']
+                ?? 'auto';
+            $settings['questions_per_page'] = (int) (
+                $validated['questions_per_page']
+                ?? $settings['questions_per_page']
+                ?? 5
+            );
             $settings['available_from'] = $this->normalizedDate($validated['available_from'] ?? null);
             $settings['available_until'] = $this->normalizedDate($validated['available_until'] ?? null);
 

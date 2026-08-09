@@ -17,6 +17,7 @@ export function gradeAnswers(
   copy: ExamCopy,
   questions: QuestionData[]
 ): { results: GradingResult[]; totalScore: number; maxScore: number } {
+  const gradingQuestions = copy.question_snapshot?.length ? copy.question_snapshot : questions;
   const results: GradingResult[] = [];
   let totalScore = 0;
   let maxScore = 0;
@@ -24,10 +25,10 @@ export function gradeAnswers(
   // Process questions in the order they appear in the copy
   const orderedQuestionIds = (copy.questions_map && copy.questions_map.length > 0)
     ? copy.questions_map
-    : questions.map((q) => q.id);
+    : gradingQuestions.map((q) => q.id);
 
   orderedQuestionIds.forEach((qId, index) => {
-    const question = questions.find((q) => q.id === qId);
+    const question = gradingQuestions.find((q) => q.id === qId);
     if (!question || question.type === 'essay') return;
 
     maxScore += question.points;

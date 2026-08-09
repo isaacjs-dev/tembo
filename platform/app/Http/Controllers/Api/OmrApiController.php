@@ -114,6 +114,25 @@ class OmrApiController extends Controller
         $copy = ! empty($validated['copy_id'])
             ? ExamCopy::query()->whereKey($validated['copy_id'])->where('exam_id', $exam->id)->firstOrFail()
             : null;
+        if ($copy?->student_id) {
+            $copyStudentIsActive = User::query()
+                ->memberOfOrganization($orgId, 'student')
+                ->whereKey($copy->student_id)
+                ->exists();
+            if (! $copyStudentIsActive) {
+                throw ValidationException::withMessages([
+                    'copy_id' => 'O aluno desta cópia não possui mais vínculo ativo com a organização.',
+                ]);
+            }
+            if (! empty($validated['student_id'])
+                && (int) $copy->student_id !== (int) $validated['student_id']) {
+                throw ValidationException::withMessages([
+                    'student_id' => 'Esta cópia individualizada pertence a outro aluno.',
+                ]);
+            }
+
+            $validated['student_id'] = (int) $copy->student_id;
+        }
 
         $quotaSubject = User::query()->findOrFail($exam->author_id);
         $quota = $this->monthlyUsage->snapshot($quotaSubject, MonthlyUsageService::OMR_SCANS);
@@ -378,6 +397,11 @@ class OmrApiController extends Controller
         $copy = $scan->copy_id
             ? ExamCopy::whereKey($scan->copy_id)->where('exam_id', $exam->id)->firstOrFail()
             : null;
+        if ($copy?->student_id && (int) $copy->student_id !== (int) $validated['student_id']) {
+            throw ValidationException::withMessages([
+                'student_id' => 'Esta cópia individualizada pertence a outro aluno.',
+            ]);
+        }
 
         $gradingResult = DB::transaction(function () use ($scan, $exam, $copy, $validated) {
             $scan->update([

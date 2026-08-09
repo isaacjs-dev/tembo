@@ -401,6 +401,35 @@ class StudentPortalTest extends TestCase
             ->assertDontSee('Resposta restrita');
     }
 
+    public function test_paginated_digital_presentation_renders_navigable_question_blocks(): void
+    {
+        $exam = $this->makeExam(['settings' => [
+            'application_mode' => 'online',
+            'attempts' => 1,
+            'digital_presentation' => 'paginated',
+            'questions_per_page' => 1,
+        ]]);
+        $this->addQuestion($exam, 'multiple_choice', [
+            'statement' => 'Primeira questão',
+            'options' => ['A', 'B'],
+            'correct_option' => 0,
+        ]);
+        $this->addQuestion($exam, 'multiple_choice', [
+            'statement' => 'Segunda questão',
+            'options' => ['A', 'B'],
+            'correct_option' => 1,
+        ]);
+        $attempt = $this->startAttempt($exam);
+
+        $this->actingAs($this->student)
+            ->get(route('student.exam.execution', ['exam' => $exam, 'attempt' => $attempt->attempt_number]))
+            ->assertOk()
+            ->assertSee('data-question-block="0"', false)
+            ->assertSee('data-question-block="1"', false)
+            ->assertSee('Bloco 1 de 2')
+            ->assertSee('Navegação entre blocos da avaliação');
+    }
+
     private function makeClass(string $name): SchoolClass
     {
         return SchoolClass::withoutGlobalScopes()->create([

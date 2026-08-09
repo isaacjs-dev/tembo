@@ -43,7 +43,9 @@ class ExamConfigurationTest extends TestCase
             'title' => 'Avaliação híbrida',
             'status' => 'published',
             'settings_form' => '1',
-            'application_mode' => 'hybrid',
+            'application_mode' => 'printed_digital',
+            'digital_presentation' => 'paginated',
+            'questions_per_page' => 4,
             'instructions' => 'Use apenas lápis e registre os cálculos.',
             'time_limit' => 45,
             'attempts' => 2,
@@ -59,7 +61,9 @@ class ExamConfigurationTest extends TestCase
         $exam = Exam::withoutGlobalScopes()->sole();
         $response->assertRedirect(route('exams.edit', $exam));
         $this->assertSame('draft', $exam->status);
-        $this->assertSame('hybrid', $exam->settings['application_mode']);
+        $this->assertSame('printed_digital', $exam->settings['application_mode']);
+        $this->assertSame('paginated', $exam->settings['digital_presentation']);
+        $this->assertSame(4, $exam->settings['questions_per_page']);
         $this->assertSame(45, $exam->settings['time_limit']);
         $this->assertSame(2, $exam->settings['attempts']);
         $this->assertTrue($exam->settings['shuffle_questions']);

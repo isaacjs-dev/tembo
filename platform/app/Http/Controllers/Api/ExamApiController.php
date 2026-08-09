@@ -30,6 +30,7 @@ class ExamApiController extends Controller
                 'id' => $exam->id,
                 'title' => $exam->title,
                 'status' => $exam->status,
+                'version' => (int) $exam->version,
                 'questions_count' => $exam->questions_count,
                 'submissions_count' => $exam->submissions_count,
                 'discipline' => $exam->discipline ? [
@@ -62,12 +63,28 @@ class ExamApiController extends Controller
         $exam->load(['discipline:id,name', 'questions', 'schoolClasses', 'students']);
 
         // Get all copies for this exam
-        $copies = $exam->copies()->get()->map(fn ($copy) => [
+        $copies = $exam->copies()->orderBy('copy_number')->get()->map(fn ($copy) => [
             'id' => $copy->id,
             'copy_number' => $copy->copy_number,
+            'student_id' => $copy->student_id,
+            'exam_version' => (int) $copy->exam_version,
+            'generation_uuid' => $copy->generation_uuid,
+            'card_template_id' => $copy->card_template_id,
+            'card_template_version' => $copy->card_template_version,
+            'output_type' => $copy->output_type,
             'validation_hash' => $copy->validation_hash,
             'questions_map' => $copy->questions_map,
             'options_map' => $copy->options_map,
+            'question_snapshot' => is_array($copy->question_snapshot)
+                ? collect($copy->question_snapshot)->map(fn (array $question): array => [
+                    'id' => (int) $question['id'],
+                    'type' => $question['type'],
+                    'correct_option' => data_get($question, 'content.correct_option'),
+                    'option_count' => count(data_get($question, 'content.options', [])),
+                    'points' => (float) ($question['points'] ?? 1),
+                    'order' => (int) ($question['order'] ?? 0),
+                ])->values()->all()
+                : null,
         ]);
 
         // Questions with answer key data
@@ -98,6 +115,7 @@ class ExamApiController extends Controller
                 'id' => $exam->id,
                 'title' => $exam->title,
                 'status' => $exam->status,
+                'version' => (int) $exam->version,
                 'settings' => Arr::except($exam->settings ?? [], ['_wizard']),
                 'discipline' => $exam->discipline ? [
                     'id' => $exam->discipline->id,

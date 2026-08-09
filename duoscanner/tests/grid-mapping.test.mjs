@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import { resolveGrid, resolveGridPosition } from '../src/lib/grid-mapping.ts';
 import { parseQRCode } from '../src/lib/qr-parser.ts';
+import { gradeAnswers } from '../src/lib/grading.ts';
+import { individualizedStudent } from '../src/lib/exam-copy.ts';
 import {
   mapQuestionValuesToPrintedPositions,
   mapVisualAnswersToOriginalOptions,
@@ -88,4 +90,59 @@ test('maps database question ids to signed printed positions for upload', () => 
     ),
     { '2': 2, '1': null, '999': 1 }
   );
+});
+
+test('grades a historical copy with its immutable snapshot instead of the current key', () => {
+  const copy = {
+    id: 7,
+    copy_number: 1,
+    validation_hash: 'historical-copy',
+    questions_map: [11],
+    options_map: { 11: [0, 1] },
+    question_snapshot: [{
+      id: 11,
+      type: 'multiple_choice',
+      correct_option: 0,
+      option_count: 2,
+      points: 2,
+      order: 1,
+    }],
+  };
+  const currentQuestions = [{
+    id: 11,
+    type: 'multiple_choice',
+    correct_option: 1,
+    option_count: 2,
+    points: 9,
+    order: 1,
+  }];
+
+  const result = gradeAnswers({ 11: 0 }, copy, currentQuestions);
+
+  assert.equal(result.totalScore, 2);
+  assert.equal(result.maxScore, 2);
+  assert.equal(result.results[0].correctOptionIndex, 0);
+});
+
+test('resolves and locks the student carried by an individualized copy', () => {
+  const data = {
+    exam: { id: 1, title: 'Avaliação', status: 'published', settings: {} },
+    copies: [{
+      id: 21,
+      copy_number: 1,
+      student_id: 8,
+      validation_hash: 'copy-hash',
+      questions_map: [],
+      options_map: {},
+    }],
+    questions: [],
+    students: [{ id: 8, name: 'Aluno vinculado', registration_number: null }],
+    downloaded_at: new Date(0).toISOString(),
+  };
+
+  assert.deepEqual(individualizedStudent(data, 21), {
+    studentId: 8,
+    studentName: 'Aluno vinculado',
+  });
+  assert.equal(individualizedStudent(data, 999), null);
 });

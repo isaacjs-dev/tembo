@@ -22,18 +22,22 @@ export default function ReviewDataScreen() {
   const cachedExam = useExamStore((s) => s.getCachedExam(Number(examId)));
   const { currentScan, updateCurrentScan } = useScanStore();
   const students = cachedExam?.data.students || [];
+  const individualizedCopy = cachedExam?.data.copies.find((copy) => copy.id === currentScan?.copyId);
+  const assignedStudentId = individualizedCopy?.student_id ?? null;
 
-  const [selectedStudent, setSelectedStudent] = useState<number | null>(currentScan?.studentId || null);
+  const [selectedStudent, setSelectedStudent] = useState<number | null>(assignedStudentId || currentScan?.studentId || null);
   const [studentSearch, setStudentSearch] = useState('');
 
-  const filteredStudents = students.filter((s) =>
-    s.name.toLowerCase().includes(studentSearch.toLowerCase())
+  const filteredStudents = students.filter((student) =>
+    (!assignedStudentId || student.id === assignedStudentId)
+    && student.name.toLowerCase().includes(studentSearch.toLowerCase())
   );
 
   const handleConfirm = () => {
-    const student = students.find((s) => s.id === selectedStudent);
+    const confirmedStudentId = assignedStudentId || selectedStudent;
+    const student = students.find((s) => s.id === confirmedStudentId);
     updateCurrentScan({
-      studentId: selectedStudent,
+      studentId: confirmedStudentId,
       studentName: student?.name || null,
     });
     router.push({
@@ -64,11 +68,11 @@ export default function ReviewDataScreen() {
             <Text style={{ fontSize: 16, fontFamily: fonts.extraBold, color: colors.textPrimary }}>
               Informacoes do Aluno
             </Text>
-            <Badge label="Selecionar" variant="info" />
+            <Badge label={assignedStudentId ? 'Vinculado ao cartão' : 'Selecionar'} variant="info" />
           </View>
 
           {/* Search students */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, borderWidth: 2, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, marginBottom: 12 }}>
+          {!assignedStudentId && <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, borderWidth: 2, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, marginBottom: 12 }}>
             <MaterialIcons name="search" size={18} color={colors.gray} />
             <TextInput
               style={{ flex: 1, height: 44, fontSize: 14, fontFamily: fonts.medium, color: colors.textPrimary, marginLeft: 8 }}
@@ -77,13 +81,14 @@ export default function ReviewDataScreen() {
               value={studentSearch}
               onChangeText={setStudentSearch}
             />
-          </View>
+          </View>}
 
           {/* Student List */}
           {filteredStudents.slice(0, 20).map((student) => (
             <Pressable
               key={student.id}
-              onPress={() => setSelectedStudent(student.id)}
+              onPress={() => !assignedStudentId && setSelectedStudent(student.id)}
+              disabled={Boolean(assignedStudentId)}
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -138,12 +143,12 @@ export default function ReviewDataScreen() {
           disabled={!selectedStudent}
           icon={<MaterialIcons name="arrow-forward" size={18} color={colors.white} />}
         />
-        <Button
-          title="Pular (Sem Aluno)"
-          onPress={handleSkip}
-          variant="outline"
-          icon={<MaterialIcons name="skip-next" size={18} color={colors.primary} />}
-        />
+        {!assignedStudentId && <Button
+            title="Pular (Sem Aluno)"
+            onPress={handleSkip}
+            variant="outline"
+            icon={<MaterialIcons name="skip-next" size={18} color={colors.primary} />}
+          />}
         <Pressable onPress={() => router.back()} style={{ alignItems: 'center', paddingVertical: 10 }}>
           <Text style={{ fontSize: 14, fontFamily: fonts.bold, color: colors.textSecondary }}>
             Voltar

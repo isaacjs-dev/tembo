@@ -41,6 +41,9 @@
                 $availability = $meta['availability'];
                 $applicationModeLabel = match ($meta['application_mode']) {
                     'online' => 'On-line',
+                    'printed_digital' => 'Impressa + resposta digital',
+                    'printed_omr' => 'Impressa + cartão OMR',
+                    'offline_omr' => 'OMR offline',
                     'paper' => 'Impressa',
                     default => 'Híbrida',
                 };

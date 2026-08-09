@@ -13,6 +13,8 @@ class ExamAccessService
 {
     private const SESSION_GRANTS_KEY = 'student_exam_grants';
 
+    public function __construct(private ExamApplicationModeService $applicationModes) {}
+
     public function findForStudent(User $student, int|string $examId): Exam
     {
         return Exam::query()
@@ -168,14 +170,12 @@ class ExamAccessService
 
     public function applicationMode(Exam $exam): string
     {
-        $mode = $exam->settings['application_mode'] ?? 'hybrid';
-
-        return in_array($mode, ['online', 'paper', 'hybrid'], true) ? $mode : 'hybrid';
+        return $this->applicationModes->mode($exam);
     }
 
     public function supportsOnline(Exam $exam): bool
     {
-        return in_array($this->applicationMode($exam), ['online', 'hybrid'], true);
+        return $this->applicationModes->capabilities($exam)['digital'];
     }
 
     public function resultsAvailableAt(Exam $exam): ?CarbonImmutable

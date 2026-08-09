@@ -128,8 +128,13 @@ class ExamAudienceService
                 ->whereHas('schoolClasses', fn (Builder $query) => $query->whereIn('school_classes.id', $classIds))
                 ->pluck('users.id');
 
+        $directStudentIds = User::query()
+            ->memberOfOrganization((int) $exam->organization_id, 'student')
+            ->whereIn('users.id', $exam->students()->select('users.id'))
+            ->pluck('users.id');
+
         return $classStudentIds
-            ->merge($exam->students()->pluck('users.id'))
+            ->merge($directStudentIds)
             ->map(fn ($id) => (int) $id)
             ->unique()
             ->values()

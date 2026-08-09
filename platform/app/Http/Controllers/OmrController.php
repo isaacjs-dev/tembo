@@ -19,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OmrController extends Controller
@@ -224,8 +225,8 @@ class OmrController extends Controller
                     // VALIDAÇÃO DE COERÊNCIA (offline + anti-divergência):
                     // O QR carrega o gabarito OFICIAL em ESPAÇO VISUAL (a ordem REAL impressa,
                     // já com embaralhamento — gab_enc cifrado). Comparamos com o gabarito oficial
-                    // atual do banco (correct_option + options_map). Se o QR carregar uma chave
-                    // que CONTRADIZ a oficial (ex.: gabarito alterado após a impressão), marcamos
+                    // preservado na cópia (correct_option + options_map), com fallback ao banco
+                    // para cartões legados. Se o QR carregar uma chave que CONTRADIZ a oficial, marcamos
                     // a questão como erro de validação e bloqueamos a correção automática dela —
                     // até análise manual. Vale para qualquer tipo, inclusive V/F (A/B na ordem real).
                     $validationErrors = [];
@@ -233,6 +234,8 @@ class OmrController extends Controller
                         $qrGab = app(QrCodeSigningService::class)
                             ->decryptGabarito($qr['gab_enc'], $orgId); // [visual,...] na ordem qs..qe
                         if (is_array($qrGab)) {
+                            $snapshotById = collect($copy->question_snapshot ?? [])
+                                ->keyBy(fn (array $item): int => (int) $item['id']);
                             $qsBase = (int) ($qr['qs'] ?? 1);
                             foreach ($qrGab as $j => $qrVisual) {
                                 $pos = $qsBase + (int) $j; // posição impressa, 1-based
@@ -241,16 +244,19 @@ class OmrController extends Controller
                                 }
                                 $qid = $printedOrder[$pos - 1];
                                 $question = $exam->questions->firstWhere('id', $qid);
-                                if (! $question) {
+                                $snapshot = $snapshotById->get((int) $qid);
+                                if (! $question && ! is_array($snapshot)) {
                                     continue;
                                 }
                                 $optMap = $copy->options_map[$qid] ?? null;
-                                $co = $question->content['correct_option'] ?? null;
+                                $co = is_array($snapshot)
+                                    ? data_get($snapshot, 'content.correct_option')
+                                    : ($question->content['correct_option'] ?? null);
                                 $dbVisual = (is_array($optMap) && $co !== null && $co !== '')
                                     ? (($v = array_search($co, $optMap)) !== false ? (int) $v : null)
                                     : null;
                                 $qrV = ($qrVisual === -1 || $qrVisual === null) ? null : (int) $qrVisual;
-                                // Erro só quando o QR TEM chave e ela DIFERE da oficial atual.
+                                // Erro só quando o QR TEM chave e ela DIFERE da versão impressa.
                                 if ($qrV !== null && $qrV !== $dbVisual) {
                                     $validationErrors[$qid] = ['qr' => $qrV, 'oficial' => $dbVisual];
                                 }
@@ -407,6 +413,14 @@ class OmrController extends Controller
         $scan = OmrScan::where('organization_id', $orgId)
             ->with('exam.questions')
             ->findOrFail($id);
+        $copy = $scan->copy_id
+            ? ExamCopy::query()->whereKey($scan->copy_id)->where('exam_id', $scan->exam_id)->first()
+            : null;
+        if ($copy?->student_id && (int) $copy->student_id !== (int) $request->student_id) {
+            throw ValidationException::withMessages([
+                'student_id' => 'Esta cópia individualizada pertence a outro aluno.',
+            ]);
+        }
 
         // Sanitizar respostas: converter strings vazias para null
         $sanitizedAnswers = collect($request->answers)->map(function ($value) {
@@ -443,7 +457,6 @@ class OmrController extends Controller
 
         // Auto-grade if student is assigned
         if ($request->student_id) {
-            $copy = $scan->copy_id ? ExamCopy::find($scan->copy_id) : null;
             $scoreResult = $this->gradingService->grade($scan, $sanitizedAnswers, $copy);
 
             $scan->update([

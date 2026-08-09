@@ -37,9 +37,14 @@
                 <div>
                     <dt class="text-sm text-gray-600">Modalidade</dt>
                     <dd class="font-bold text-gray-800">
-                        {{ $supportsOnline
-                            ? (($exam->settings['application_mode'] ?? 'hybrid') === 'online' ? 'On-line' : 'Híbrida')
-                            : 'Impressa / cartão-resposta' }}
+                        {{ match ($exam->settings['application_mode'] ?? 'hybrid') {
+                            'online' => '100% on-line',
+                            'printed_digital' => 'Avaliação impressa + resposta digital',
+                            'printed_omr' => 'Avaliação impressa + cartão OMR',
+                            'offline_omr' => 'OMR offline + sincronização posterior',
+                            'paper' => 'Impressa / cartão-resposta',
+                            default => 'Híbrida',
+                        } }}
                     </dd>
                 </div>
 

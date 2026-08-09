@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Exam;
+use App\Models\ExamCopy;
 use App\Models\OmrTemplate;
 use App\Models\OmrTemplateQuestion;
 use App\Models\OmrTemplateVersion;
@@ -115,6 +117,14 @@ class OmrTemplateController extends Controller
         $this->authorizeEdit($template);
         if ($template->is_default || $template->is_system) {
             return back()->withErrors('O template padrão do sistema não pode ser excluído.');
+        }
+        $hasHistoricalUse = ExamCopy::query()->where('card_template_id', $template->id)->exists()
+            || Exam::withoutGlobalScopes()->where('card_template_id', $template->id)->exists()
+            || $template->scans()->exists();
+        if ($hasHistoricalUse) {
+            return back()->withErrors(
+                'Este template já foi usado em uma cópia histórica e não pode ser excluído. Desative-o para impedir novos usos.'
+            );
         }
         $template->delete();
 

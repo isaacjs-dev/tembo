@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Exam;
+use App\Models\ExamCopy;
 use App\Models\OmrTemplate;
 use App\Models\Organization;
 use App\Models\Plan;
@@ -207,6 +209,39 @@ class WorkspaceContextTest extends TestCase
             ->withSession(['workspace_id' => $current->id])
             ->get(route('institution.omr.templates.edit', $system))
             ->assertForbidden();
+    }
+
+    public function test_omr_template_used_by_historical_copy_cannot_be_hard_deleted(): void
+    {
+        $workspace = $this->workspace('Histórico OMR');
+        $teacher = $this->user($workspace, 'teacher');
+        $this->link($teacher, $workspace, 'teacher');
+        $template = $this->template('Template histórico', $workspace, $teacher, 'private');
+        $exam = Exam::create([
+            'organization_id' => $workspace->id,
+            'author_id' => $teacher->id,
+            'title' => 'Avaliação histórica',
+            'status' => 'published',
+        ]);
+        ExamCopy::create([
+            'exam_id' => $exam->id,
+            'copy_number' => 1,
+            'card_template_id' => $template->id,
+            'card_template_version' => 1,
+            'template_snapshot' => ['id' => $template->id, 'version' => 1, 'layout_config' => []],
+            'questions_map' => [],
+            'options_map' => [],
+            'validation_hash' => str()->random(40),
+        ]);
+
+        $this->actingAs($teacher)
+            ->withSession(['workspace_id' => $workspace->id])
+            ->from(route('institution.omr.templates.index'))
+            ->delete(route('institution.omr.templates.destroy', $template))
+            ->assertRedirect(route('institution.omr.templates.index'))
+            ->assertSessionHasErrors();
+
+        $this->assertDatabaseHas('omr_templates', ['id' => $template->id]);
     }
 
     public function test_independent_teacher_can_open_personal_class_creation_but_institution_teacher_cannot(): void

@@ -64,7 +64,7 @@ class AnswerSheetGeneratorService
         }
 
         // Geometria vem do TEMPLATE (versão atual). Fallback: AnswerSheetType "essential".
-        [$layout] = $this->resolveTemplateLayout($exam, $template);
+        [$layout] = $this->resolveTemplateLayout($exam, $template, $copies->first());
 
         $exam->loadMissing(['questions.discipline', 'organization']);
 
@@ -103,7 +103,7 @@ class AnswerSheetGeneratorService
         // $layoutOverride permite ajustar o frame ao espaço disponível (ex.: lote com
         // @page margin). Como `g` é relativo ao frame, a leitura continua correta.
         $exam->loadMissing(['questions.discipline', 'organization']);
-        [$resolvedLayout, $tplVersion] = $this->resolveTemplateLayout($exam, $template);
+        [$resolvedLayout, $tplVersion] = $this->resolveTemplateLayout($exam, $template, $copy);
         // O lote avançado só pode reposicionar o frame. Geometria estrutural
         // (linhas, colunas, bolhas e limites) permanece presa à versão da prova.
         $placementOverride = $layoutOverride
@@ -277,9 +277,20 @@ class AnswerSheetGeneratorService
     /**
      * @return array{0: array, 1: int}
      */
-    private function resolveTemplateLayout(Exam $exam, OmrTemplate $template): array
+    private function resolveTemplateLayout(Exam $exam, OmrTemplate $template, ?ExamCopy $copy = null): array
     {
+        $copySnapshot = $copy?->template_snapshot;
+        if (is_array($copySnapshot) && ! empty($copySnapshot['layout_config'])) {
+            return [
+                $copySnapshot['layout_config'],
+                (int) ($copySnapshot['version'] ?? $copy->card_template_version ?? 1),
+            ];
+        }
+
         $version = (int) ($template->current_version ?: 1);
+        if ((int) ($copy?->card_template_id) === (int) $template->id && (int) ($copy?->card_template_version) > 0) {
+            $version = (int) $copy->card_template_version;
+        }
         if (
             (int) $exam->card_template_id === (int) $template->id
             && (int) $exam->card_template_version > 0
