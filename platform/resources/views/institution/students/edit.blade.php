@@ -38,52 +38,31 @@
             @method('PUT')
 
             <div class="space-y-2">
-                <label for="name" class="text-gray-800 font-bold text-sm">Nome Completo</label>
-                <input type="text" id="name" name="name" value="{{ old('name', $student->name) }}" required
-                    class="block w-full px-4 py-3 bg-background-light border-2 border-duo-border rounded-xl text-gray-800 focus:outline-none focus:border-primary focus:ring-0 transition-all font-medium">
+                <div class="text-gray-800 font-bold text-sm">Nome da conta</div>
+                <p class="px-4 py-3 bg-gray-50 border-2 border-duo-border rounded-xl text-gray-700">{{ $student->name }}</p>
             </div>
 
             <div class="space-y-2">
-                <label for="email" class="text-gray-800 font-bold text-sm">E-mail</label>
-                <div class="relative group">
-                    <div
-                        class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-primary transition-colors">
-                        <span aria-hidden="true" class="material-symbols-outlined text-xl">mail</span>
-                    </div>
-                    <input type="email" id="email" name="email" value="{{ old('email', $student->email) }}" required
-                        class="block w-full pl-11 pr-4 py-3 bg-background-light border-2 border-duo-border rounded-xl text-gray-800 focus:outline-none focus:border-primary focus:ring-0 transition-all font-medium">
-                </div>
+                <div class="text-gray-800 font-bold text-sm">E-mail da conta</div>
+                <p class="px-4 py-3 bg-gray-50 border-2 border-duo-border rounded-xl text-gray-700">{{ $student->email }}</p>
+                <p class="text-xs text-gray-500">Nome, e-mail e senha só podem ser alterados pelo titular da conta.</p>
             </div>
 
             <div class="space-y-2">
                 <label for="registration_number" class="text-gray-800 font-bold text-sm">Matrícula (Opcional)</label>
                 <input type="text" id="registration_number" name="registration_number"
-                    value="{{ old('registration_number', $student->studentProfile->registration_number ?? '') }}"
+                    value="{{ old('registration_number', $student->studentProfiles->first()?->registration_number ?? '') }}"
                     class="block w-full px-4 py-3 bg-background-light border-2 border-duo-border rounded-xl text-gray-800 focus:outline-none focus:border-primary focus:ring-0 transition-all font-medium"
                     placeholder="Matrícula do aluno">
             </div>
 
             <div class="space-y-2">
-                <label for="password" class="text-gray-800 font-bold text-sm">Nova Senha (deixe em branco para manter a
-                    atual)</label>
-                <div class="relative group">
-                    <div
-                        class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-primary transition-colors">
-                        <span aria-hidden="true" class="material-symbols-outlined text-xl">lock</span>
-                    </div>
-                    <input type="password" id="password" name="password"
-                        class="block w-full pl-11 pr-4 py-3 bg-background-light border-2 border-duo-border rounded-xl text-gray-800 focus:outline-none focus:border-primary focus:ring-0 transition-all font-medium"
-                        placeholder="Mínimo 8 caracteres (opcional)">
-                </div>
-            </div>
-
-            <div class="space-y-2">
-                <label for="status" class="text-gray-800 font-bold text-sm">Status</label>
+                <label for="status" class="text-gray-800 font-bold text-sm">Status do vínculo institucional</label>
                 <select id="status" name="status"
                     class="block w-full px-4 py-3 bg-background-light border-2 border-duo-border rounded-xl text-gray-800 focus:outline-none focus:border-primary focus:ring-0 transition-all font-medium">
-                    <option value="active" {{ (old('status', $student->status) == 'active') ? 'selected' : '' }}>Ativo
+                    <option value="active" {{ (old('status', $membershipStatus) == 'active') ? 'selected' : '' }}>Ativo
                     </option>
-                    <option value="inactive" {{ (old('status', $student->status) == 'inactive') ? 'selected' : '' }}>
+                    <option value="inactive" {{ (old('status', $membershipStatus) == 'inactive') ? 'selected' : '' }}>
                         Inativo</option>
                 </select>
             </div>
@@ -110,18 +89,22 @@
         </form>
 
         <hr class="my-8 border-duo-border border-2">
-        <div class="mt-8 flex items-center justify-between p-6 bg-red-50 border-2 border-red-200 rounded-xl">
+        <div class="mt-8 flex items-center justify-between p-6 {{ $membershipStatus === 'active' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200' }} border-2 rounded-xl">
             <div>
-                <h3 class="text-red-700 font-bold text-lg">Remover Aluno</h3>
-                <p class="text-red-600 text-sm mt-1">Desativar e remover este aluno do sistema. (Soft Delete)</p>
+                <h3 class="{{ $membershipStatus === 'active' ? 'text-red-700' : 'text-green-700' }} font-bold text-lg">
+                    {{ $membershipStatus === 'active' ? 'Desativar vínculo' : 'Reativar vínculo' }}
+                </h3>
+                <p class="{{ $membershipStatus === 'active' ? 'text-red-600' : 'text-green-700' }} text-sm mt-1">
+                    A ação altera somente o vínculo com esta instituição e preserva a conta global.
+                </p>
             </div>
             <form action="{{ route('institution.students.destroy', $student->id) }}" method="POST"
-                onsubmit="return confirm('Tem certeza que deseja inativar/remover este aluno?');">
+                onsubmit="return confirm('{{ $membershipStatus === 'active' ? 'Desativar o vínculo deste aluno?' : 'Reativar o vínculo deste aluno?' }}');">
                 @csrf
                 @method('DELETE')
                 <button type="submit"
-                    class="px-6 py-3 bg-red-600 text-white font-bold rounded-xl shadow-[0_4px_0_0_#991b1b] hover:bg-red-700 active:shadow-none active:translate-y-1 transition-all">
-                    Remover Aluno
+                    class="px-6 py-3 {{ $membershipStatus === 'active' ? 'bg-red-600 hover:bg-red-700 shadow-[0_4px_0_0_#991b1b]' : 'bg-green-600 hover:bg-green-700 shadow-[0_4px_0_0_#166534]' }} text-white font-bold rounded-xl active:shadow-none active:translate-y-1 transition-all">
+                    {{ $membershipStatus === 'active' ? 'Desativar vínculo' : 'Reativar vínculo' }}
                 </button>
             </form>
         </div>

@@ -6,23 +6,26 @@ use App\Models\AuditLog;
 use App\Models\StudentProfile;
 use App\Models\User;
 use App\Services\InviteManagerService;
+use App\Services\OrganizationMembershipService;
 use App\Services\UserFinderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class StudentController extends Controller
 {
     public function index()
     {
-        $orgId = auth()->user()->organization_id;
+        $orgId = $this->currentOrganizationId();
 
-        $students = User::where('type', 'student')
-            ->where(function ($q) use ($orgId) {
-                $q->where('organization_id', $orgId)
-                    ->orWhereHas('organizations', fn ($q2) => $q2->where('organizations.id', $orgId)->where('user_organization.status', 'active'));
-            })
-            ->with(['studentProfile', 'schoolClasses'])
+        $students = User::query()
+            ->memberOfOrganization($orgId, 'student', activeOnly: false)
+            ->with([
+                'studentProfiles' => fn ($query) => $query->where('organization_id', $orgId),
+                'schoolClasses' => fn ($query) => $query->where('school_classes.organization_id', $orgId),
+                'organizations' => fn ($query) => $query->where('organizations.id', $orgId),
+            ])
             ->paginate(10);
 
         return view('institution.students.index', compact('students'));
@@ -30,6 +33,8 @@ class StudentController extends Controller
 
     public function create()
     {
+        $this->currentOrganizationId();
+
         return view('institution.students.create');
     }
 
@@ -38,6 +43,7 @@ class StudentController extends Controller
      */
     public function search(Request $request)
     {
+        $orgId = $this->currentOrganizationId();
         $request->validate(['search' => 'required|string|min:3']);
 
         $finder = app(UserFinderService::class);
@@ -45,7 +51,6 @@ class StudentController extends Controller
 
         if ($result['found']) {
             $user = $result['user'];
-            $orgId = auth()->user()->organization_id;
             $alreadyLinked = $finder->isAlreadyLinked($user, $orgId);
 
             return response()->json([
@@ -76,6 +81,7 @@ class StudentController extends Controller
      */
     public function store(Request $request)
     {
+        $this->currentOrganizationId();
         $org = auth()->user()->organization;
 
         // Modo: enviar convite para aluno existente
@@ -112,6 +118,14 @@ class StudentController extends Controller
             'password' => ['required', 'string', 'min:8'],
             'registration_number' => 'nullable|string|max:255',
             'school_classes' => ['nullable', 'array'],
+            'school_classes.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('school_classes', 'id')
+                    ->where(fn ($query) => $query
+                        ->where('organization_id', $org->id)
+                        ->whereNull('deleted_at')),
+            ],
         ]);
 
         DB::transaction(function () use ($validated, $request, $org) {
@@ -154,48 +168,62 @@ class StudentController extends Controller
 
     public function edit(string $id)
     {
+        $organizationId = $this->currentOrganizationId();
         $student = $this->findStudent($id);
+        $student->load([
+            'studentProfiles' => fn ($query) => $query->where('organization_id', $organizationId),
+            'schoolClasses' => fn ($query) => $query->where('school_classes.organization_id', $organizationId),
+        ]);
+        $membershipStatus = $student->organizationMembershipStatus($organizationId);
 
-        return view('institution.students.edit', compact('student'));
+        return view('institution.students.edit', compact('student', 'membershipStatus'));
     }
 
     public function update(Request $request, string $id)
     {
         $student = $this->findStudent($id);
+        $organizationId = $this->currentOrganizationId();
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,'.$student->id],
-            'password' => ['nullable', 'string', 'min:8'],
+            'name' => ['prohibited'],
+            'email' => ['prohibited'],
+            'password' => ['prohibited'],
             'status' => ['required', 'in:active,inactive'],
             'registration_number' => ['nullable', 'string', 'max:255'],
             'school_classes' => ['nullable', 'array'],
+            'school_classes.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('school_classes', 'id')
+                    ->where(fn ($query) => $query
+                        ->where('organization_id', $organizationId)
+                        ->whereNull('deleted_at')),
+            ],
         ]);
 
-        DB::transaction(function () use ($validated, $request, $student) {
-            $student->name = $validated['name'];
-            $student->email = $validated['email'];
-            $student->status = $validated['status'];
-
-            if (! empty($validated['password'])) {
-                $student->password = Hash::make($validated['password']);
-            }
-
-            $student->save();
+        DB::transaction(function () use ($validated, $request, $student, $organizationId) {
+            app(OrganizationMembershipService::class)->setStatus(
+                $student,
+                auth()->user()->organization,
+                'student',
+                $validated['status'],
+            );
 
             StudentProfile::updateOrCreate(
-                ['user_id' => $student->id],
                 [
-                    'organization_id' => auth()->user()->organization_id,
+                    'user_id' => $student->id,
+                    'organization_id' => $organizationId,
+                ],
+                [
                     'registration_number' => $validated['registration_number'] ?? null,
                 ]
             );
 
-            if ($request->has('school_classes')) {
-                $student->schoolClasses()->sync($validated['school_classes']);
-            } else {
-                $student->schoolClasses()->detach();
-            }
+            $this->syncOrganizationClasses(
+                $student,
+                $organizationId,
+                $request->has('school_classes') ? $validated['school_classes'] : [],
+            );
 
             AuditLog::log('updated', User::class, $student->id);
         });
@@ -206,15 +234,27 @@ class StudentController extends Controller
     public function destroy(string $id)
     {
         $student = $this->findStudent($id);
-        $student->status = $student->status === 'active' ? 'inactive' : 'active';
-        $student->save();
+        $organization = auth()->user()->organization;
+        $nextStatus = $student->organizationMembershipStatus((int) $organization->id) === 'active'
+            ? 'inactive'
+            : 'active';
+
+        app(OrganizationMembershipService::class)->setStatus(
+            $student,
+            $organization,
+            'student',
+            $nextStatus,
+        );
 
         AuditLog::log('updated', User::class, $student->id, [
-            'action' => $student->status === 'active' ? 'reactivated' : 'deactivated',
+            'action' => 'organization_membership_'.$nextStatus,
+            'organization_id' => $organization->id,
         ]);
 
         return redirect()->route('institution.students.index')
-            ->with('status', $student->status === 'active' ? 'Aluno reativado!' : 'Aluno desativado!');
+            ->with('status', $nextStatus === 'active'
+                ? 'Vínculo do aluno reativado nesta instituição.'
+                : 'Aluno desvinculado desta instituição. A conta global foi preservada.');
     }
 
     /**
@@ -222,13 +262,36 @@ class StudentController extends Controller
      */
     private function findStudent(string $id): User
     {
-        $orgId = auth()->user()->organization_id;
+        $orgId = $this->currentOrganizationId();
 
-        return User::where('type', 'student')
-            ->where(function ($q) use ($orgId) {
-                $q->where('organization_id', $orgId)
-                    ->orWhereHas('organizations', fn ($q2) => $q2->where('organizations.id', $orgId)->where('user_organization.status', 'active'));
-            })
+        return User::query()
+            ->memberOfOrganization($orgId, 'student', activeOnly: false)
             ->findOrFail($id);
+    }
+
+    private function currentOrganizationId(): int
+    {
+        $user = auth()->user();
+        $organizationId = (int) $user->organization_id;
+
+        abort_unless($user->canUseOrganizationContext($organizationId), 403, 'Selecione uma instituição ativa.');
+
+        return $organizationId;
+    }
+
+    /** Preserve class links from every other organization while replacing this tenant's links. */
+    private function syncOrganizationClasses(User $student, int $organizationId, array $localClassIds): void
+    {
+        $foreignClassIds = DB::table('class_student')
+            ->join('school_classes', 'school_classes.id', '=', 'class_student.school_class_id')
+            ->where('class_student.user_id', $student->id)
+            ->where('school_classes.organization_id', '!=', $organizationId)
+            ->pluck('class_student.school_class_id')
+            ->all();
+
+        $student->schoolClasses()->sync(array_values(array_unique([
+            ...$foreignClassIds,
+            ...$localClassIds,
+        ])));
     }
 }

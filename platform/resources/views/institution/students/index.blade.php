@@ -29,7 +29,7 @@
             Filtros:
         </div>
         <button class="px-4 py-2 bg-white border-2 border-duo-border rounded-xl text-sm font-bold text-gray-500 hover:border-primary transition-all">
-            Status: Ativo
+            Status do vínculo: todos
         </button>
         <button class="px-4 py-2 text-sm font-bold text-red-400 hover:text-red-500">Limpar filtros</button>
     </div>
@@ -51,6 +51,7 @@
                 </thead>
                 <tbody>
                     @forelse($students as $student)
+                        @php($membershipStatus = $student->organizationMembershipStatus((int) auth()->user()->organization_id))
                         <tr>
                             <td class="whitespace-nowrap">
                                 <div class="flex items-center gap-3">
@@ -65,7 +66,7 @@
                             </td>
                             <td class="text-gray-600 font-medium">{{ $student->email }}</td>
                             <td class="font-medium text-gray-600">
-                                {{ $student->studentProfile->registration_number ?? '—' }}
+                                {{ $student->studentProfiles->first()?->registration_number ?? '—' }}
                             </td>
                             <td>
                                 <div class="flex flex-wrap gap-1">
@@ -77,8 +78,8 @@
                                 </div>
                             </td>
                             <td>
-                                <span class="badge {{ $student->status === 'active' ? 'badge-success' : 'badge-neutral' }}">
-                                    {{ $student->status === 'active' ? 'Ativo' : 'Inativo' }}
+                                <span class="badge {{ $membershipStatus === 'active' ? 'badge-success' : 'badge-neutral' }}">
+                                    {{ $membershipStatus === 'active' ? 'Ativo' : 'Inativo' }}
                                 </span>
                             </td>
                             <td class="text-right">

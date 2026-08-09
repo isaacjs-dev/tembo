@@ -67,7 +67,7 @@ class AccessControlTest extends TestCase
         $response->assertStatus(200);
     }
 
-    public function test_teacher_update_bug_debug()
+    public function test_teacher_update_changes_membership_status_without_disabling_global_account()
     {
         $admin = User::factory()->create([
             'type' => 'institution_admin',
@@ -83,8 +83,6 @@ class AccessControlTest extends TestCase
 
         $this->withoutExceptionHandling();
         $response = $this->actingAs($admin)->put('/institution/teachers/'.$teacher->id, [
-            'name' => 'Edited Name',
-            'email' => $teacher->email,
             'status' => 'inactive',
         ]);
 
@@ -92,7 +90,13 @@ class AccessControlTest extends TestCase
 
         $this->assertDatabaseHas('users', [
             'id' => $teacher->id,
-            'name' => 'Edited Name',
+            'name' => $teacher->name,
+            'status' => 'active',
+        ]);
+        $this->assertDatabaseHas('user_organization', [
+            'user_id' => $teacher->id,
+            'organization_id' => $this->org->id,
+            'role_in_org' => 'teacher',
             'status' => 'inactive',
         ]);
     }

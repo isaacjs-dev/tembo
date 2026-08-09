@@ -5,14 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\Discipline;
 use App\Models\Exam;
 use App\Models\KnowledgeArea;
-use App\Models\Organization;
 use App\Models\Question;
 use App\Models\User;
+use App\Rules\ActiveOrganizationMember;
 use App\Services\MonthlyUsageService;
 use App\Services\RevisionBuilderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class QuestionController extends Controller
 {
@@ -24,7 +25,9 @@ class QuestionController extends Controller
 
         // Todas as orgs ativas do professor (pivot + legado)
         $orgIds = $user->activeOrganizations()->pluck('organizations.id')->toArray();
-        if ($user->organization_id && ! in_array($user->organization_id, $orgIds)) {
+        if ($user->organization_id
+            && $user->canUseOrganizationContext((int) $user->organization_id)
+            && ! in_array($user->organization_id, $orgIds)) {
             $orgIds[] = $user->organization_id;
         }
 
@@ -91,22 +94,18 @@ class QuestionController extends Controller
 
     public function create()
     {
-        $organization_id = auth()->user()->organization_id;
-        $knowledgeAreas = KnowledgeArea::orderBy('name')->get();
-        $disciplines = Discipline::orderBy('name')->get();
+        $organizationId = $this->currentOrganizationId();
+        $knowledgeAreas = KnowledgeArea::where('organization_id', $organizationId)->orderBy('name')->get();
+        $disciplines = Discipline::where('organization_id', $organizationId)->orderBy('name')->get();
 
         return view('questions.create', compact('knowledgeAreas', 'disciplines'));
     }
 
     public function store(Request $request, MonthlyUsageService $usage, RevisionBuilderService $revisions)
     {
-        $validated = $this->validateQuestion($request);
+        $orgId = $this->currentOrganizationId();
+        $validated = $this->validateQuestion($request, $orgId);
         $content = $this->buildQuestionContent($validated);
-
-        $orgId = auth()->user()->organization_id;
-        if (! $orgId) {
-            $orgId = auth()->user()->activeOrganizations()->first()?->id ?? Organization::first()?->id ?? 1;
-        }
 
         $question = DB::transaction(function () use ($validated, $content, $orgId, $usage) {
             $question = Question::create([
@@ -146,23 +145,25 @@ class QuestionController extends Controller
 
     public function edit(string $id)
     {
-        $question = Question::where('organization_id', auth()->user()->organization_id)
+        $organizationId = $this->currentOrganizationId();
+        $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
 
-        $knowledgeAreas = KnowledgeArea::orderBy('name')->get();
-        $disciplines = Discipline::orderBy('name')->get();
+        $knowledgeAreas = KnowledgeArea::where('organization_id', $organizationId)->orderBy('name')->get();
+        $disciplines = Discipline::where('organization_id', $organizationId)->orderBy('name')->get();
 
         return view('questions.edit', compact('question', 'knowledgeAreas', 'disciplines'));
     }
 
     public function update(Request $request, string $id)
     {
-        $question = Question::where('organization_id', auth()->user()->organization_id)
+        $organizationId = $this->currentOrganizationId();
+        $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
 
-        $validated = $this->validateQuestion($request);
+        $validated = $this->validateQuestion($request, $organizationId);
         $content = $this->buildQuestionContent($validated);
 
         $question->update([
@@ -198,12 +199,14 @@ class QuestionController extends Controller
             return back()->withErrors(['O plano atual não permite compartilhamento de questões.']);
         }
 
-        $question = Question::where('organization_id', auth()->user()->organization_id)
+        $organizationId = $this->currentOrganizationId();
+        $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
 
-        $teachers = User::where('organization_id', auth()->user()->organization_id)
-            ->where('type', 'teacher')
+        $teachers = User::query()
+            ->where('status', 'active')
+            ->memberOfOrganization($organizationId, 'teacher')
             ->where('id', '!=', auth()->id())
             ->get();
 
@@ -214,13 +217,14 @@ class QuestionController extends Controller
 
     public function storeShare(Request $request, string $id)
     {
-        $question = Question::where('organization_id', auth()->user()->organization_id)
+        $organizationId = $this->currentOrganizationId();
+        $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
 
         $validated = $request->validate([
             'teacher_ids' => 'nullable|array',
-            'teacher_ids.*' => 'exists:users,id',
+            'teacher_ids.*' => ['integer', 'distinct', new ActiveOrganizationMember($organizationId, 'teacher')],
         ]);
 
         $question->shares()->delete(); // Limpa atuais
@@ -243,7 +247,8 @@ class QuestionController extends Controller
 
     public function destroy(string $id)
     {
-        $question = Question::where('organization_id', auth()->user()->organization_id)
+        $organizationId = $this->currentOrganizationId();
+        $question = Question::where('organization_id', $organizationId)
             ->where('owner_id', auth()->id())
             ->findOrFail($id);
 
@@ -255,7 +260,7 @@ class QuestionController extends Controller
     public function duplicate(string $id, MonthlyUsageService $usage)
     {
         // Pega a questão original (mesmo a organização ou se é pública)
-        $organization_id = auth()->user()->organization_id;
+        $organization_id = $this->currentOrganizationId();
         $user_id = auth()->id();
 
         $original = Question::where('organization_id', $organization_id)
@@ -299,7 +304,7 @@ class QuestionController extends Controller
     /**
      * Validate common metadata and the structure required by each question type.
      */
-    private function validateQuestion(Request $request): array
+    private function validateQuestion(Request $request, int $organizationId): array
     {
         $validator = Validator::make($request->all(), [
             'type' => ['required', 'in:multiple_choice,true_false,essay'],
@@ -309,15 +314,39 @@ class QuestionController extends Controller
             'options.*' => ['nullable', 'string', 'max:5000'],
             'correct_option' => ['nullable', 'integer', 'min:0', 'max:4'],
             'tf_answer' => ['nullable', 'integer', 'in:0,1'],
-            'knowledge_area_id' => ['nullable', 'exists:knowledge_areas,id'],
-            'discipline_id' => ['nullable', 'exists:disciplines,id'],
+            'knowledge_area_id' => [
+                'nullable',
+                Rule::exists('knowledge_areas', 'id')
+                    ->where(fn ($query) => $query->where('organization_id', $organizationId)),
+            ],
+            'discipline_id' => [
+                'nullable',
+                Rule::exists('disciplines', 'id')
+                    ->where(fn ($query) => $query->where('organization_id', $organizationId)),
+            ],
             'level' => ['nullable', 'string', 'in:very_easy,easy,medium,hard,very_hard'],
             'stage' => ['required', 'string', 'max:50'],
             'grade' => ['required', 'string', 'max:50'],
             'bncc_skills' => ['nullable', 'array'],
-            'bncc_skills.*' => ['integer', 'distinct', 'exists:bncc_nodes,id'],
+            'bncc_skills.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('bncc_nodes', 'id')->where(
+                    fn ($query) => $query->whereIn(
+                        'discipline_id',
+                        DB::table('disciplines')
+                            ->select('id')
+                            ->where('organization_id', $organizationId),
+                    )
+                ),
+            ],
             'custom_skills' => ['nullable', 'array'],
-            'custom_skills.*' => ['integer', 'distinct', 'exists:custom_skills,id'],
+            'custom_skills.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('custom_skills', 'id')
+                    ->where(fn ($query) => $query->where('organization_id', $organizationId)),
+            ],
             'rubric_title' => ['nullable', 'string', 'max:255'],
             'rubric_description' => ['nullable', 'string', 'max:2000'],
             'rubric_criteria' => ['nullable', 'array', 'max:10'],
@@ -413,6 +442,21 @@ class QuestionController extends Controller
         });
 
         return $validator->validate();
+    }
+
+    /** Resolve the legacy current context without ever guessing another tenant. */
+    private function currentOrganizationId(): int
+    {
+        $user = auth()->user();
+        $organizationId = (int) $user->organization_id;
+
+        abort_unless(
+            $organizationId > 0 && $user->canUseOrganizationContext($organizationId),
+            403,
+            'Selecione uma instituição ativa antes de continuar.',
+        );
+
+        return $organizationId;
     }
 
     /**
