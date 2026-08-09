@@ -146,6 +146,8 @@
                         ['global_admin', 'admin', 'institution_admin'],
                         true,
                     );
+                    $canManagePlan = app(\App\Services\PlanOwnershipService::class)
+                        ->owns($navigationUser, $navigationUser->organization);
                 @endphp
                 @if($canViewTeachers || $canViewStudents || $canViewClasses || $canViewInvites || $canViewReports || $canViewOmr || $canManageInstitution)
                 <div class="mt-4">
@@ -207,10 +209,12 @@
                             class="sidebar-link {{ request()->routeIs('institution.settings') ? 'active' : '' }}">
                             <span class="material-symbols-outlined text-[20px]">domain</span> Instituição
                         </a>
-                        <a href="{{ route('institution.billing.index') }}"
-                            class="sidebar-link {{ request()->routeIs('institution.billing.index') ? 'active' : '' }}">
-                            <span class="material-symbols-outlined text-[20px]">credit_card</span> Assinatura
-                        </a>
+                        @if($canManagePlan)
+                            <a href="{{ route('institution.billing.index') }}"
+                                class="sidebar-link {{ request()->routeIs('institution.billing.index') ? 'active' : '' }}">
+                                <span class="material-symbols-outlined text-[20px]">credit_card</span> Assinatura
+                            </a>
+                        @endif
                     </div>
                 </div>
                 @endif
@@ -427,10 +431,10 @@
                                 <span class="material-symbols-outlined">warning</span>
                                 <span>Sua instituição está sem plano ativo. Recursos limitados.</span>
                             </div>
-                            @role('institution_admin')
-                            <a href="{{ route('institution.billing.index') }}"
-                                class="text-sm uppercase tracking-wider underline hover:text-yellow-600 whitespace-nowrap">Assinar</a>
-                            @endrole
+                            @if($canManagePlan ?? false)
+                                <a href="{{ route('institution.billing.index') }}"
+                                    class="text-sm uppercase tracking-wider underline hover:text-yellow-600 whitespace-nowrap">Assinar</a>
+                            @endif
                         </div>
                     @endif
                 @endif
