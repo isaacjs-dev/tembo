@@ -131,12 +131,40 @@ class GuardianPortalTest extends TestCase
         $guardian = User::where('email', 'responsavel@example.test')->firstOrFail();
         $this->assertSame('guardian', $guardian->type);
         $this->assertTrue($guardian->hasRole('guardian'));
+        $this->assertTrue($guardian->belongsToActiveOrganization($organization->id, 'guardian'));
         $this->assertDatabaseHas('guardian_student_links', [
             'organization_id' => $organization->id,
             'guardian_id' => $guardian->id,
             'student_id' => $student->id,
             'relationship' => 'Pai',
             'deleted_at' => null,
+        ]);
+    }
+
+    public function test_existing_account_can_become_guardian_in_another_workspace_without_global_mutation(): void
+    {
+        $organization = $this->organization();
+        $otherOrganization = $this->organization();
+        $admin = $this->user($organization, 'institution_admin');
+        $student = $this->user($organization, 'student');
+        $existingTeacher = $this->user($otherOrganization, 'teacher');
+
+        $this->actingAs($admin)
+            ->post(route('institution.guardians.store'), [
+                'student_id' => $student->id,
+                'guardian_email' => $existingTeacher->email,
+                'relationship' => 'Responsavel',
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('teacher', $existingTeacher->fresh()->type);
+        $this->assertSame($otherOrganization->id, (int) $existingTeacher->fresh()->organization_id);
+        $this->assertTrue($existingTeacher->belongsToActiveOrganization($organization->id, 'guardian'));
+        $this->assertDatabaseHas('guardian_student_links', [
+            'organization_id' => $organization->id,
+            'guardian_id' => $existingTeacher->id,
+            'student_id' => $student->id,
         ]);
     }
 

@@ -14,7 +14,7 @@ class PedagogicalAccessService
     {
         return SchoolClass::query()
             ->where('organization_id', $user->organization_id)
-            ->when($user->type === 'teacher', function (Builder $query) use ($user): void {
+            ->when($user->hasWorkspaceRole('teacher'), function (Builder $query) use ($user): void {
                 $query->where(function (Builder $scope) use ($user): void {
                     $scope->where(function (Builder $owner) use ($user): void {
                         $owner->where('owner_type', 'user')->where('owner_id', $user->id);
@@ -46,7 +46,7 @@ class PedagogicalAccessService
             return false;
         }
 
-        return $user->type === 'institution_admin' || (int) $user->id === $authorId;
+        return $user->hasWorkspaceRole('admin', 'institution_admin') || (int) $user->id === $authorId;
     }
 
     public function canReview(User $user, int $organizationId): bool
@@ -57,7 +57,7 @@ class PedagogicalAccessService
         if ((int) $user->organization_id !== $organizationId) {
             return false;
         }
-        if ($user->type === 'institution_admin') {
+        if ($user->hasWorkspaceRole('admin', 'institution_admin')) {
             return true;
         }
 

@@ -8,6 +8,7 @@ use App\Models\SchoolClass;
 use App\Models\User;
 use App\Rules\ActiveOrganizationMember;
 use App\Services\ClassOwnershipService;
+use App\Services\EntitlementService;
 use App\Services\InviteManagerService;
 use Illuminate\Http\Request;
 
@@ -16,8 +17,18 @@ class SchoolClassController extends Controller
     public function index()
     {
         $orgId = $this->currentOrganizationId();
+        $this->authorizeClassCreation();
         // Turmas da organização + turmas onde é professor atribuído
+        $user = auth()->user();
         $schoolClasses = SchoolClass::where('organization_id', $orgId)
+            ->when($user->hasWorkspaceRole('teacher'), function ($query) use ($user) {
+                $query->where(function ($scope) use ($user) {
+                    $scope->where(fn ($owner) => $owner
+                        ->where('owner_type', 'user')
+                        ->where('owner_id', $user->id))
+                        ->orWhereHas('teachers', fn ($teachers) => $teachers->where('users.id', $user->id));
+                });
+            })
             ->withCount('students')
             ->with('teachers')
             ->paginate(10);
@@ -28,16 +39,17 @@ class SchoolClassController extends Controller
     public function create()
     {
         $this->currentOrganizationId();
+        $this->authorizeClassCreation();
 
         return view('institution.classes.create');
     }
 
     public function store(Request $request)
     {
-        abort_unless(in_array(auth()->user()->type, ['institution_admin', 'global_admin']), 403);
+        $this->authorizeClassCreation();
         $orgId = $this->currentOrganizationId();
 
-        if (! auth()->user()->organization->canAddClass()) {
+        if (! $this->canAddClass()) {
             return back()->withInput()->withErrors(['Limite de turmas atingido no plano atual da instituição.']);
         }
 
@@ -46,10 +58,12 @@ class SchoolClassController extends Controller
             'year' => 'required|string|max:255',
         ]);
 
+        $user = auth()->user();
+        $personal = $user->organization->isPersonalWorkspace();
         $class = SchoolClass::create([
             'organization_id' => $orgId,
-            'owner_type' => 'organization',
-            'owner_id' => $orgId,
+            'owner_type' => $personal ? 'user' : 'organization',
+            'owner_id' => $personal ? $user->id : $orgId,
             'name' => $validated['name'],
             'year' => $validated['year'],
         ]);
@@ -197,8 +211,44 @@ class SchoolClassController extends Controller
     private function findClass(string $id): SchoolClass
     {
         $orgId = $this->currentOrganizationId();
+        $class = SchoolClass::where('organization_id', $orgId)->findOrFail($id);
+        $user = auth()->user();
 
-        return SchoolClass::where('organization_id', $orgId)->findOrFail($id);
+        abort_unless(
+            $user->hasWorkspaceRole('admin', 'institution_admin', 'global_admin')
+                || ($user->organization->isPersonalWorkspace() && $class->isOwnedBy($user)),
+            403,
+        );
+
+        return $class;
+    }
+
+    private function authorizeClassCreation(): void
+    {
+        $user = auth()->user();
+        abort_unless(
+            $user->hasWorkspaceRole('admin', 'institution_admin', 'global_admin')
+                || ($user->hasWorkspaceRole('teacher') && $user->organization?->isPersonalWorkspace()),
+            403,
+        );
+    }
+
+    private function canAddClass(): bool
+    {
+        $user = auth()->user();
+        if (! $user->organization->isPersonalWorkspace()) {
+            return $user->organization->canAddClass();
+        }
+
+        $plan = app(EntitlementService::class)->effectivePlan($user);
+        if (! $plan) {
+            return false;
+        }
+
+        $limit = $plan->getLimit('max_classes');
+        $current = SchoolClass::where('organization_id', $user->organization_id)->count();
+
+        return $limit === null || $current < $limit;
     }
 
     private function currentOrganizationId(): int

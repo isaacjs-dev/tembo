@@ -11,6 +11,7 @@ import {
   Linking,
 } from 'react-native';
 import Constants from 'expo-constants';
+import axios from 'axios';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/store/auth-store';
@@ -20,6 +21,7 @@ import { TemboLogo } from '@/components/ui/TemboLogo';
 import { colors } from '@/theme/colors';
 import { fonts } from '@/theme/typography';
 import { getApiErrorMessage } from '@/lib/api-error';
+import type { WorkspaceRequiredResponse, WorkspaceSummary } from '@/types/api';
 
 const WEB_BASE_URL = String(
   Constants.expoConfig?.extra?.webBaseUrl || 'https://tembo.aracruz.eu'
@@ -32,10 +34,16 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<number | null>(null);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       Alert.alert('Erro', 'Preencha e-mail e senha.');
+      return;
+    }
+    if (workspaces.length > 0 && !selectedWorkspaceId) {
+      Alert.alert('Escolha um espaco', 'Selecione onde deseja usar o scanner.');
       return;
     }
 
@@ -45,9 +53,18 @@ export default function LoginScreen() {
         email: email.trim(),
         password,
         device_name: `TemboScanner_${Platform.OS}`,
+        workspace_id: selectedWorkspaceId ?? undefined,
       });
       await setAuth(response.token, response.user);
     } catch (error: unknown) {
+      if (axios.isAxiosError<WorkspaceRequiredResponse>(error)
+        && error.response?.status === 409
+        && error.response.data.code === 'WORKSPACE_REQUIRED') {
+        setWorkspaces(error.response.data.workspaces);
+        setSelectedWorkspaceId(null);
+        Alert.alert('Escolha um espaco', 'Sua conta possui mais de um contexto. Selecione um para continuar.');
+        return;
+      }
       Alert.alert(
         'Não foi possível entrar',
         getApiErrorMessage(error, 'Verifique suas credenciais e tente novamente.')
@@ -187,6 +204,39 @@ export default function LoginScreen() {
             </Pressable>
           </View>
         </View>
+
+        {workspaces.length > 0 && (
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ fontSize: 12, fontFamily: fonts.bold, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
+              Espaco de trabalho
+            </Text>
+            <View style={{ gap: 8 }}>
+              {workspaces.map((workspace) => {
+                const selected = selectedWorkspaceId === workspace.id;
+                return (
+                  <Pressable
+                    key={workspace.id}
+                    onPress={() => setSelectedWorkspaceId(workspace.id)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    style={{
+                      borderWidth: 2,
+                      borderColor: selected ? colors.loginOrange : colors.border,
+                      backgroundColor: selected ? colors.loginOrangeLight : colors.white,
+                      borderRadius: 12,
+                      padding: 14,
+                    }}
+                  >
+                    <Text style={{ fontFamily: fonts.bold, color: colors.textPrimary }}>{workspace.name}</Text>
+                    <Text style={{ marginTop: 2, fontFamily: fonts.medium, fontSize: 12, color: colors.textSecondary }}>
+                      {workspace.workspace_type === 'personal' ? 'Pessoal' : 'Institucional'} - {workspace.role}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         {/* Login Button */}
         <Button

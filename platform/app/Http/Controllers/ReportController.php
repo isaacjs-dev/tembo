@@ -22,7 +22,7 @@ class ReportController extends Controller
             ->withCount('submissions')
             ->orderByDesc('created_at');
 
-        if ($user->type === 'teacher') {
+        if ($user->hasWorkspaceRole('teacher')) {
             $examQuery->where('author_id', $user->id);
         }
 
@@ -33,7 +33,7 @@ class ReportController extends Controller
             ->where('organization_id', $orgId)
             ->orderBy('name');
 
-        if ($user->type === 'teacher') {
+        if ($user->hasWorkspaceRole('teacher')) {
             $classQuery->where(function ($query) use ($user) {
                 $query->where(function ($ownerQuery) use ($user) {
                     $ownerQuery->where('owner_type', $user::class)

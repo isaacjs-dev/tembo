@@ -29,6 +29,10 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  const workspaceId = useAuthStore.getState().user?.organization?.id;
+  if (workspaceId) {
+    config.headers['X-Workspace-Id'] = String(workspaceId);
+  }
   return config;
 });
 

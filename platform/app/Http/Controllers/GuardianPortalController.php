@@ -17,7 +17,10 @@ class GuardianPortalController extends Controller
     {
         $guardian = $request->user();
         $students = $guardian->guardedStudents()
-            ->where('users.organization_id', $guardian->organization_id)
+            ->wherePivot('organization_id', $guardian->organization_id)
+            ->whereIn('users.id', User::query()
+                ->memberOfOrganization((int) $guardian->organization_id, 'student')
+                ->select('users.id'))
             ->with('schoolClasses:id,name,year')
             ->orderBy('users.name')
             ->get();
@@ -65,10 +68,10 @@ class GuardianPortalController extends Controller
     {
         $linked = $guardian->guardedStudents()
             ->where('users.id', $student->id)
-            ->where('users.organization_id', $guardian->organization_id)
+            ->wherePivot('organization_id', $guardian->organization_id)
             ->exists();
 
-        if (! $linked || $student->type !== 'student') {
+        if (! $linked || ! $student->belongsToActiveOrganization((int) $guardian->organization_id, 'student')) {
             throw new AuthorizationException(
                 'Você não possui autorização para acompanhar este estudante.'
             );

@@ -74,7 +74,7 @@ class SchoolClass extends Model
 
         // Se pertence a uma org, o admin da org é "dono"
         if ($this->owner_type === 'organization') {
-            return $user->type === 'institution_admin'
+            return $user->hasWorkspaceRole('admin', 'institution_admin')
                 && $user->organization_id == $this->owner_id;
         }
 

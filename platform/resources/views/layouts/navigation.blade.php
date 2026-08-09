@@ -1,3 +1,4 @@
+@php($workspaceOptions = app(\App\Services\WorkspaceContextService::class)->availableFor(Auth::user()))
 <nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
     <!-- Primary Navigation Menu -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -21,6 +22,18 @@
 
             <!-- Settings Dropdown -->
             <div class="hidden sm:flex sm:items-center sm:ms-6">
+                @if ($workspaceOptions->isNotEmpty())
+                    <a href="{{ route('workspaces.index') }}"
+                        class="mr-3 inline-flex max-w-56 items-center gap-2 rounded-xl border border-duo-border px-3 py-2 text-sm font-bold text-duo-heading hover:border-primary">
+                        <span class="material-symbols-outlined text-[18px] text-primary" aria-hidden="true">
+                            {{ Auth::user()->organization?->workspace_type === 'personal' ? 'person' : 'domain' }}
+                        </span>
+                        <span class="truncate">{{ Auth::user()->organization?->name ?? 'Escolher espaço' }}</span>
+                        @if ($workspaceOptions->count() > 1)
+                            <span class="material-symbols-outlined text-[16px] text-gray-400" aria-hidden="true">swap_horiz</span>
+                        @endif
+                    </a>
+                @endif
                 <x-dropdown align="right" width="48">
                     <x-slot name="trigger">
                         <button class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150">
@@ -81,6 +94,10 @@
             </div>
 
             <div class="mt-3 space-y-1">
+                <x-responsive-nav-link :href="route('workspaces.index')">
+                    {{ Auth::user()->organization?->name ?? 'Escolher espaço' }}
+                </x-responsive-nav-link>
+
                 <x-responsive-nav-link :href="route('profile.edit')">
                     {{ __('Profile') }}
                 </x-responsive-nav-link>

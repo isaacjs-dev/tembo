@@ -2,6 +2,7 @@ export interface LoginRequest {
   email: string;
   password: string;
   device_name: string;
+  workspace_id?: number;
 }
 
 export interface LoginResponse {
@@ -14,10 +15,25 @@ export interface UserData {
   name: string;
   email: string;
   type: string;
+  workspace_role?: string | null;
   organization: {
     id: number;
     name: string;
   } | null;
+  workspaces?: WorkspaceSummary[];
+}
+
+export interface WorkspaceSummary {
+  id: number;
+  name: string;
+  workspace_type: 'personal' | 'institutional';
+  role: string | null;
+}
+
+export interface WorkspaceRequiredResponse {
+  error: string;
+  code: 'WORKSPACE_REQUIRED';
+  workspaces: WorkspaceSummary[];
 }
 
 export interface ApiError {

@@ -40,7 +40,7 @@ class TrashController extends Controller
         $trashedMaterials = LearningMaterial::onlyTrashed()
             ->where('organization_id', $orgId)
             ->when(
-                auth()->user()->type === 'teacher',
+                auth()->user()->hasWorkspaceRole('teacher'),
                 fn ($query) => $query->where('author_id', auth()->id())
             )
             ->with('author:id,name')
@@ -74,7 +74,7 @@ class TrashController extends Controller
             'learning_material' => LearningMaterial::onlyTrashed()
                 ->where('organization_id', $orgId)
                 ->when(
-                    auth()->user()->type === 'teacher',
+                    auth()->user()->hasWorkspaceRole('teacher'),
                     fn ($query) => $query->where('author_id', auth()->id())
                 )
                 ->findOrFail($validated['model_id']),
@@ -107,7 +107,7 @@ class TrashController extends Controller
             'learning_material' => LearningMaterial::onlyTrashed()
                 ->where('organization_id', $orgId)
                 ->when(
-                    auth()->user()->type === 'teacher',
+                    auth()->user()->hasWorkspaceRole('teacher'),
                     fn ($query) => $query->where('author_id', auth()->id())
                 )
                 ->findOrFail($validated['model_id']),

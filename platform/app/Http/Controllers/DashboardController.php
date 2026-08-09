@@ -6,13 +6,18 @@ use App\Models\Exam;
 use App\Models\ExamSubmission;
 use App\Models\SchoolClass;
 use App\Models\User;
+use App\Services\WorkspaceContextService;
 
 class DashboardController extends Controller
 {
     public function index()
     {
         $user = auth()->user();
-        $type = $user->type;
+        $type = app(WorkspaceContextService::class)->roleFor($user);
+
+        if ($type === null) {
+            return redirect()->route('workspaces.index');
+        }
 
         if ($type === 'student') {
             return redirect()->route('student.dashboard');
@@ -20,7 +25,7 @@ class DashboardController extends Controller
             return redirect()->route('guardian.dashboard');
         } elseif ($type === 'global_admin') {
             return redirect()->route('admin.dashboard');
-        } elseif ($type === 'institution_admin') {
+        } elseif (in_array($type, ['admin', 'institution_admin'], true)) {
             return redirect()->route('institution.dashboard');
         }
 

@@ -13,6 +13,7 @@ Route::prefix('v1')->group(function () {
     // Authenticated routes
     Route::middleware([
         'auth:sanctum',
+        'workspace_context',
         'active_account',
         'verified_account',
         'password_changed',
@@ -43,6 +44,7 @@ Route::prefix('v1')->group(function () {
 Route::prefix('v2')->group(function () {
     Route::middleware([
         'auth:sanctum',
+        'workspace_context',
         'active_account',
         'verified_account',
         'password_changed',
@@ -51,7 +53,7 @@ Route::prefix('v2')->group(function () {
         Route::prefix('config')->group(function () {
             Route::get('effective', [ConfigApiController::class, 'effective']);
 
-            Route::middleware('role:institution_admin|global_admin')->group(function () {
+            Route::middleware('workspace_role:admin,institution_admin,global_admin')->group(function () {
                 Route::get('trace/{userId}', [ConfigApiController::class, 'trace']);
                 Route::get('audit', [ConfigApiController::class, 'audit']);
                 Route::get('rules', [ConfigApiController::class, 'indexRules']);

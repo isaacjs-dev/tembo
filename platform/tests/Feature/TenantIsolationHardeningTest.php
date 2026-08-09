@@ -82,8 +82,10 @@ class TenantIsolationHardeningTest extends TestCase
 
         $this->assertFalse($teacher->canUseOrganizationContext($staleOrganization->id));
         $this->assertSame(0, Discipline::query()->count());
-        $this->get('/dashboard')->assertForbidden();
-        $this->get(route('institution.omr.index'))->assertForbidden();
+        $this->get('/dashboard')
+            ->assertOk()
+            ->assertDontSee('Disciplina que não pode vazar');
+        $this->get(route('institution.omr.index'))->assertOk();
     }
 
     public function test_global_admin_without_selected_context_receives_forbidden_instead_of_type_error(): void
@@ -99,7 +101,7 @@ class TenantIsolationHardeningTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_question_creation_without_current_context_is_forbidden_even_with_active_membership(): void
+    public function test_single_active_membership_is_selected_without_guessing_an_unrelated_tenant(): void
     {
         $organization = $this->organization('Tenant associado');
         $teacher = $this->user(null, 'teacher');
@@ -107,9 +109,12 @@ class TenantIsolationHardeningTest extends TestCase
 
         $this->actingAs($teacher)
             ->post(route('questions.store'), $this->essayPayload())
-            ->assertForbidden();
+            ->assertRedirect();
 
-        $this->assertDatabaseCount('questions', 0);
+        $this->assertDatabaseHas('questions', [
+            'organization_id' => $organization->id,
+            'owner_id' => $teacher->id,
+        ]);
     }
 
     public function test_class_rejects_teacher_and_student_from_another_tenant(): void

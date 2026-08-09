@@ -1,17 +1,19 @@
 <?php
 
+use App\Exceptions\QuotaExceededException;
+use App\Http\Middleware\ApplyWorkspaceContext;
 use App\Http\Middleware\CheckInstitutionPermission;
 use App\Http\Middleware\CheckOmrApiAccess;
+use App\Http\Middleware\CheckWorkspaceRole;
 use App\Http\Middleware\EnsureActiveAccount;
 use App\Http\Middleware\EnsurePasswordChanged;
 use App\Http\Middleware\EnsureVerifiedAccount;
 use App\Http\Middleware\RestrictLogAccess;
 use App\Http\Middleware\RestrictTrashAccess;
-use App\Exceptions\QuotaExceededException;
-use Illuminate\Http\Request;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleMiddleware;
 use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
@@ -33,6 +35,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'restrict_trash' => RestrictTrashAccess::class,
             'restrict_logs' => RestrictLogAccess::class,
             'omr_api' => CheckOmrApiAccess::class,
+            'workspace_context' => ApplyWorkspaceContext::class,
+            'workspace_role' => CheckWorkspaceRole::class,
             'active_account' => EnsureActiveAccount::class,
             'verified_account' => EnsureVerifiedAccount::class,
             'password_changed' => EnsurePasswordChanged::class,

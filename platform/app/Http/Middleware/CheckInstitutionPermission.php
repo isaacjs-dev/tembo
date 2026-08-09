@@ -29,7 +29,7 @@ class CheckInstitutionPermission
         }
 
         // Global admin e Institution admin têm acesso total
-        if (in_array($user->type, ['global_admin', 'institution_admin'])) {
+        if ($user->hasWorkspaceRole('global_admin', 'admin', 'institution_admin')) {
             return $next($request);
         }
 

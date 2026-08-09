@@ -8,6 +8,23 @@
         @csrf
 
         <!-- Name -->
+        <fieldset>
+            <legend class="input-label">Como você vai usar o Tembo?</legend>
+            <div class="grid grid-cols-2 gap-3">
+                <label class="rounded-xl border-2 border-duo-border p-3 text-sm font-bold text-duo-heading">
+                    <input type="radio" name="account_type" value="personal" class="mr-2 text-primary"
+                        @checked(old('account_type', 'personal') === 'personal')>
+                    Professor independente
+                </label>
+                <label class="rounded-xl border-2 border-duo-border p-3 text-sm font-bold text-duo-heading">
+                    <input type="radio" name="account_type" value="institution" class="mr-2 text-primary"
+                        @checked(old('account_type') === 'institution')>
+                    Instituição
+                </label>
+            </div>
+            <x-input-error :messages="$errors->get('account_type')" class="mt-2" />
+        </fieldset>
+
         <div>
             <label for="name" class="input-label">Nome Completo</label>
             <div class="input-icon-wrapper">
@@ -31,7 +48,7 @@
                     class="input-field" placeholder="Ex.: Escola Horizonte">
             </div>
             <p class="mt-1 text-xs text-gray-500">
-                Se ficar em branco, criaremos um espaço pessoal que poderá ser renomeado.
+                Para professor independente, pode ficar em branco; criaremos um espaço pessoal renomeável.
             </p>
             <x-input-error :messages="$errors->get('organization_name')" class="mt-2" />
         </div>

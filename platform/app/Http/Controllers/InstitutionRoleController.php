@@ -29,7 +29,7 @@ class InstitutionRoleController extends Controller
 
     public function store(Request $request)
     {
-        abort_unless(in_array(auth()->user()->type, ['institution_admin', 'global_admin']), 403);
+        abort_unless(auth()->user()->hasWorkspaceRole('admin', 'institution_admin', 'global_admin'), 403);
         $validated = $request->validate([
             'name' => 'required|string|max:100',
             'description' => 'nullable|string|max:500',

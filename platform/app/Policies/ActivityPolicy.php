@@ -15,7 +15,7 @@ class ActivityPolicy
 
     public function viewAny(User $user): bool
     {
-        return in_array($user->type, ['teacher', 'institution_admin'], true);
+        return $user->hasWorkspaceRole('teacher', 'admin', 'institution_admin', 'global_admin');
     }
 
     public function view(User $user, Activity $activity): bool

@@ -37,6 +37,7 @@ use App\Http\Controllers\StudentPortalController;
 use App\Http\Controllers\StudentRevisionController;
 use App\Http\Controllers\TaxonomyController;
 use App\Http\Controllers\TeacherController;
+use App\Http\Controllers\WorkspaceController;
 use App\Models\Plan;
 use Illuminate\Support\Facades\Route;
 
@@ -46,17 +47,7 @@ Route::get('/storage/{path}', PublicStorageController::class)
 
 Route::get('/', function () {
     if (auth()->check()) {
-        $type = auth()->user()->type;
-        if ($type === 'student') {
-            return redirect()->route('student.dashboard');
-        } elseif ($type === 'guardian') {
-            return redirect()->route('guardian.dashboard');
-        } elseif ($type === 'global_admin') {
-            return redirect()->route('admin.dashboard');
-        }
-
-        // institution_admin e teacher
-        return redirect()->route('institution.dashboard');
+        return redirect()->route('dashboard');
     }
 
     $plans = Plan::visibleOnHome()->with(['planLimits', 'planFeatures'])->get();
@@ -66,11 +57,15 @@ Route::get('/', function () {
 
 require __DIR__.'/auth.php';
 
-Route::middleware(['auth', 'active_account', 'verified_account', 'password_changed'])->group(function () {
+Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_account', 'password_changed'])->group(function () {
+    Route::get('/workspaces', [WorkspaceController::class, 'index'])->name('workspaces.index');
+    Route::post('/workspaces/personal', [WorkspaceController::class, 'storePersonal'])->name('workspaces.personal.store');
+    Route::post('/workspaces/{organization}', [WorkspaceController::class, 'select'])->name('workspaces.switch');
+
     Route::get('/dashboard', [DashboardController::class, 'index'])
         ->name('dashboard');
 
-    Route::prefix('student')->name('student.')->middleware('role:student')->group(function () {
+    Route::prefix('student')->name('student.')->middleware('workspace_role:student')->group(function () {
         Route::get('/dashboard', [StudentPortalController::class, 'index'])->name('dashboard');
         Route::get('/learning', [StudentLearningController::class, 'index'])->name('learning.index');
         Route::get('/learning/{learningMaterial}', [StudentLearningController::class, 'show'])->name('learning.show');
@@ -101,17 +96,17 @@ Route::middleware(['auth', 'active_account', 'verified_account', 'password_chang
         Route::get('/revisions/{revision}/attempts/{attempt}/result', [StudentRevisionController::class, 'result'])->name('revisions.result');
     });
 
-    Route::prefix('guardian')->name('guardian.')->middleware('role:guardian')->group(function () {
+    Route::prefix('guardian')->name('guardian.')->middleware('workspace_role:guardian')->group(function () {
         Route::get('/dashboard', [GuardianPortalController::class, 'index'])
             ->name('dashboard');
         Route::get('/students/{student}', [GuardianPortalController::class, 'show'])
             ->name('students.show');
     });
 
-    Route::prefix('institution')->name('institution.')->middleware('role:institution_admin|teacher|global_admin')->group(function () {
+    Route::prefix('institution')->name('institution.')->middleware('workspace_role:admin,institution_admin,teacher,global_admin')->group(function () {
         Route::get('/dashboard', [InstitutionController::class, 'dashboard'])->name('dashboard');
 
-        Route::middleware('role:institution_admin|global_admin')->group(function () {
+        Route::middleware('workspace_role:admin,institution_admin,global_admin')->group(function () {
             Route::get('/settings', [InstitutionController::class, 'settings'])->name('settings');
             Route::put('/settings', [InstitutionController::class, 'updateSettings'])->name('settings.update');
 
@@ -128,11 +123,6 @@ Route::middleware(['auth', 'active_account', 'verified_account', 'password_chang
 
             Route::resource('teachers', TeacherController::class);
 
-            Route::resource('classes', SchoolClassController::class);
-            Route::post('classes/{class}/enroll', [SchoolClassController::class, 'enroll'])->name('classes.enroll');
-            Route::post('classes/{class}/transfer', [SchoolClassController::class, 'initiateTransfer'])->name('classes.transfer');
-            Route::post('classes/{class}/transfer/cancel', [SchoolClassController::class, 'cancelTransfer'])->name('classes.transfer.cancel');
-
             Route::post('students/search', [StudentController::class, 'search'])->name('students.search');
             Route::resource('students', StudentController::class);
 
@@ -148,6 +138,11 @@ Route::middleware(['auth', 'active_account', 'verified_account', 'password_chang
             Route::resource('roles', InstitutionRoleController::class);
             Route::post('roles/assign', [InstitutionRoleController::class, 'assign'])->name('roles.assign');
         });
+
+        Route::resource('classes', SchoolClassController::class);
+        Route::post('classes/{class}/enroll', [SchoolClassController::class, 'enroll'])->name('classes.enroll');
+        Route::post('classes/{class}/transfer', [SchoolClassController::class, 'initiateTransfer'])->name('classes.transfer');
+        Route::post('classes/{class}/transfer/cancel', [SchoolClassController::class, 'cancelTransfer'])->name('classes.transfer.cancel');
 
         Route::get('reports', [ReportController::class, 'index'])->name('reports');
 
@@ -206,7 +201,7 @@ Route::middleware(['auth', 'active_account', 'verified_account', 'password_chang
         });
     });
 
-    Route::middleware('role:institution_admin|teacher|global_admin')->group(function () {
+    Route::middleware('workspace_role:admin,institution_admin,teacher,global_admin')->group(function () {
         Route::resource('lessons', LessonController::class)->except('show');
         Route::resource('activities', ActivityController::class)->except('show');
         Route::post('revisions/{revision}/items', [RevisionController::class, 'storeItem'])->name('revisions.items.store');

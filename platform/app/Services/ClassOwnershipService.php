@@ -104,7 +104,7 @@ class ClassOwnershipService
             $previousOwnerId = $class->owner_id;
 
             // Determinar novo owner
-            if ($acceptor->type === 'institution_admin') {
+            if ($acceptor->hasWorkspaceRole('admin', 'institution_admin')) {
                 $newOwnerType = 'organization';
                 $newOwnerId = $acceptor->organization_id;
                 $newOrgId = $acceptor->organization_id;
@@ -151,7 +151,7 @@ class ClassOwnershipService
 
         if ($class->owner_type === 'organization' && $class->owner_id == $user->organization_id) {
             // Admin da org é dono
-            $isOwner = $user->type === 'institution_admin';
+            $isOwner = $user->hasWorkspaceRole('admin', 'institution_admin');
         } elseif ($class->owner_type === 'user' && $class->owner_id == $user->id) {
             $isOwner = true;
         }

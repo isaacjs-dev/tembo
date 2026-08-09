@@ -16,7 +16,7 @@ class LessonController extends Controller
     public function index(Request $request): View
     {
         $lessons = Lesson::query()->where('organization_id', $request->user()->organization_id)
-            ->when($request->user()->type === 'teacher', fn ($q) => $q->where('author_id', $request->user()->id))
+            ->when($request->user()->hasWorkspaceRole('teacher'), fn ($q) => $q->where('author_id', $request->user()->id))
             ->with(['author', 'discipline', 'schoolClasses'])->latest()->paginate(15);
 
         return view('lessons.index', compact('lessons'));
