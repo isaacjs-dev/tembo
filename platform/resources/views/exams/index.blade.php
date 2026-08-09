@@ -34,6 +34,9 @@
                 <h3 class="text-xl font-extrabold text-duo-heading mb-2 leading-tight flex-1">
                     {{ $exam->title }}
                 </h3>
+                @if($exam->discipline)
+                    <p class="mb-3 text-sm font-semibold text-gray-600">{{ $exam->discipline->name }}</p>
+                @endif
 
                 <div class="flex items-center gap-4 text-sm font-bold text-gray-400 mb-6">
                     <div class="flex items-center gap-1" title="Questões">

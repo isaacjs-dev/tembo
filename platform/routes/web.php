@@ -262,6 +262,7 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
         Route::post('exams/{exam}/questions', [ExamController::class, 'addQuestion'])->name('exams.addQuestion');
         Route::delete('exams/{exam}/questions/{question}', [ExamController::class, 'removeQuestion'])->name('exams.removeQuestion');
         Route::post('exams/{exam}/classes', [ExamController::class, 'syncClasses'])->name('exams.syncClasses');
+        Route::post('exams/{exam}/audience', [ExamController::class, 'syncAudience'])->name('exams.syncAudience');
         Route::get('exams/{exam}/submissions/{submission}/grade', [ExamController::class, 'gradeSubmission'])->name('exams.gradeSubmission');
         Route::post('exams/{exam}/submissions/{submission}/grade', [ExamController::class, 'storeGrade'])->name('exams.storeGrade');
         Route::get('exams/{exam}/export', [ExamController::class, 'exportPdf'])->name('exams.exportPdf');

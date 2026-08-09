@@ -38,10 +38,10 @@ class StudentPortalController extends Controller
         $availableExams = Exam::query()
             ->where('organization_id', $user->organization_id)
             ->whereIn('status', ['published', 'closed'])
-            ->where(function ($query) use ($classIds, $grantedExamIds, $ownSubmissionExamIds): void {
+            ->where(function ($query) use ($user, $classIds, $grantedExamIds, $ownSubmissionExamIds): void {
                 $query->whereHas('schoolClasses', function ($classQuery) use ($classIds): void {
                     $classQuery->whereIn('school_classes.id', $classIds);
-                });
+                })->orWhereHas('students', fn ($studentQuery) => $studentQuery->where('users.id', $user->id));
 
                 if ($grantedExamIds !== []) {
                     $query->orWhereIn('exams.id', $grantedExamIds);

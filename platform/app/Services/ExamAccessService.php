@@ -81,9 +81,10 @@ class ExamAccessService
 
     public function isEnrolled(Exam $exam, User $student): bool
     {
-        return $exam->schoolClasses()
-            ->whereHas('students', fn ($query) => $query->where('users.id', $student->id))
-            ->exists();
+        return $exam->students()->where('users.id', $student->id)->exists()
+            || $exam->schoolClasses()
+                ->whereHas('students', fn ($query) => $query->where('users.id', $student->id))
+                ->exists();
     }
 
     public function hasSessionGrant(Exam $exam, Request $request): bool
