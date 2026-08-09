@@ -46,6 +46,7 @@
 **/*.mobileprovision
 
 # IDE/OS state
+/.code/
 .claude/
 .vscode/
 **/.idea/

@@ -20,6 +20,10 @@ import {
   type CorrectionInput,
 } from '@/lib/correction-engine';
 import { parseQRCode, hasEmbeddedData } from '@/lib/qr-parser';
+import {
+  mapQuestionValuesToPrintedPositions,
+  mapVisualAnswersToOriginalOptions,
+} from '@/lib/answer-mapping';
 import { getResolvedConfig, getDataStrategy } from '@/lib/config-resolver';
 import { addToSyncQueue, getSyncQueueCount } from '@/db/database';
 import { processQueue, syncSingleScan } from '@/services/sync-manager';
@@ -53,6 +57,14 @@ export default function ResultScreen() {
 
     // Try cache-based correction first (for preloaded and hybrid modes)
     if (questions.length > 0) {
+      // OMR returns the visual bubble index. Cached answer keys use the
+      // original option index, so apply the copy's immutable options_map only
+      // for the provisional on-device score. The visual values remain intact
+      // for server synchronization and authoritative grading.
+      const originalOptionAnswers = mapVisualAnswersToOriginalOptions(
+        answers,
+        copy?.options_map
+      );
       input = buildCorrectionFromCache(
         { questions: questions.map((q: any) => ({
           id: q.id,
@@ -60,7 +72,7 @@ export default function ResultScreen() {
           correct_option: q.correct_option ?? 0,
           points: q.points ?? 1,
         })) },
-        answers as Record<number, number | null>,
+        originalOptionAnswers as Record<number, number | null>,
         confidences as Record<number, number>
       );
     }
@@ -143,15 +155,8 @@ export default function ResultScreen() {
   const mapToPrintedPositions = <T extends number | null>(values: Record<string, T>) => {
     // Cached scans use database question IDs; offline QR validation binds data
     // to printed positions. Convert only when the cached copy is available.
-    const qrVersion = Number(currentScan?.qrPayload?.v ?? 0);
-    if (qrVersion < 4 || !copy?.questions_map?.length) return values;
-
-    const mapped: Record<string, T> = {};
-    for (const [questionId, value] of Object.entries(values)) {
-      const position = copy.questions_map.indexOf(Number(questionId));
-      mapped[String(position >= 0 ? position + 1 : questionId)] = value;
-    }
-    return mapped;
+    const qrVersion = Number(currentScan?.qrVersion ?? currentScan?.qrPayload?.v ?? 0);
+    return mapQuestionValuesToPrintedPositions(values, copy?.questions_map, qrVersion);
   };
 
   const buildFinalScan = () => {

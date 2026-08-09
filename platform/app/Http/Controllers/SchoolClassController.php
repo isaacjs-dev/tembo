@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Invite;
 use App\Models\SchoolClass;
 use App\Models\User;
+use App\Rules\ActiveOrganizationMember;
 use App\Services\ClassOwnershipService;
 use App\Services\InviteManagerService;
 use Illuminate\Http\Request;
@@ -14,12 +15,9 @@ class SchoolClassController extends Controller
 {
     public function index()
     {
-        $orgId = auth()->user()->organization_id;
-        $userId = auth()->id();
-
+        $orgId = $this->currentOrganizationId();
         // Turmas da organização + turmas onde é professor atribuído
         $schoolClasses = SchoolClass::where('organization_id', $orgId)
-            ->orWhereHas('teachers', fn ($q) => $q->where('users.id', $userId))
             ->withCount('students')
             ->with('teachers')
             ->paginate(10);
@@ -29,12 +27,15 @@ class SchoolClassController extends Controller
 
     public function create()
     {
+        $this->currentOrganizationId();
+
         return view('institution.classes.create');
     }
 
     public function store(Request $request)
     {
         abort_unless(in_array(auth()->user()->type, ['institution_admin', 'global_admin']), 403);
+        $orgId = $this->currentOrganizationId();
 
         if (! auth()->user()->organization->canAddClass()) {
             return back()->withInput()->withErrors(['Limite de turmas atingido no plano atual da instituição.']);
@@ -44,8 +45,6 @@ class SchoolClassController extends Controller
             'name' => 'required|string|max:255',
             'year' => 'required|string|max:255',
         ]);
-
-        $orgId = auth()->user()->organization_id;
 
         $class = SchoolClass::create([
             'organization_id' => $orgId,
@@ -64,12 +63,10 @@ class SchoolClassController extends Controller
     {
         $schoolClass = $this->findClass($id);
 
-        $orgId = auth()->user()->organization_id;
-        $availableTeachers = User::where('type', 'teacher')
-            ->where(function ($q) use ($orgId) {
-                $q->where('organization_id', $orgId)
-                    ->orWhereHas('organizations', fn ($q2) => $q2->where('organizations.id', $orgId)->where('user_organization.status', 'active'));
-            })
+        $orgId = $this->currentOrganizationId();
+        $availableTeachers = User::query()
+            ->where('status', 'active')
+            ->memberOfOrganization($orgId, 'teacher')
             ->get();
 
         $assignedTeacherIds = $schoolClass->teachers()->pluck('users.id')->toArray();
@@ -85,7 +82,7 @@ class SchoolClassController extends Controller
             'name' => 'required|string|max:255',
             'year' => 'nullable|string|max:20',
             'teacher_ids' => 'nullable|array',
-            'teacher_ids.*' => 'exists:users,id',
+            'teacher_ids.*' => ['integer', 'distinct', new ActiveOrganizationMember((int) $schoolClass->organization_id, 'teacher')],
         ]);
 
         $schoolClass->update([
@@ -117,7 +114,7 @@ class SchoolClassController extends Controller
         $schoolClass = $this->findClass($id);
 
         $validated = $request->validate([
-            'student_user_id' => 'required|exists:users,id',
+            'student_user_id' => ['required', 'integer', new ActiveOrganizationMember((int) $schoolClass->organization_id, 'student')],
         ]);
 
         $student = User::findOrFail($validated['student_user_id']);
@@ -199,12 +196,18 @@ class SchoolClassController extends Controller
      */
     private function findClass(string $id): SchoolClass
     {
-        $orgId = auth()->user()->organization_id;
-        $userId = auth()->id();
+        $orgId = $this->currentOrganizationId();
 
-        return SchoolClass::where(function ($q) use ($orgId, $userId) {
-            $q->where('organization_id', $orgId)
-                ->orWhereHas('teachers', fn ($q2) => $q2->where('users.id', $userId));
-        })->findOrFail($id);
+        return SchoolClass::where('organization_id', $orgId)->findOrFail($id);
+    }
+
+    private function currentOrganizationId(): int
+    {
+        $user = auth()->user();
+        $organizationId = (int) $user->organization_id;
+
+        abort_unless($user->canUseOrganizationContext($organizationId), 403, 'Selecione uma instituição ativa.');
+
+        return $organizationId;
     }
 }

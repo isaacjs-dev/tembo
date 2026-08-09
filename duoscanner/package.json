@@ -8,6 +8,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "test:grid": "node --experimental-strip-types --test tests/grid-mapping.test.mjs",
     "doctor": "expo-doctor",
     "build:android:preview": "eas build --platform android --profile preview"
   },

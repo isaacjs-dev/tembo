@@ -9,6 +9,8 @@ class OmrScan extends Model
 {
     use HasFactory;
 
+    protected $hidden = ['image_path', 'warped_path', 'debug_path'];
+
     protected $fillable = [
         'exam_id',
         'copy_id',

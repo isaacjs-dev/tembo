@@ -9,6 +9,8 @@ class OmrScanPage extends Model
 {
     use HasFactory;
 
+    protected $hidden = ['image_path', 'request_fingerprint'];
+
     protected $fillable = [
         'organization_id',
         'session_id',
@@ -16,6 +18,8 @@ class OmrScanPage extends Model
         'copy_id',
         'student_id',
         'uploaded_by',
+        'idempotency_key',
+        'request_fingerprint',
         'page_index',
         'total_pages',
         'image_path',

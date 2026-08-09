@@ -1,8 +1,8 @@
 /**
- * QR Code Parser — v2 with full schema support.
+ * QR Code Parser — signed v3/v4/v5 contract support.
  *
- * Reads all v0 and v1 fields from the QR Code payload, including
- * gabarito compacto (gab), pontos (pts), layout metadata, and HMAC checksum.
+ * Contract version (`v`) is deliberately independent from template version
+ * (`tpl_v`). Unknown versions and fields are rejected before capture.
  */
 import type { QRPayload } from '@/types/scan';
 
@@ -20,9 +20,15 @@ function parseGeometry(value: unknown): number[] | undefined {
   return value.map((item) => Math.round(item));
 }
 
+const ALLOWED_FIELDS: Record<number, readonly string[]> = {
+  3: ['e', 'c', 'h', 'p', 'v', 'tpl_id', 'tpl_v', 'gab_enc', 'chk'],
+  4: ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'rpp', 'cols', 'tpl', 'tpl_id', 'tpl_v', 'g', 'oc', 'gab_enc', 'pts', 'chk'],
+  5: ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'rpp', 'cols', 'tpl_id', 'tpl_v', 'g', 'oc', 'gab_enc', 'pts', 'chk'],
+};
+
 /**
  * Parses a QR Code data string into a structured payload.
- * Supports both v0 (legacy) and v1+ (modern) schemas.
+ * Supports the explicit v3, v4 and v5 schemas emitted by the platform.
  */
 export function parseQRCode(data: string): QRPayloadV2 | null {
   try {
@@ -31,6 +37,12 @@ export function parseQRCode(data: string): QRPayloadV2 | null {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return null;
     }
+
+    if (typeof parsed.v !== 'number') return null;
+    const version = parsed.v;
+    const allowedFields = ALLOWED_FIELDS[version];
+    if (!Number.isInteger(version) || !allowedFields) return null;
+    if (Object.keys(parsed).some((field) => !allowedFields.includes(field))) return null;
 
     // Validate required fields (present in ALL modes)
     if (
@@ -51,7 +63,9 @@ export function parseQRCode(data: string): QRPayloadV2 | null {
       qs: typeof parsed.qs === 'number' ? parsed.qs : undefined,
       qe: typeof parsed.qe === 'number' ? parsed.qe : undefined,
       // v1 fields
-      v: typeof parsed.v === 'number' ? parsed.v : undefined,
+      v: version,
+      tpl_id: typeof parsed.tpl_id === 'number' ? parsed.tpl_id : undefined,
+      tpl_v: typeof parsed.tpl_v === 'number' ? parsed.tpl_v : undefined,
       cols: typeof parsed.cols === 'number' ? parsed.cols : undefined,
       rpp: typeof parsed.rpp === 'number' ? parsed.rpp : undefined,
       chk: typeof parsed.chk === 'string' ? parsed.chk : undefined,
@@ -67,7 +81,7 @@ export function parseQRCode(data: string): QRPayloadV2 | null {
       // including template identifiers that the scanner does not otherwise use.
       signedPayload: parsed as Record<string, unknown>,
       // Computed metadata
-      legacyQr: parsed.v === undefined || parsed.v === 0,
+      legacyQr: version === 3,
     };
 
     return payload;

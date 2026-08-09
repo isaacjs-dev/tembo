@@ -33,14 +33,18 @@ class OfflineOmrQrService
         int $totalPages,
         int $questionStart,
     ): array {
-        $required = ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'chk'];
+        $required = ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'rpp', 'tpl_id', 'tpl_v', 'g', 'oc', 'chk'];
         foreach ($required as $key) {
             if (! array_key_exists($key, $payload) || $payload[$key] === '' || $payload[$key] === null) {
                 $this->fail('qr_payload', "O QR Code não contém o campo obrigatório {$key}.");
             }
         }
 
-        if ((int) $payload['v'] < 4 || ! $this->signer->verifyPayload($payload, $organizationId)) {
+        if (
+            ! in_array((int) $payload['v'], [4, 5], true)
+            || ! $this->signer->hasSupportedContract($payload)
+            || ! $this->signer->verifyPayload($payload, $organizationId)
+        ) {
             $this->fail('qr_payload', 'A assinatura do QR Code não confere. Leia novamente o cartão original.');
         }
 

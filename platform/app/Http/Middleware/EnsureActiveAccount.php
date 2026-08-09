@@ -21,9 +21,22 @@ class EnsureActiveAccount
         $inactiveOrganization = $user->type !== 'global_admin'
             && $user->organization_id !== null
             && (! $user->organization || ! $user->organization->active);
+        $invalidOrganizationContext = $user->type !== 'global_admin'
+            && $user->organization_id !== null
+            && ! $user->canUseOrganizationContext((int) $user->organization_id);
 
-        if (! $inactiveAccount && ! $inactiveOrganization) {
+        if (! $inactiveAccount && ! $inactiveOrganization && ! $invalidOrganizationContext) {
             return $next($request);
+        }
+
+        if ($invalidOrganizationContext && ! $inactiveAccount && ! $inactiveOrganization) {
+            $message = 'Seu vínculo com a instituição selecionada está inativo. Selecione outro contexto ou procure a administração.';
+
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $message], 403);
+            }
+
+            abort(403, $message);
         }
 
         if ($request->hasSession()) {

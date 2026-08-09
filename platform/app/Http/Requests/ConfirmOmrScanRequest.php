@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\ActiveOrganizationMember;
 use Illuminate\Foundation\Http\FormRequest;
 
 class ConfirmOmrScanRequest extends FormRequest
@@ -13,8 +14,14 @@ class ConfirmOmrScanRequest extends FormRequest
 
     public function rules(): array
     {
+        $organizationId = (int) $this->user()->organization_id;
+
         return [
-            'student_id' => 'required|exists:users,id',
+            'student_id' => [
+                'required',
+                'integer',
+                new ActiveOrganizationMember($organizationId, 'student'),
+            ],
             'answers' => 'required|array',
         ];
     }

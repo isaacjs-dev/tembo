@@ -1,102 +1,188 @@
-# PRD — {{Product Name}}
+# Tembo — PRD executável de evolução integral
 
-**Document:** Product Requirements Document
-**Product:** {{Product Name}} — {{one-line tagline}}
-**Version:** {{0.1}}
-**Last updated:** {{YYYY-MM-DD}}
-**Author:** {{your name}}
+**Versão:** 1.0
 
-> **How to use this file.** Replace every `{{placeholder}}` with real content,
-> then run `/create-tasks`. `/create-tasks` refuses to run while any
-> `{{placeholder}}` remains — that is the signal the PRD is still a draft.
-> Delete sections that don't apply and add any your product needs; the
-> headings below are the minimum `task-master-generator` reads to plan the
-> build. Write the whole PRD in the language you want the project built in
-> (the agents match the PRD's language — English by default).
+**Atualizado em:** 2026-08-08
 
-## 1. Overview
+**Estado:** ativo
+**Idioma do produto e das tarefas:** português do Brasil
 
-{{2–4 sentences: what the product is, who it's for, and the core value
-proposition. Write it so someone unfamiliar with the project understands the
-point in 30 seconds.}}
+## 1. Governança e fontes de verdade
 
-## 2. Goals and non-goals
+Este documento é a fonte única de requisitos executáveis para a evolução integral do Tembo. O arquivo `PROMPT_BASE_MESTRE_TEMBO_CLAUDE_CODEX_v1.md` define o processo de engenharia e os gates de qualidade; `Novas Func.md` preserva a direção de produto e a transcrição original. Quando houver conflito, prevalecem: pedido atual, segurança e integridade, código/schema/testes em uso, este PRD e, por último, exemplos das transcrições.
 
-**Goals**
+O trabalho será entregue em incrementos compatíveis, testados e rastreáveis. Não estão autorizados deploy em produção, exclusão de dados reais, mudança de preços, contratação de serviços, rotação de segredos nem quebra deliberada de API, QR ou formato offline.
 
-- {{Primary outcome 1}}
-- {{Primary outcome 2}}
+Estados usados neste documento: **Implementado**, **Parcial**, **Ausente** e **Não homologado**. “Implementado” exige evidência automatizada; homologações físicas permanecem separadas.
 
-**Non-goals (explicitly out of scope for this build)**
+## 2. Produto, usuários e objetivo
 
-- {{Something you are deliberately NOT doing — no task will be created for it}}
+O Tembo é uma plataforma educacional para criar, aplicar, imprimir, responder, corrigir e acompanhar Avaliações. A plataforma atende instituições, gestores, diretores, coordenadores, pedagogos, professores institucionais ou independentes, alunos, responsáveis quando vinculados e administradores globais.
 
-## 3. Target users
+Objetivos:
 
-- **{{Persona / segment}}** — {{who they are, what they need, how they'll use it}}
+- manter Laravel como autoridade de identidade, tenancy, autorização, planos, cotas, correção oficial e auditoria;
+- oferecer Avaliações online, impressas, híbridas e fluxos OMR temporariamente offline;
+- garantir que nenhum dado, nota, cartão ou resultado atravesse tenants ou seja associado silenciosamente à pessoa errada;
+- tornar criação, impressão, leitura, revisão e análise simples para uso comum e configuráveis para usuários avançados;
+- preservar contratos e dados históricos durante toda evolução.
 
-## 4. Functional requirements
+Não objetivos desta execução: criar um frontend Web separado, criar módulo artificial chamado SintiFlux, prometer precisão OMR absoluta ou liberar OMR Mobile sem dataset e homologação física.
 
-> The heart of the PRD — each requirement becomes one or more tasks. Be
-> concrete and testable. Give each a stable ID (`FR-1`, `FR-2`, …) so tasks
-> can cite it. Group by feature area.
+## 3. Arquitetura confirmada
 
-### 4.1 {{Feature area — e.g. Authentication}}
+- `platform/`: PHP 8.2+, Laravel 12, Blade, Alpine.js, Tailwind CSS, Vite, Sanctum, PDF/impressão e OMR Web TypeScript/OpenCV.js.
+- `duoscanner/`: Expo 52, React Native 0.76 e TypeScript, câmera, SQLite, armazenamento seguro, OMR local e sincronização.
+- Web é integrado ao monólito Laravel; não existe frontend Web separado.
+- API, QR, templates, geometrias e estados offline são contratos versionados. Web e Mobile podem executar localmente, mas o backend confirma o resultado oficial.
 
-- **FR-1:** {{The system shall …}}
-- **FR-2:** {{…}}
+## 4. Estado inicial verificado
 
-### 4.2 {{Feature area — e.g. Dashboard}}
+**Implementado:** CRUD e execução de Avaliações online/impressas/híbridas; portal do aluno; autosave; resultados; PDFs e cópias individualizadas; QR assinado v3/v4/v5; dois templates OMR versionados; OMR Web com revisão humana; biblioteca pessoal/institucional de questões; relatórios básicos; ledger/cortesias; autoria de aulas e atividades; fluxo de revisões, snapshots, XP e relatórios.
 
-- **FR-3:** {{…}}
+**Parcial:** wizard de Avaliação; previews; dados da introdução do aluno; filtros e métricas institucionais; entrega de aulas/atividades; cotas generalizadas; contratos e persistência offline; segurança multi-tenant; cartão/cabeçalho no PDF; OMR Mobile single-page e multipágina.
 
-## 5. Non-functional requirements
+**Ausente:** biblioteca pública global moderada; recursos de questão reutilizáveis N:M; moderação, denúncia, deduplicação, reputação e recompensa configurável; catálogos profissionais 10×; gerenciador/editor de cabeçalhos; renderizador único de preview/PDF; dataset OMR anotado e homologação física.
 
-- **Performance:** {{e.g. pages interactive < 2s on a mid-tier phone}}
-- **Security:** {{e.g. all external input validated; authorization on every mutation}}
-- **Accessibility:** {{e.g. WCAG 2.1 AA}}
-- **Browser / device support:** {{…}}
-- **Other:** {{observability, i18n, compliance, SEO — whatever applies}}
+**Não homologado:** OMR Mobile/offline. Existem motores divergentes, semântica incorreta de `v`/`tpl_v`/`rpp`, sessão multipágina incompleta, qualidade de câmera simulada, confirmação final de sync incompleta e ausência de ground truth físico.
 
-## 6. Tech stack
+## 5. Requisitos funcionais
 
-> List exact versions where the stack is already decided. `task-master-generator`
-> reads this to avoid creating "set up X" tasks for things already chosen, and
-> every agent uses it to pick the right patterns. Keep it consistent with the
-> "Project-specific notes" in `CLAUDE.md` and the `## Project configuration`
-> block in `.claude/agents/quality-checklist-verifier.md`.
+### 5.1 Identidade, instituições e autorização
 
-- **Language(s):** {{e.g. TypeScript}}
-- **Frontend:** {{e.g. Next.js 16 App Router, React 19, Tailwind, shadcn/ui}}
-- **Backend / API:** {{e.g. Next.js Route Handlers / Hono / Express / none}}
-- **Database:** {{e.g. Convex / Postgres + Prisma / Supabase}}
-- **Auth:** {{e.g. Clerk / Auth.js / custom — name the guard helpers}}
-- **Hosting / infra:** {{e.g. Vercel / Cloudflare}}
-- **Package manager:** {{npm | pnpm | yarn | bun}}
-- **Testing:** {{e.g. Vitest + Playwright}}
+- **IAM-01:** uma pessoa possui conta global e memberships independentes por workspace.
+- **IAM-02:** `user_organization` é a autoridade de contexto e papel; contexto ausente nunca remove isolamento.
+- **IAM-03:** uma pessoa pode ser aluno em uma instituição e professor em outra.
+- **IAM-04:** professores independentes usam workspace pessoal e podem criar turmas, vínculos e conteúdo próprios.
+- **IAM-05:** convites vinculam contas existentes ou permitem ativação pelo titular sem senha permanente definida por terceiros.
+- **IAM-06:** remover turma ou membership não exclui nem desativa a conta global.
+- **IAM-07:** professor–turma, professor–aluno, professor–disciplina e turma–disciplina são relações persistentes e tenant-aware.
+- **IAM-08:** diretor, coordenador, pedagogo, professor e aluno obedecem matriz formal de policies/permissões.
+- **IAM-09:** somente o proprietário do plano altera o próprio plano.
+- **IAM-10:** instituição pode corrigir Avaliação de seu contexto pela Web com auditoria; Mobile não recebe essa permissão.
+- **IAM-11:** todo ID de relacionamento, filtro, export, arquivo e sync é validado contra contexto e autorização.
+- **IAM-12:** alterações sensíveis registram organização, ator, entidade, ação, origem, request ID e before/after apropriado.
 
-## 7. Data model
+### 5.2 Avaliações e jornada acadêmica
 
-> Sketch the main entities, their key fields, and how they relate.
+- **ASM-01:** manter modalidades online, impressa com resposta digital, impressa com cartão OMR e operação offline.
+- **ASM-02:** criar Avaliação em oito etapas: Informações, Questões, Público, Aplicação, Aparência, Cartão-resposta, Pré-visualização e Publicação.
+- **ASM-03:** cada etapa é recuperável; backend valida o gate final de publicação.
+- **ASM-04:** Avaliação pode ter disciplina opcional, turmas, alunos específicos ou nenhum público imediato.
+- **ASM-05:** preservar horários, tentativas, códigos de acesso, publicação e liberação de resultado.
+- **ASM-06:** gerar cópias individualizadas e versionadas por aluno, com ordem e alternativas embaralhadas reversíveis.
+- **ASM-07:** permitir saída somente Avaliação, somente cartão, ambos, gabarito autorizado ou disponibilização digital.
+- **ASM-08:** introdução do aluno informa Avaliação, professor, instituição, disciplina, janela, prazo, modalidade, status e tentativas.
+- **ASM-09:** previews reais cobrem desktop, tablet, celular e impressão.
+- **ASM-10:** templates e gabaritos históricos permanecem vinculados à versão usada na geração.
+- **ASM-11:** apresentação digital suporta Avaliação inteira, quantidade configurável por bloco/tela e organização automática conforme o conteúdo.
+- **PED-01:** preservar autoria, importação, aprovação, execução, snapshots, gamificação e relatórios de revisões.
+- **PED-02:** aulas e atividades possuem publicação, entrega, execução/progresso do aluno e relatórios próprios.
 
-- **{{Entity}}** — fields: {{…}}; relates to {{…}}
+### 5.3 Biblioteca, colaboração, planos e créditos
 
-## 8. Integrations
+- **LIB-01:** questões e recursos suportam escopos pessoal, compartilhado específico, institucional e público da plataforma.
+- **LIB-02:** Recurso de Questão versionado representa texto, imagem, gráfico, tabela, fórmula, diagrama ou documento e pode servir a várias questões.
+- **LIB-03:** visibilidade de uma questão nunca excede a dos recursos obrigatórios vinculados.
+- **LIB-04:** biblioteca oferece pesquisa, filtros, paginação e uso auditável sem carregar coleções inteiras.
+- **LIB-05:** publicação pública passa por submissão, moderação, aprovação/rejeição e histórico.
+- **LIB-06:** denúncia, deduplicação, direitos de uso, reputação e prevenção de spam fazem parte do fluxo público.
+- **PLAN-01:** aluno permanece Free; professor e instituição têm Free ou plano pago, conforme catálogo vigente.
+- **PLAN-02:** consumo e concessão usam ledger idempotente, nunca apenas decremento sem histórico.
+- **PLAN-03:** cotas abrangem recursos configuráveis e contam memberships corretos.
+- **PLAN-04:** recompensas públicas são configuráveis, versionadas, limitadas e concedidas exatamente uma vez após aprovação.
+- **PLAN-05:** vigência, carência, downgrade, cortesias e entitlement usam um resolvedor coerente.
 
-> Third-party services. Flag the ones that need accounts or API keys the user
-> must set up before a task can run.
+### 5.4 Aparência, cabeçalhos, cartões e impressão
 
-- **{{Service}}** — {{what it's used for}}; secrets needed: `{{ENV_VAR_NAMES}}`
+- **APP-01:** oferecer pelo menos 10 layouts de Avaliação, 10 cabeçalhos e 10 cartões-resposta realmente distintos e documentados.
+- **APP-02:** templates de sistema são imutáveis; usuário/instituição pode duplicar, personalizar, versionar, definir padrão e arquivar.
+- **APP-03:** cabeçalho de Avaliação e cabeçalho de cartão são contextos distintos.
+- **APP-04:** editor simples troca modelo, campos e logo; editor avançado usa canvas para elementos, alinhamento, tamanho, distribuição e undo/redo.
+- **APP-05:** fonte persistida é um schema JSON validado e editável, não uma imagem nem serialização opaca do canvas.
+- **APP-06:** tokens dinâmicos pertencem a uma whitelist, possuem fallback e escape seguro.
+- **APP-07:** um renderizador HTML/CSS canônico alimenta preview e PDF.
+- **APP-08:** snapshots de layout, cabeçalho, logo, cartão e geometria são imutáveis em cópias históricas.
+- **APP-09:** PDFs A4 preservam margens, quebras, imagens, QR, fiduciais, bolhas e legibilidade em conteúdo curto ou longo.
 
-## 9. Milestones
+### 5.5 QR, OMR e sincronização
 
-> Optional. Rough phase ordering. `task-master-generator` sequences tasks with
-> explicit dependencies regardless, but phases help it group related work.
+- **QR-01:** preservar leitura de QR v3/v4/v5 e introduzir versão nova somente para wire incompatível.
+- **QR-02:** payload é compacto, autenticado, versionado e sem PII ou gabarito em claro.
+- **QR-03:** validar tenant, Avaliação, cópia, página, template, revisão e assinatura; QR não substitui autorização.
+- **QR-04:** impressão mantém contraste, tamanho físico e quiet zone adequados no envelope homologado.
+- **OMR-01:** Web e Mobile compartilham schema, fixtures, geometria e classificação pura; adapters de imagem podem diferir.
+- **OMR-02:** pipeline mede imagem real, orientação, perspectiva, fiduciais, escala, luz, blur e ROIs.
+- **OMR-03:** classificar marca simples, fraca, apagada, dupla, ambígua e em branco com confiança reproduzível.
+- **OMR-04:** baixa confiança sempre exige revisão humana com região/questão identificada.
+- **OMR-05:** vínculo cartão→cópia→Avaliação→aluno é inequívoco; inconsistência bloqueia correção automática.
+- **OMR-06:** `v`, `tpl_v`, `rpp`, `g`, `qs`, `qe`, `oc` e maps de embaralhamento mantêm semântica única.
+- **OMR-07:** multipágina usa uma sessão persistente e consolida exatamente uma vez.
+- **OMR-08:** cópia guarda snapshot de gabarito, pontos, ordem, template, cabeçalho e revisão.
+- **OMR-09:** intervenção humana e alteração de resultado são auditadas.
+- **OMR-10:** Mobile captura pela câmera; Web suporta câmera e upload, usando o mesmo contrato de resultado.
+- **OMR-11:** em condições normais o fluxo é apontar, detectar, ler, confirmar, corrigir quando necessário e salvar; recorte, orientação, seleção manual de QR, threshold e contraste são apenas fallback assistido.
+- **OFF-01:** Mobile baixa apenas escopo autorizado e protege PII, gabaritos e imagens em repouso.
+- **OFF-02:** fila persiste captura, revisão, envio, processamento, confirmação, conflito e falha através de reinícios.
+- **OFF-03:** `client_operation_id` garante idempotência atômica; timeout/retry nunca duplica resultado.
+- **OFF-04:** upload retorna recibo e o Mobile aguarda estado final do servidor antes de marcar sincronizado.
+- **OFF-05:** conflito de versão, correção concorrente ou acesso revogado é explícito e auditável; notas não usam last-write-wins silencioso.
+- **OFF-06:** dead-letter possui recuperação visível sem perda do registro local.
 
-1. **{{Phase 0 — Foundation}}:** {{…}}
-2. **{{Phase 1 — …}}:** {{…}}
+### 5.6 Relatórios e operação
 
-## 10. Open questions
+- **REP-01:** instituição filtra por professor, disciplina, turma, aluno, Avaliação e período.
+- **REP-02:** métricas incluem participação, médias, tentativas, correções, revisões, aulas, atividades, OMR e uso.
+- **REP-03:** agregações são feitas no banco, paginadas e indexadas.
+- **REP-04:** auditoria institucional exibe somente eventos do próprio contexto.
 
-- {{Anything still undecided. Resolve before `/create-tasks` where possible —
-  an ambiguous PRD produces ambiguous tasks.}}
+## 6. Requisitos não funcionais e gates
+
+- **Segurança:** zero acesso cross-tenant nos testes; dados sensíveis e imagens não são públicos; inputs e IDs possuem autorização server-side.
+- **Compatibilidade:** migrations aditivas seguem expand/backfill/dual-read/cutover; APIs v1/v2, QR históricos, templates e filas existentes permanecem legíveis durante transição.
+- **Acessibilidade:** WCAG 2.2 AA, teclado, foco, labels, contraste, mensagens, movimento reduzido e alvo de toque mínimo de 44 px.
+- **Responsividade:** 1440, 1280, 768 e 390 px sem overflow funcional.
+- **Desempenho:** sem N+1; paginação obrigatória; endpoints de listagem p95 ≤500 ms sob seed documentado; LCP p75 ≤2,5 s em celular médio para jornadas principais.
+- **Impressão:** regressão por rasterização e inspeção A4; nenhum corte em QR, fiducial, questão ou alternativa.
+- **OMR:** dataset versionado com ground truth; zero associação silenciosa incorreta; métricas por condição; Web/Mobile parity; relatório separa simulação de teste físico. Antes de abrir o holdout, congelar limiares mínimos: autoaceite ≥99,9%, erro confiante ≤0,1%, exatidão por questão ≥99,5%, ambiguidades reais enviadas à revisão ≥99%, QR na primeira tentativa ≥99% e em até duas tentativas ≥99,9%, todos dentro do envelope declarado.
+- **Sync:** exatamente um resultado em retries concorrentes, reinício e reconexão; nenhuma perda confirmada.
+
+## 7. Evolução mínima do modelo e contratos
+
+- Contexto: workspace institucional/pessoal, membership autoritativo e perfil acadêmico por usuário+workspace.
+- Relações: professor–disciplina, professor–aluno, turma–disciplina e Avaliação–aluno com índices únicos tenant-aware.
+- Aparência: templates e versões de layout/cabeçalho/cartão; preferências do usuário com fallback institucional; snapshots na cópia.
+- Biblioteca: Recurso de Questão, pivot N:M, submissões/revisões/denúncias públicas e regras versionadas de recompensa integradas ao ledger.
+- OMR: operação idempotente, recibo/status final, revisão de prova/cópia e snapshots; imagens privadas.
+- Contratos públicos novos serão documentados com JSON Schema/fixtures e lançados de forma aditiva em API v2 ou versão sucessora justificada.
+
+`LearningMaterial` continua representando conteúdo entregue ao aluno; Recurso de Questão representa dependência reutilizável de enunciados. Os conceitos não devem ser duplicados ou confundidos.
+
+## 8. Estratégia de entrega e aceite
+
+1. checkpoint e baseline;
+2. tenancy, identidade e segurança crítica OMR;
+3. relações acadêmicas e jornada de Avaliação;
+4. biblioteca pública, recursos, moderação e recompensas;
+5. layouts, cabeçalhos, cartões, renderização e previews;
+6. QR/OMR Web-Mobile, offline, conflitos e paridade;
+7. relatórios, acessibilidade e desempenho;
+8. regressão, revisão independente, OMR AUDIT REPORT e rollout controlado.
+
+Cada tarefa exige testes focados, regressão proporcional, revisão independente e atualização da matriz `requisito → implementação → arquivos → testes → revisor → status`. Produção e OMR físico permanecem pendências humanas explícitas até autorização e evidência.
+
+## 9. Dataset e homologação OMR
+
+O manifest por imagem registra QR/schema/template, `qs/qe/rpp/oc/g`, ground truth de cada bolha, dispositivo, câmera, distância, ângulo, iluminação, papel, impressora, escala, compressão e consentimento. Deve cobrir templates atuais/históricos, 5–60 questões, 2–6 alternativas, múltiplas páginas, rotação, perspectiva, blur, sombras, rasuras, marca dupla, fotocópia e escalas 95/100/fit.
+
+Fixtures de calibração e holdout são separadas. Os limiares de cada métrica devem ser congelados antes do holdout e não podem ser reajustados usando suas imagens. O parecer de homologação exige todos os gates atendidos e, no mínimo, 200 capturas holdout em três classes de telefone e três impressoras. Sem hardware disponível, o parecer será `APROVADO COM PENDÊNCIA HUMANA`, nunca “homologado”.
+
+## 10. Riscos e decisões reservadas ao usuário
+
+- preços, equivalências comerciais e limites finais de recompensa;
+- política jurídica de retenção e consentimento de imagens/dados pessoais;
+- matriz física final de aparelhos, impressoras e papéis;
+- deploy e rollout em produção;
+- qualquer migração destrutiva ou quebra deliberada de cliente histórico.
+
+Detalhes técnicos reversíveis serão decididos pela engenharia com evidência, sem interromper a execução.

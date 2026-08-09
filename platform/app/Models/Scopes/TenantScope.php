@@ -17,9 +17,19 @@ class TenantScope implements Scope
             $user = auth()->user();
 
             // Administradores Globais enxergam de todas as organizações
-            if ($user->type !== 'global_admin' && $user->organization_id) {
-                $builder->where($model->getTable().'.organization_id', $user->organization_id);
+            if ($user->type === 'global_admin') {
+                return;
             }
+
+            // Authenticated tenant users without an explicit context must never
+            // fall back to an unscoped query.
+            if (! $user->organization_id || ! $user->belongsToActiveOrganization((int) $user->organization_id)) {
+                $builder->whereRaw('1 = 0');
+
+                return;
+            }
+
+            $builder->where($model->getTable().'.organization_id', $user->organization_id);
         }
     }
 }

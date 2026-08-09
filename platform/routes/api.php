@@ -30,6 +30,7 @@ Route::prefix('v1')->group(function () {
         Route::prefix('omr/scans')->middleware('omr_api')->group(function () {
             Route::get('/', [OmrApiController::class, 'index']);
             Route::post('/', [OmrApiController::class, 'store']);
+            Route::get('pages/{page}/image', [OmrApiController::class, 'pageImage']);
             Route::get('{scan}', [OmrApiController::class, 'show']);
             Route::put('{scan}/confirm', [OmrApiController::class, 'confirm']);
             Route::put('{scan}/reject', [OmrApiController::class, 'reject']);
@@ -72,6 +73,7 @@ Route::prefix('v2')->group(function () {
         Route::prefix('omr/scans')->middleware('omr_api')->group(function () {
             Route::get('/', [OmrApiController::class, 'index']);
             Route::post('/', [OmrApiController::class, 'store']);
+            Route::get('pages/{page}/image', [OmrApiController::class, 'pageImage']);
             Route::get('{scan}', [OmrApiController::class, 'show']);
             Route::put('{scan}/confirm', [OmrApiController::class, 'confirm']);
             Route::put('{scan}/reject', [OmrApiController::class, 'reject']);

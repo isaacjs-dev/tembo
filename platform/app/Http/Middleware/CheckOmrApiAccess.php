@@ -8,11 +8,15 @@ use Illuminate\Http\Request;
 
 class CheckOmrApiAccess
 {
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, Closure $next, string $mode = 'full')
     {
         $user = $request->user();
 
-        if (! $user || $user->status !== 'active' || ! $user->organization || ! $user->organization->active) {
+        if (! $user
+            || $user->status !== 'active'
+            || ! $user->organization
+            || ! $user->organization->active
+            || ! $user->canUseOrganizationContext((int) $user->organization_id)) {
             return response()->json(['error' => 'Usuário sem organização vinculada.'], 403);
         }
 
@@ -21,7 +25,7 @@ class CheckOmrApiAccess
             return response()->json(['error' => 'Acesso não autorizado ao OMR.'], 403);
         }
 
-        if (! $user->organization->hasFeature('omr')) {
+        if ($mode !== 'permission-only' && ! $user->organization->hasFeature('omr')) {
             return response()->json(['error' => 'Recurso OMR mobile não disponível no plano atual.'], 403);
         }
 
@@ -33,8 +37,9 @@ class CheckOmrApiAccess
             ->first();
 
         if (! $pivot) {
-            // Legacy users may only have the direct organization link.
-            if ((int) $user->organization_id !== (int) $orgId) {
+            // Legacy users may use the direct organization link only before
+            // they have any authoritative membership rows.
+            if ($user->organizations()->exists()) {
                 return response()->json(['error' => 'Acesso não autorizado ao OMR.'], 403);
             }
         } elseif ($pivot->institution_role_id) {

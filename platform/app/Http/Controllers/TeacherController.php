@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AuditLog;
 use App\Models\User;
 use App\Services\InviteManagerService;
+use App\Services\OrganizationMembershipService;
 use App\Services\UserFinderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -13,13 +14,11 @@ class TeacherController extends Controller
 {
     public function index()
     {
-        $orgId = auth()->user()->organization_id;
+        $orgId = $this->currentOrganizationId();
 
-        $teachers = User::where('type', 'teacher')
-            ->where(function ($q) use ($orgId) {
-                $q->where('organization_id', $orgId)
-                    ->orWhereHas('organizations', fn ($q2) => $q2->where('organizations.id', $orgId)->where('user_organization.status', 'active'));
-            })
+        $teachers = User::query()
+            ->memberOfOrganization($orgId, 'teacher', activeOnly: false)
+            ->with(['organizations' => fn ($query) => $query->where('organizations.id', $orgId)])
             ->paginate(10);
 
         return view('institution.teachers.index', compact('teachers'));
@@ -27,6 +26,8 @@ class TeacherController extends Controller
 
     public function create()
     {
+        $this->currentOrganizationId();
+
         return view('institution.teachers.create');
     }
 
@@ -35,6 +36,7 @@ class TeacherController extends Controller
      */
     public function search(Request $request)
     {
+        $orgId = $this->currentOrganizationId();
         $request->validate(['search' => 'required|string|min:3']);
 
         $finder = app(UserFinderService::class);
@@ -42,7 +44,6 @@ class TeacherController extends Controller
 
         if ($result['found']) {
             $user = $result['user'];
-            $orgId = auth()->user()->organization_id;
             $alreadyLinked = $finder->isAlreadyLinked($user, $orgId);
 
             return response()->json([
@@ -73,6 +74,7 @@ class TeacherController extends Controller
      */
     public function store(Request $request)
     {
+        $this->currentOrganizationId();
         $org = auth()->user()->organization;
 
         // Modo: enviar convite para usuário existente
@@ -162,9 +164,11 @@ class TeacherController extends Controller
 
     public function edit(string $id)
     {
+        $organizationId = $this->currentOrganizationId();
         $teacher = $this->findTeacher($id);
+        $membershipStatus = $teacher->organizationMembershipStatus($organizationId);
 
-        return view('institution.teachers.edit', compact('teacher'));
+        return view('institution.teachers.edit', compact('teacher', 'membershipStatus'));
     }
 
     public function update(Request $request, string $id)
@@ -172,21 +176,18 @@ class TeacherController extends Controller
         $teacher = $this->findTeacher($id);
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,'.$teacher->id],
-            'password' => ['nullable', 'string', 'min:8'],
+            'name' => ['prohibited'],
+            'email' => ['prohibited'],
+            'password' => ['prohibited'],
             'status' => ['required', 'in:active,inactive'],
         ]);
 
-        $teacher->name = $validated['name'];
-        $teacher->email = $validated['email'];
-        $teacher->status = $validated['status'];
-
-        if (! empty($validated['password'])) {
-            $teacher->password = Hash::make($validated['password']);
-        }
-
-        $teacher->save();
+        app(OrganizationMembershipService::class)->setStatus(
+            $teacher,
+            auth()->user()->organization,
+            'teacher',
+            $validated['status'],
+        );
 
         AuditLog::log('updated', User::class, $teacher->id);
 
@@ -196,16 +197,27 @@ class TeacherController extends Controller
     public function destroy(string $id)
     {
         $teacher = $this->findTeacher($id);
+        $organization = auth()->user()->organization;
+        $nextStatus = $teacher->organizationMembershipStatus((int) $organization->id) === 'active'
+            ? 'inactive'
+            : 'active';
 
-        $teacher->status = $teacher->status === 'active' ? 'inactive' : 'active';
-        $teacher->save();
+        app(OrganizationMembershipService::class)->setStatus(
+            $teacher,
+            $organization,
+            'teacher',
+            $nextStatus,
+        );
 
         AuditLog::log('updated', User::class, $teacher->id, [
-            'action' => $teacher->status === 'active' ? 'reactivated' : 'deactivated',
+            'action' => 'organization_membership_'.$nextStatus,
+            'organization_id' => $organization->id,
         ]);
 
         return redirect()->route('institution.teachers.index')
-            ->with('status', $teacher->status === 'active' ? 'Professor reativado!' : 'Professor desativado!');
+            ->with('status', $nextStatus === 'active'
+                ? 'Vínculo do professor reativado nesta instituição.'
+                : 'Professor desvinculado desta instituição. A conta global foi preservada.');
     }
 
     /**
@@ -213,13 +225,20 @@ class TeacherController extends Controller
      */
     private function findTeacher(string $id): User
     {
-        $orgId = auth()->user()->organization_id;
+        $orgId = $this->currentOrganizationId();
 
-        return User::where('type', 'teacher')
-            ->where(function ($q) use ($orgId) {
-                $q->where('organization_id', $orgId)
-                    ->orWhereHas('organizations', fn ($q2) => $q2->where('organizations.id', $orgId)->where('user_organization.status', 'active'));
-            })
+        return User::query()
+            ->memberOfOrganization($orgId, 'teacher', activeOnly: false)
             ->findOrFail($id);
+    }
+
+    private function currentOrganizationId(): int
+    {
+        $user = auth()->user();
+        $organizationId = (int) $user->organization_id;
+
+        abort_unless($user->canUseOrganizationContext($organizationId), 403, 'Selecione uma instituição ativa.');
+
+        return $organizationId;
     }
 }

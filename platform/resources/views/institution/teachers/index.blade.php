@@ -23,7 +23,7 @@
             Filtros:
         </div>
         <button class="px-4 py-2 bg-white border-2 border-duo-border rounded-xl text-sm font-bold text-gray-500 hover:border-primary transition-all">
-            Status: Ativo
+            Status do vínculo: todos
         </button>
         <button class="px-4 py-2 text-sm font-bold text-red-400 hover:text-red-500">Limpar filtros</button>
     </div>
@@ -44,6 +44,7 @@
                 </thead>
                 <tbody>
                     @forelse($teachers as $teacher)
+                        @php($membershipStatus = $teacher->organizationMembershipStatus((int) auth()->user()->organization_id))
                         <tr>
                             <td class="whitespace-nowrap">
                                 <div class="flex items-center gap-3">
@@ -59,8 +60,8 @@
                             <td class="text-gray-600 font-medium">{{ $teacher->email }}</td>
                             <td><span class="badge badge-info">Professor</span></td>
                             <td>
-                                <span class="badge {{ $teacher->status === 'active' ? 'badge-success' : 'badge-neutral' }}">
-                                    {{ $teacher->status === 'active' ? 'Ativo' : 'Inativo' }}
+                                <span class="badge {{ $membershipStatus === 'active' ? 'badge-success' : 'badge-neutral' }}">
+                                    {{ $membershipStatus === 'active' ? 'Ativo' : 'Inativo' }}
                                 </span>
                             </td>
                             <td class="text-right">
@@ -79,10 +80,10 @@
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit"
-                                            class="p-2.5 rounded-xl transition-all duration-150 {{ $teacher->status === 'active' ? 'text-gray-400 hover:text-red-500 hover:bg-red-50' : 'text-red-400 hover:text-green-600 hover:bg-green-50' }}"
-                                            title="{{ $teacher->status === 'active' ? 'Desativar' : 'Reativar' }}">
+                                            class="p-2.5 rounded-xl transition-all duration-150 {{ $membershipStatus === 'active' ? 'text-gray-400 hover:text-red-500 hover:bg-red-50' : 'text-red-400 hover:text-green-600 hover:bg-green-50' }}"
+                                            title="{{ $membershipStatus === 'active' ? 'Desativar vínculo' : 'Reativar vínculo' }}">
                                             <span aria-hidden="true" class="material-symbols-outlined text-[20px]">
-                                                {{ $teacher->status === 'active' ? 'toggle_on' : 'toggle_off' }}
+                                                {{ $membershipStatus === 'active' ? 'toggle_on' : 'toggle_off' }}
                                             </span>
                                         </button>
                                     </form>

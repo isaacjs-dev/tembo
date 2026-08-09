@@ -11,10 +11,9 @@ import { useSyncStore } from '@/store/sync-store';
 import { examService } from '@/services/exams';
 import { explainExamDownloadError } from '@/services/exam-download-error';
 import { parseQRCode, validateQRAgainstExam, hasEmbeddedData, canCaptureOffline } from '@/lib/qr-parser';
-import { validateQRPayload, detectVersionConflict } from '@/lib/qr-validator';
+import { validateQRPayload } from '@/lib/qr-validator';
 import { getResolvedConfig, getDataStrategy } from '@/lib/config-resolver';
 import { evaluatePreCapture, shouldAutoCapture, type PreCaptureValidation } from '@/lib/capture-engine';
-import { getExamVersion } from '@/db/database';
 import { saveScanImage, generateLocalId } from '@/lib/image-utils';
 import { CaptureOverlay } from '@/components/scan/CaptureOverlay';
 import { ScanModeIndicator } from '@/components/scan/ScanModeIndicator';
@@ -119,15 +118,6 @@ export default function CameraScreen() {
     const eid = qr.e;
     setCameraState('loading_exam');
     const strategy = getDataStrategy(config.scanMode, isExamCached(eid), isOnline);
-
-    // Check version conflict
-    const cachedVersion = await getExamVersion(eid);
-    if (qr.v !== undefined && cachedVersion !== null) {
-      const conflict = detectVersionConflict(qr.v, cachedVersion);
-      if (conflict.hasConflict) {
-        setVersionWarning(conflict.message);
-      }
-    }
 
     // Strategy-based data acquisition
     if (strategy === 'use_cache' && isExamCached(eid)) {
@@ -237,7 +227,11 @@ export default function CameraScreen() {
     startScan(parsed);
 
     updateCurrentScan({
-      layoutVersion: parsed.v ?? 0,
+      qrVersion: parsed.v,
+      templateId: parsed.tpl_id,
+      templateVersion: parsed.tpl_v,
+      rowsPerPage: parsed.rpp,
+      layoutVersion: parsed.tpl_v ?? 0,
       pageIndex: parsed.p ?? 1,
       pageTotal: parsed.pt ?? 1,
       qStart: parsed.qs ?? 1,

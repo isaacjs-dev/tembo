@@ -8,6 +8,7 @@ use App\Services\UserFinderService;
 use Database\Factories\UserFactory;
 use Illuminate\Auth\MustVerifyEmail;
 use Illuminate\Contracts\Auth\MustVerifyEmail as MustVerifyEmailContract;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -76,6 +77,85 @@ class User extends Authenticatable implements MustVerifyEmailContract
         return $this->organizations()->wherePivot('status', 'active');
     }
 
+    /**
+     * Restrict users to a membership in an organization. During the compatibility
+     * window, a legacy organization_id is accepted only when no pivot exists for
+     * that same organization; an inactive pivot therefore cannot be bypassed by
+     * the legacy column.
+     */
+    public function scopeMemberOfOrganization(
+        Builder $query,
+        int $organizationId,
+        ?string $role = null,
+        bool $activeOnly = true,
+    ): Builder {
+        return $query->where(function (Builder $membershipQuery) use ($organizationId, $role, $activeOnly) {
+            $membershipQuery->whereHas('organizations', function (Builder $organizationQuery) use ($organizationId, $role, $activeOnly) {
+                $organizationQuery->where('organizations.id', $organizationId);
+
+                if ($activeOnly) {
+                    $organizationQuery->where('user_organization.status', 'active');
+                }
+
+                if ($role !== null) {
+                    $organizationQuery->where('user_organization.role_in_org', $role);
+                }
+            })->orWhere(function (Builder $legacyQuery) use ($organizationId, $role) {
+                $legacyQuery->where('users.organization_id', $organizationId)
+                    // The direct FK is a compatibility path only for accounts
+                    // that have not entered the membership model at all. Once
+                    // any pivot exists, it is the sole source of tenant access.
+                    ->whereDoesntHave('organizations');
+
+                if ($role !== null) {
+                    $legacyQuery->where('users.type', $role);
+                }
+            });
+        });
+    }
+
+    public function belongsToActiveOrganization(int $organizationId, ?string $role = null): bool
+    {
+        return static::query()
+            ->whereKey($this->getKey())
+            ->memberOfOrganization($organizationId, $role)
+            ->exists();
+    }
+
+    /** Global admins may select an active tenant; other users need an active membership. */
+    public function canUseOrganizationContext(int $organizationId): bool
+    {
+        if ($organizationId < 1) {
+            return false;
+        }
+
+        if ($this->type === 'global_admin') {
+            return Organization::query()
+                ->whereKey($organizationId)
+                ->where('active', true)
+                ->exists();
+        }
+
+        return $this->belongsToActiveOrganization($organizationId);
+    }
+
+    /** Resolve the contextual membership status without confusing it with users.status. */
+    public function organizationMembershipStatus(int $organizationId): ?string
+    {
+        $organization = $this->relationLoaded('organizations')
+            ? $this->organizations->firstWhere('id', $organizationId)
+            : $this->organizations()->whereKey($organizationId)->first();
+
+        if ($organization !== null) {
+            return $organization->pivot->status;
+        }
+
+        return (int) $this->organization_id === $organizationId
+            && ! $this->organizations()->exists()
+            ? $this->status
+            : null;
+    }
+
     /** Subscription individual (morph) */
     public function subscription()
     {
@@ -85,6 +165,11 @@ class User extends Authenticatable implements MustVerifyEmailContract
     public function studentProfile()
     {
         return $this->hasOne(StudentProfile::class);
+    }
+
+    public function studentProfiles()
+    {
+        return $this->hasMany(StudentProfile::class);
     }
 
     public function schoolClasses()
