@@ -49,6 +49,48 @@
                     class="block w-full px-4 py-3 bg-background-light border-2 border-duo-border rounded-xl text-gray-800 focus:outline-none focus:border-primary focus:ring-0 transition-all font-medium">
             </div>
 
+            <fieldset class="space-y-3 rounded-xl border-2 border-duo-border p-5">
+                <legend class="px-2 text-sm font-extrabold text-gray-800">Professores atribuídos</legend>
+                <p class="text-sm text-gray-500">Os professores selecionados passam a ter relação acadêmica com os alunos matriculados.</p>
+
+                @if ($availableTeachers->isEmpty())
+                    <p class="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">Nenhum professor ativo neste workspace.</p>
+                @else
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        @foreach ($availableTeachers as $teacher)
+                            <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-duo-border p-3 hover:border-primary">
+                                <input type="checkbox" name="teacher_ids[]" value="{{ $teacher->id }}"
+                                    @checked(in_array($teacher->id, old('teacher_ids', $assignedTeacherIds)))
+                                    class="rounded border-gray-300 text-primary focus:ring-primary">
+                                <span>
+                                    <span class="block font-semibold text-gray-700">{{ $teacher->name }}</span>
+                                    <span class="block text-xs text-gray-500">{{ $teacher->email }}</span>
+                                </span>
+                            </label>
+                        @endforeach
+                    </div>
+                @endif
+            </fieldset>
+
+            <fieldset class="space-y-3 rounded-xl border-2 border-duo-border p-5">
+                <legend class="px-2 text-sm font-extrabold text-gray-800">Disciplinas</legend>
+
+                @if ($availableDisciplines->isEmpty())
+                    <p class="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">Nenhuma disciplina cadastrada neste workspace.</p>
+                @else
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        @foreach ($availableDisciplines as $discipline)
+                            <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-duo-border p-3 hover:border-primary">
+                                <input type="checkbox" name="discipline_ids[]" value="{{ $discipline->id }}"
+                                    @checked(in_array($discipline->id, old('discipline_ids', $assignedDisciplineIds)))
+                                    class="rounded border-gray-300 text-primary focus:ring-primary">
+                                <span class="font-semibold text-gray-700">{{ $discipline->name }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                @endif
+            </fieldset>
+
             <div class="pt-6 border-t-2 border-duo-border flex justify-end gap-4">
                 <button type="submit"
                     class="duo-button-primary px-8 py-4 rounded-xl font-extrabold text-sm uppercase tracking-wider">

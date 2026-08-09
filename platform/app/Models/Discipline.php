@@ -29,4 +29,18 @@ class Discipline extends Model
     {
         return $this->belongsTo(KnowledgeArea::class);
     }
+
+    public function teachers()
+    {
+        return $this->belongsToMany(User::class, 'discipline_teacher', 'discipline_id', 'user_id')
+            ->withPivot('organization_id', 'assigned_by', 'assigned_at')
+            ->withTimestamps();
+    }
+
+    public function schoolClasses()
+    {
+        return $this->belongsToMany(SchoolClass::class, 'class_discipline', 'discipline_id', 'school_class_id')
+            ->withPivot('organization_id', 'assigned_by')
+            ->withTimestamps();
+    }
 }

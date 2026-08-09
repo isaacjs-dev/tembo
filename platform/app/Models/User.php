@@ -208,6 +208,33 @@ class User extends Authenticatable implements MustVerifyEmailContract
         return $this->belongsToMany(SchoolClass::class, 'class_student', 'user_id', 'school_class_id');
     }
 
+    public function taughtClasses()
+    {
+        return $this->belongsToMany(SchoolClass::class, 'class_teacher', 'user_id', 'school_class_id')
+            ->withPivot('assigned_at');
+    }
+
+    public function taughtStudents()
+    {
+        return $this->belongsToMany(User::class, 'teacher_student', 'teacher_id', 'student_id')
+            ->withPivot('organization_id', 'linked_by')
+            ->withTimestamps();
+    }
+
+    public function academicTeachers()
+    {
+        return $this->belongsToMany(User::class, 'teacher_student', 'student_id', 'teacher_id')
+            ->withPivot('organization_id', 'linked_by')
+            ->withTimestamps();
+    }
+
+    public function taughtDisciplines()
+    {
+        return $this->belongsToMany(Discipline::class, 'discipline_teacher', 'user_id', 'discipline_id')
+            ->withPivot('organization_id', 'assigned_by', 'assigned_at')
+            ->withTimestamps();
+    }
+
     /**
      * Estudantes que este responsável está autorizado a acompanhar.
      */

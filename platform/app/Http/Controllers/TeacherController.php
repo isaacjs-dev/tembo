@@ -3,11 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
+use App\Models\Discipline;
+use App\Models\SchoolClass;
 use App\Models\User;
+use App\Services\AcademicRelationshipService;
 use App\Services\InviteManagerService;
 use App\Services\OrganizationMembershipService;
 use App\Services\UserFinderService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class TeacherController extends Controller
@@ -168,7 +172,38 @@ class TeacherController extends Controller
         $teacher = $this->findTeacher($id);
         $membershipStatus = $teacher->organizationMembershipStatus($organizationId);
 
-        return view('institution.teachers.edit', compact('teacher', 'membershipStatus'));
+        $classes = SchoolClass::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->orderBy('name')->get(['id', 'name', 'year']);
+        $students = User::query()->memberOfOrganization($organizationId, 'student')
+            ->orderBy('name')->get(['users.id', 'users.name', 'users.email']);
+        $disciplines = Discipline::withoutGlobalScopes()
+            ->where('organization_id', $organizationId)
+            ->orderBy('name')->get(['id', 'name']);
+        $assignedClassIds = DB::table('class_teacher')
+            ->join('school_classes', 'school_classes.id', '=', 'class_teacher.school_class_id')
+            ->where('class_teacher.user_id', $teacher->id)
+            ->where('school_classes.organization_id', $organizationId)
+            ->pluck('class_teacher.school_class_id')->map(fn ($id) => (int) $id)->all();
+        $assignedStudentIds = DB::table('teacher_student')
+            ->where('organization_id', $organizationId)
+            ->where('teacher_id', $teacher->id)
+            ->pluck('student_id')->map(fn ($id) => (int) $id)->all();
+        $assignedDisciplineIds = DB::table('discipline_teacher')
+            ->where('organization_id', $organizationId)
+            ->where('user_id', $teacher->id)
+            ->pluck('discipline_id')->map(fn ($id) => (int) $id)->all();
+
+        return view('institution.teachers.edit', compact(
+            'teacher',
+            'membershipStatus',
+            'classes',
+            'students',
+            'disciplines',
+            'assignedClassIds',
+            'assignedStudentIds',
+            'assignedDisciplineIds',
+        ));
     }
 
     public function update(Request $request, string $id)
@@ -180,14 +215,34 @@ class TeacherController extends Controller
             'email' => ['prohibited'],
             'password' => ['prohibited'],
             'status' => ['required', 'in:active,inactive'],
+            '_sync_academic_relations' => ['nullable', 'boolean'],
+            'class_ids' => ['nullable', 'array'],
+            'class_ids.*' => ['integer', 'distinct'],
+            'student_ids' => ['nullable', 'array'],
+            'student_ids.*' => ['integer', 'distinct'],
+            'discipline_ids' => ['nullable', 'array'],
+            'discipline_ids.*' => ['integer', 'distinct'],
         ]);
 
-        app(OrganizationMembershipService::class)->setStatus(
-            $teacher,
-            auth()->user()->organization,
-            'teacher',
-            $validated['status'],
-        );
+        DB::transaction(function () use ($teacher, $validated, $request): void {
+            app(OrganizationMembershipService::class)->setStatus(
+                $teacher,
+                auth()->user()->organization,
+                'teacher',
+                $validated['status'],
+            );
+
+            if ($request->boolean('_sync_academic_relations') && $validated['status'] === 'active') {
+                app(AcademicRelationshipService::class)->syncTeacher(
+                    $teacher,
+                    auth()->user()->organization,
+                    $validated['class_ids'] ?? [],
+                    $validated['student_ids'] ?? [],
+                    $validated['discipline_ids'] ?? [],
+                    auth()->user(),
+                );
+            }
+        });
 
         AuditLog::log('updated', User::class, $teacher->id);
 
