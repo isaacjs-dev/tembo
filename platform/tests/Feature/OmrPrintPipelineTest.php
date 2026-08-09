@@ -159,12 +159,47 @@ class OmrPrintPipelineTest extends TestCase
             'h' => 'existing-card',
             'p' => 1,
             'v' => 4,
+            'tpl' => 'legacy-professional',
             'tpl_id' => 5,
             'tpl_v' => 2,
             'g' => [1, 2, 3, 4, 5, 6],
         ], 'preloaded', $exam->organization_id);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $v4['chk']);
         $this->assertTrue($signer->verifyPayload($v4, $exam->organization_id));
+    }
+
+    public function test_qr_contract_rejects_unknown_versions_fields_and_unsigned_downgrades(): void
+    {
+        [$exam] = $this->makeExam();
+        $signer = app(QrCodeSigningService::class);
+        $payload = $signer->buildPayload([
+            'e' => $exam->id,
+            'c' => 10,
+            'h' => 'hash',
+            'p' => 1,
+            'pt' => 1,
+            'qs' => 1,
+            'qe' => 1,
+            'v' => 5,
+            'rpp' => 20,
+            'tpl_id' => 5,
+            'tpl_v' => 2,
+            'g' => [1, 2, 3, 4, 5, 6],
+            'oc' => '2',
+        ], 'preloaded', $exam->organization_id);
+
+        $unknownField = $payload;
+        $unknownField['student_name'] = 'Não deve entrar no QR';
+        $unknownField['chk'] = $signer->signPayload($unknownField, $exam->organization_id);
+        $this->assertFalse($signer->verifyPayload($unknownField, $exam->organization_id));
+
+        $unknownVersion = $payload;
+        $unknownVersion['v'] = 6;
+        $unknownVersion['chk'] = $signer->signPayload($unknownVersion, $exam->organization_id);
+        $this->assertFalse($signer->verifyPayload($unknownVersion, $exam->organization_id));
+
+        $unsignedLegacy = ['e' => $exam->id, 'c' => 10, 'h' => 'hash', 'p' => 1, 'v' => 3, 'tpl_id' => 5, 'tpl_v' => 1];
+        $this->assertFalse($signer->verifyPayload($unsignedLegacy, $exam->organization_id));
     }
 
     public function test_templates_support_twenty_fifty_and_custom_multi_page_limits(): void

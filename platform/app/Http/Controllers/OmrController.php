@@ -9,14 +9,17 @@ use App\Models\Exam;
 use App\Models\ExamCopy;
 use App\Models\OmrAuditLog;
 use App\Models\OmrScan;
+use App\Models\OmrScanPage;
 use App\Models\OmrTemplate;
 use App\Models\User;
 use App\Services\OmrGradingService;
 use App\Services\QrCodeSigningService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OmrController extends Controller
 {
@@ -87,7 +90,13 @@ class OmrController extends Controller
             $file = $request->file('image');
 
             // Generate idempotency key from file hash
-            $idempotencyKey = md5_file($file->getRealPath());
+            $idempotencyKey = implode(':', [
+                'web',
+                $orgId,
+                $request->integer('exam_id'),
+                $request->integer('copy_id'),
+                hash_file('sha256', $file->getRealPath()),
+            ]);
 
             // Duplicata (mesma imagem):
             //  - Já CONFIRMADO → mostra o resultado (bloqueado, não relê).
@@ -95,22 +104,20 @@ class OmrController extends Controller
             //    (evita mostrar uma leitura antiga, ex.: feita antes de uma melhoria do motor).
             $existing = OmrScan::where('idempotency_key', $idempotencyKey)->first();
             if ($existing) {
-                if ($existing->status === 'confirmed') {
-                    DB::rollBack();
+                DB::rollBack();
 
-                    return redirect()->route('institution.omr.review', $existing->id)
-                        ->with('status', 'Este cartão já foi confirmado anteriormente.');
-                }
-                if ($existing->image_path) {
-                    Storage::disk('public')->delete($existing->image_path);
-                }
-                $existing->delete();
+                return redirect()->route('institution.omr.review', $existing->id)
+                    ->with('status', 'Esta imagem já foi recebida. O resultado existente foi preservado.');
             }
 
             // Store image
-            $path = $file->store('omr-scans/'.$orgId, 'public');
+            $path = $file->store('omr-scans/'.$orgId, 'local');
 
-            $exam = Exam::findOrFail($request->exam_id);
+            $exam = Exam::withoutGlobalScopes()
+                ->whereKey($request->integer('exam_id'))
+                ->where('organization_id', $orgId)
+                ->with('questions')
+                ->firstOrFail();
 
             $status = 'pending';
             $detectedAnswers = [];
@@ -125,31 +132,45 @@ class OmrController extends Controller
                 $payload = json_decode($request->omr_payload, true);
                 if ($payload) {
                     $qr = $payload['qrData'] ?? null;
-                    $copy = $request->copy_id ? ExamCopy::find($request->copy_id) : null;
+                    $copy = $request->filled('copy_id')
+                        ? ExamCopy::query()->whereKey($request->integer('copy_id'))->where('exam_id', $exam->id)->firstOrFail()
+                        : null;
 
-                    // QR novo (v3) traz `chk` + `tpl_id`; QR legado (sem esses campos) é tolerado.
-                    if (is_array($qr) && ! empty($qr['chk']) && ! empty($qr['tpl_id'])) {
+                    if ((array_key_exists('qrData', $payload) || $copy) && ! is_array($qr)) {
+                        return $this->rejectScan($path ?? null, 'O QR Code da cópia não pôde ser validado. Faça uma nova leitura do cartão original.');
+                    }
+
+                    // Missing version/signature never enters a permissive legacy fallback.
+                    if (is_array($qr)) {
                         // 1) Assinatura HMAC (anti-adulteração).
                         $signer = app(QrCodeSigningService::class);
-                        if (! $signer->verifyPayload($qr, $orgId)) {
+                        if (! $signer->hasSupportedContract($qr) || ! $signer->verifyPayload($qr, $orgId)) {
                             return $this->rejectScan($path ?? null, 'Cartão inválido: a assinatura do QR Code não confere (possível adulteração ou organização incorreta).');
                         }
                         // 2) Integridade: o cartão pertence a ESTA prova e cópia?
-                        if (! empty($qr['e']) && (int) $qr['e'] !== (int) $exam->id) {
+                        if ((int) $qr['e'] !== (int) $exam->id) {
                             return $this->rejectScan($path ?? null, 'Este cartão pertence a outra avaliação (o QR não confere com a prova selecionada).');
                         }
-                        if ($copy && ! empty($qr['h']) && $qr['h'] !== $copy->validation_hash) {
+                        if (! $copy || (int) $qr['c'] !== (int) $copy->id || ! hash_equals((string) $copy->validation_hash, (string) $qr['h'])) {
                             return $this->rejectScan($path ?? null, 'Este cartão não pertence à cópia identificada (hash de validação não confere).');
                         }
                     }
 
                     // 3) FR-13: vincula a leitura ao TEMPLATE + versão do layout (auditoria/integridade).
                     if (is_array($qr) && ! empty($qr['tpl_id'])) {
-                        $tpl = OmrTemplate::find((int) $qr['tpl_id']);
-                        if ($tpl) {
-                            $omrTemplateId = $tpl->id;
-                            $layoutVersion = (int) ($qr['tpl_v'] ?? $tpl->current_version);
+                        $tpl = OmrTemplate::query()
+                            ->whereKey((int) $qr['tpl_id'])
+                            ->where(function ($query) use ($orgId) {
+                                $query->where('organization_id', $orgId)
+                                    ->orWhere('is_system', true)
+                                    ->orWhere('visibility_scope', 'system');
+                            })
+                            ->first();
+                        if (! $tpl) {
+                            return $this->rejectScan($path ?? null, 'O template indicado pelo QR Code não está disponível nesta organização.');
                         }
+                        $omrTemplateId = $tpl->id;
+                        $layoutVersion = (int) $qr['tpl_v'];
                     }
 
                     $quality = $payload['quality'] ?? ['needs_review' => true, 'confidence' => 0];
@@ -273,6 +294,21 @@ class OmrController extends Controller
             return redirect()->route('institution.omr.review', $scan->id)
                 ->with('status', 'Gabarito lido. Confira as respostas, selecione o aluno e confirme para gerar a nota.');
 
+        } catch (QueryException $e) {
+            DB::rollBack();
+            if (isset($path)) {
+                Storage::disk('local')->delete($path);
+            }
+
+            $existing = isset($idempotencyKey)
+                ? OmrScan::where('idempotency_key', $idempotencyKey)->first()
+                : null;
+            if ($existing) {
+                return redirect()->route('institution.omr.review', $existing->id)
+                    ->with('status', 'Esta imagem já foi recebida. O resultado existente foi preservado.');
+            }
+
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Erro ao salvar scan OMR: '.$e->getMessage(), [
@@ -281,7 +317,7 @@ class OmrController extends Controller
             ]);
 
             if (isset($path)) {
-                Storage::disk('public')->delete($path);
+                Storage::disk('local')->delete($path);
             }
 
             return back()->withErrors(['error' => 'Ocorreu um erro ao processar o scan. Por favor, tente novamente.'])
@@ -294,7 +330,7 @@ class OmrController extends Controller
     {
         DB::rollBack();
         if ($path) {
-            Storage::disk('public')->delete($path);
+            Storage::disk('local')->delete($path);
         }
 
         return back()->withErrors(['error' => $message])->withInput();
@@ -338,6 +374,31 @@ class OmrController extends Controller
         }
 
         return view('omr.review', compact('scan', 'students', 'correctAnswers'));
+    }
+
+    public function image(Request $request, OmrScan $scan, string $variant = 'original'): StreamedResponse
+    {
+        abort_unless((int) $scan->organization_id === (int) $request->user()->organization_id, 404);
+
+        $path = match ($variant) {
+            'warped' => $scan->warped_path,
+            'debug' => $scan->debug_path,
+            default => $scan->image_path,
+        };
+
+        return $this->privateOrHistoricalImage($path);
+    }
+
+    public function pageImage(Request $request, OmrScan $scan, OmrScanPage $page): StreamedResponse
+    {
+        abort_unless(
+            (int) $scan->organization_id === (int) $request->user()->organization_id
+            && (int) $page->organization_id === (int) $scan->organization_id
+            && (string) $page->session_id === (string) $scan->session_id,
+            404
+        );
+
+        return $this->privateOrHistoricalImage($page->image_path);
     }
 
     /**
@@ -461,49 +522,6 @@ class OmrController extends Controller
     }
 
     /**
-     * Store locally processed scan result from OmrEngine TS Core (Upload/Webcam)
-     */
-    public function storeLocal(Request $request)
-    {
-        $orgId = auth()->user()->organization_id;
-
-        $request->validate([
-            'image_path' => 'required',
-            'answers' => 'required|array',
-            'quality' => 'required|array',
-            'confidence_score' => 'required|numeric',
-            'omr_template_id' => 'required|exists:omr_templates,id',
-            'student_id' => 'nullable|exists:users,id',
-        ]);
-
-        $scan = OmrScan::create([
-            'organization_id' => $orgId,
-            'image_path' => $request->image_path,
-            'omr_template_id' => $request->omr_template_id,
-            'student_id' => $request->student_id,
-            'status' => $request->quality['needs_review'] ? 'reviewing' : 'confirmed',
-            'confidence_score' => $request->confidence_score,
-            'detected_answers' => $request->answers,
-            // Add any other stats from the JS engine output if needed
-        ]);
-
-        // Se deu OK, processa as notas (e se tiver aluno mapeado)
-        if ($scan->status === 'confirmed' && $scan->student_id) {
-            $copy = $scan->copy_id ? ExamCopy::find($scan->copy_id) : null;
-            $scoreResult = $this->gradingService->grade($scan, $request->answers, $copy);
-
-            $scan->update([
-                'score' => $scoreResult['score'],
-                'total_points' => $scoreResult['total_points'],
-                'grading_details' => $scoreResult['details'],
-            ]);
-        }
-
-        // Remove old logic processing (replaced by the above)
-        return response()->json(['success' => true, 'scan_id' => $scan->id, 'status' => $scan->status]);
-    }
-
-    /**
      * Update locally processed scan result from OmrEngine TS Core (Drag & Drop Corners)
      */
     public function updateLocal(UpdateOmrScanLocalRequest $request, string $id)
@@ -513,6 +531,7 @@ class OmrController extends Controller
 
         $results = json_decode($request->answers_json, true) ?? [];
         $quality = json_decode($request->quality_json, true) ?? [];
+        abort_unless(is_array($results) && is_array($quality), 422);
 
         // Map results "q" (1-based index) to actual Exam Question ID
         // The Physical Position 'q' corresponds to the index in the ordered_questions of the copy
@@ -530,44 +549,50 @@ class OmrController extends Controller
             }
         }
 
-        $needsReview = $quality['needs_review'] ?? false;
-
         $updateData = [
             'detected_answers' => $mappedAnswers,
-            'status' => $needsReview ? 'reviewing' : 'confirmed',
-            'confidence_score' => 1.0, // Forced by user adjustment
+            // Reprocessing never constitutes the final human confirmation.
+            'status' => 'reviewing',
+            'confidence_score' => max(0, min(1, (float) ($quality['overall_confidence'] ?? 0))),
         ];
 
         if ($request->filled('warped_image')) {
             $imageData = $request->input('warped_image');
-            if (preg_match('/^data:image\/(\w+);base64,/', $imageData, $type)) {
+            if (preg_match('/^data:image\/(png|jpe?g|webp);base64,/', $imageData, $type)) {
                 $imageData = substr($imageData, strpos($imageData, ',') + 1);
-                $type = strtolower($type[1]); // jpg, png, etc
-
-                $decoded = base64_decode($imageData);
-                if ($decoded !== false) {
-                    $filename = 'omr-scans/'.$orgId.'/'.$scan->id.'_warped.'.$type;
-                    Storage::disk('public')->put($filename, $decoded);
+                $decoded = base64_decode($imageData, true);
+                $imageInfo = $decoded !== false ? @getimagesizefromstring($decoded) : false;
+                if ($decoded !== false && $imageInfo !== false) {
+                    $extension = match ($imageInfo['mime'] ?? '') {
+                        'image/png' => 'png',
+                        'image/jpeg' => 'jpg',
+                        'image/webp' => 'webp',
+                        default => null,
+                    };
+                    abort_unless($extension, 422);
+                    $filename = 'omr-scans/'.$orgId.'/'.$scan->id.'_warped.'.$extension;
+                    Storage::disk('local')->put($filename, $decoded);
                     $updateData['warped_path'] = $filename;
                 }
             }
         }
 
+        $previousData = [
+            'detected_answers' => $scan->detected_answers,
+            'status' => $scan->status,
+            'confidence_score' => $scan->confidence_score,
+            'warped_path' => $scan->warped_path,
+        ];
         $scan->update($updateData);
+        OmrAuditLog::create([
+            'omr_scan_id' => $scan->id,
+            'user_id' => auth()->id(),
+            'action' => 'REPROCESSED_FOR_REVIEW',
+            'previous_data' => $previousData,
+            'new_data' => $updateData,
+        ]);
 
-        // Auto grade if confirmed
-        if ($scan->status === 'confirmed' && $scan->student_id) {
-            $copy = $scan->copy_id ? ExamCopy::find($scan->copy_id) : null;
-            $scoreResult = $this->gradingService->grade($scan, $mappedAnswers, $copy);
-
-            $scan->update([
-                'score' => $scoreResult['score'],
-                'total_points' => $scoreResult['total_points'],
-                'grading_details' => $scoreResult['details'],
-            ]);
-        }
-
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'status' => 'reviewing']);
     }
 
     /**
@@ -680,14 +705,28 @@ class OmrController extends Controller
      */
     private function cleanupScanFiles(OmrScan $scan): void
     {
-        if ($scan->image_path) {
-            Storage::disk('public')->delete($scan->image_path);
+        foreach ([$scan->image_path, $scan->warped_path, $scan->debug_path] as $path) {
+            if ($path) {
+                Storage::disk('local')->delete($path);
+                Storage::disk('public')->delete($path);
+            }
         }
-        if ($scan->warped_path) {
-            Storage::disk('public')->delete($scan->warped_path);
+    }
+
+    private function privateOrHistoricalImage(?string $path): StreamedResponse
+    {
+        abort_if(! $path, 404);
+
+        $disk = Storage::disk('local');
+        if (! $disk->exists($path)) {
+            // Compatibility read only: historical scans were stored publicly.
+            $disk = Storage::disk('public');
         }
-        if ($scan->debug_path) {
-            Storage::disk('public')->delete($scan->debug_path);
-        }
+        abort_unless($disk->exists($path), 404);
+
+        return $disk->response($path, basename($path), [
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ], 'inline');
     }
 }

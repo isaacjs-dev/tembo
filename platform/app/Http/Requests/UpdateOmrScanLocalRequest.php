@@ -14,9 +14,14 @@ class UpdateOmrScanLocalRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'answers_json' => 'required|string', // JSON string from frontend
-            'quality_json' => 'required|string', // JSON string from frontend
-            'warped_image' => 'nullable|string', // Base64 string
+            'answers_json' => ['required', 'string', 'json', 'max:200000'],
+            'quality_json' => ['required', 'string', 'json', 'max:100000'],
+            'warped_image' => [
+                'nullable',
+                'string',
+                'max:15000000',
+                'regex:/^data:image\/(?:png|jpe?g|webp);base64,[A-Za-z0-9+\/=\r\n]+$/',
+            ],
         ];
     }
 }

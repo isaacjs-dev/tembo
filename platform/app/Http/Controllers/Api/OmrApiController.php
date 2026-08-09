@@ -10,14 +10,18 @@ use App\Models\ExamCopy;
 use App\Models\OmrScan;
 use App\Models\OmrScanPage;
 use App\Models\User;
+use App\Rules\ActiveOrganizationMember;
 use App\Services\MonthlyUsageService;
 use App\Services\OfflineOmrQrService;
 use App\Services\OmrGradingService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OmrApiController extends Controller
 {
@@ -59,6 +63,7 @@ class OmrApiController extends Controller
 
         $validated = $request->validate([
             'session_id' => 'required|uuid',
+            'idempotency_key' => 'nullable|string|max:190',
             'exam_id' => [
                 'required',
                 'integer',
@@ -76,17 +81,11 @@ class OmrApiController extends Controller
             'student_id' => [
                 'nullable',
                 'integer',
-                Rule::exists('users', 'id')->where(
-                    fn ($query) => $query
-                        ->where('organization_id', $orgId)
-                        ->where('type', 'student')
-                        ->where('status', 'active')
-                        ->whereNull('deleted_at')
-                ),
+                new ActiveOrganizationMember($orgId, 'student'),
             ],
             'page_index' => 'required|integer|min:1|max:20|lte:total_pages',
             'total_pages' => 'required|integer|min:1|max:20',
-            'image' => 'required|image|max:10240',
+            'image' => 'required|image|mimes:jpeg,jpg,png,webp|max:10240',
             'detected_answers' => 'required|json|max:100000',
             'confidences' => 'nullable|json|max:100000',
             'overall_confidence' => 'nullable|numeric|min:0|max:1',
@@ -107,9 +106,16 @@ class OmrApiController extends Controller
             ]);
         }
 
-        $quotaSubject = User::query()->findOrFail(
-            Exam::withoutGlobalScopes()->whereKey($validated['exam_id'])->value('author_id')
-        );
+        $exam = Exam::withoutGlobalScopes()
+            ->whereKey($validated['exam_id'])
+            ->where('organization_id', $orgId)
+            ->with('questions')
+            ->firstOrFail();
+        $copy = ! empty($validated['copy_id'])
+            ? ExamCopy::query()->whereKey($validated['copy_id'])->where('exam_id', $exam->id)->firstOrFail()
+            : null;
+
+        $quotaSubject = User::query()->findOrFail($exam->author_id);
         $quota = $this->monthlyUsage->snapshot($quotaSubject, MonthlyUsageService::OMR_SCANS);
         if ($quota['remaining'] !== null && $quota['remaining'] < 1) {
             throw new QuotaExceededException(MonthlyUsageService::OMR_SCANS, 1, $quota['remaining']);
@@ -126,15 +132,11 @@ class OmrApiController extends Controller
                 ]);
             }
 
-            $exam = Exam::withoutGlobalScopes()
-                ->whereKey($validated['exam_id'])
-                ->where('organization_id', $orgId)
-                ->with('questions')
-                ->firstOrFail();
-            $copy = ExamCopy::query()
-                ->whereKey($validated['copy_id'])
-                ->where('exam_id', $exam->id)
-                ->firstOrFail();
+            if (! $copy) {
+                throw ValidationException::withMessages([
+                    'copy_id' => 'A captura offline exige uma cópia válida desta avaliação.',
+                ]);
+            }
 
             $offlineMetadata = $this->offlineQrService->validatePage(
                 $qrPayload,
@@ -186,40 +188,81 @@ class OmrApiController extends Controller
             }
         }
 
-        // Check if this page was already uploaded for this session
-        $existingPage = OmrScanPage::where('organization_id', $orgId)
-            ->where('uploaded_by', $request->user()->id)
-            ->where('session_id', $validated['session_id'])
-            ->where('page_index', $validated['page_index'])
-            ->first();
+        $uploaderId = (int) $request->user()->id;
+        $idempotencyKey = trim((string) ($validated['idempotency_key'] ?? ''));
+        if ($idempotencyKey === '') {
+            // Backward-compatible deterministic key for old v1/v2 clients.
+            $idempotencyKey = 'session:'.$validated['session_id'].':page:'.$validated['page_index'];
+        }
+        $requestFingerprint = hash('sha256', json_encode($this->canonicalizeFingerprintValue([
+            'exam_id' => (int) $validated['exam_id'],
+            'copy_id' => (int) ($validated['copy_id'] ?? 0),
+            'student_id' => (int) ($validated['student_id'] ?? 0),
+            'session_id' => $validated['session_id'],
+            'page_index' => (int) $validated['page_index'],
+            'total_pages' => (int) $validated['total_pages'],
+            'answers' => $detectedAnswers,
+            'confidences' => $confidences,
+            'qr_payload' => $qrPayload,
+            'image_sha256' => hash_file('sha256', $request->file('image')->getRealPath()),
+        ]), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
 
+        $existingPage = OmrScanPage::query()
+            ->where('organization_id', $orgId)
+            ->where('uploaded_by', $uploaderId)
+            ->where('idempotency_key', $idempotencyKey)
+            ->first();
         if ($existingPage) {
-            return response()->json(['page' => $existingPage, 'duplicate' => true], 200);
+            return $this->duplicatePageResponse($request, $existingPage, $requestFingerprint);
         }
 
-        // Store image
-        $path = $request->file('image')->store('omr-scans/pages/'.$orgId, 'public');
+        // New captures are private; historical public files are served through
+        // the authenticated endpoint for compatibility.
+        $path = $request->file('image')->store('omr-scans/pages/'.$orgId, 'local');
 
-        $page = OmrScanPage::create([
-            'organization_id' => $orgId,
-            'uploaded_by' => $request->user()->id,
-            'session_id' => $validated['session_id'],
-            'exam_id' => $validated['exam_id'],
-            'copy_id' => $validated['copy_id'] ?? null,
-            'student_id' => $validated['student_id'] ?? null,
-            'page_index' => $validated['page_index'],
-            'total_pages' => $validated['total_pages'],
-            'image_path' => $path,
-            'qr_payload' => $qrPayload,
-            'raw_answers' => $detectedAnswers,
-            'raw_confidences' => $confidences,
-            'overall_confidence' => $validated['overall_confidence'] ?? 0,
-            'status' => 'pending',
-        ]);
+        try {
+            $page = DB::transaction(fn () => OmrScanPage::create([
+                'organization_id' => $orgId,
+                'uploaded_by' => $uploaderId,
+                'idempotency_key' => $idempotencyKey,
+                'request_fingerprint' => $requestFingerprint,
+                'session_id' => $validated['session_id'],
+                'exam_id' => $validated['exam_id'],
+                'copy_id' => $validated['copy_id'] ?? null,
+                'student_id' => $validated['student_id'] ?? null,
+                'page_index' => $validated['page_index'],
+                'total_pages' => $validated['total_pages'],
+                'image_path' => $path,
+                'qr_payload' => $qrPayload,
+                'raw_answers' => $detectedAnswers,
+                'raw_confidences' => $confidences,
+                'overall_confidence' => $validated['overall_confidence'] ?? 0,
+                'status' => 'pending',
+            ]));
+        } catch (QueryException $exception) {
+            Storage::disk('local')->delete($path);
+            $existingPage = OmrScanPage::query()
+                ->where('organization_id', $orgId)
+                ->where('uploaded_by', $uploaderId)
+                ->where(function ($query) use ($idempotencyKey, $validated) {
+                    $query->where('idempotency_key', $idempotencyKey)
+                        ->orWhere(function ($pageQuery) use ($validated) {
+                            $pageQuery->where('session_id', $validated['session_id'])
+                                ->where('page_index', $validated['page_index']);
+                        });
+                })
+                ->first();
+
+            if (! $existingPage) {
+                throw $exception;
+            }
+
+            return $this->duplicatePageResponse($request, $existingPage, $requestFingerprint);
+        }
 
         // Check if all pages for this session have been uploaded
         $uploadedPagesCount = OmrScanPage::where('organization_id', $orgId)
-            ->where('uploaded_by', $request->user()->id)
+            ->where('uploaded_by', $uploaderId)
             ->where('session_id', $validated['session_id'])
             ->count();
 
@@ -230,13 +273,83 @@ class OmrApiController extends Controller
         }
 
         return response()->json([
-            'page' => $page,
+            'page' => $this->pagePayload($request, $page),
             'progress' => [
                 'uploaded' => $uploadedPagesCount,
                 'total' => $validated['total_pages'],
                 'is_complete' => $uploadedPagesCount >= $validated['total_pages'],
             ],
         ], 201);
+    }
+
+    public function pageImage(Request $request, OmrScanPage $page): StreamedResponse
+    {
+        abort_unless(
+            (int) $page->organization_id === (int) $request->user()->organization_id,
+            404
+        );
+
+        $disk = Storage::disk('local');
+        if (! $disk->exists($page->image_path)) {
+            $disk = Storage::disk('public');
+        }
+        abort_unless($page->image_path && $disk->exists($page->image_path), 404);
+
+        return $disk->response($page->image_path, basename($page->image_path), [
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ], 'inline');
+    }
+
+    private function duplicatePageResponse(Request $request, OmrScanPage $page, string $requestFingerprint)
+    {
+        if ($page->request_fingerprint && ! hash_equals($page->request_fingerprint, $requestFingerprint)) {
+            return response()->json([
+                'error' => 'A chave de idempotência já foi usada com outro conteúdo.',
+                'code' => 'IDEMPOTENCY_CONFLICT',
+            ], 409);
+        }
+
+        $uploaded = OmrScanPage::query()
+            ->where('organization_id', $page->organization_id)
+            ->where('uploaded_by', $page->uploaded_by)
+            ->where('session_id', $page->session_id)
+            ->count();
+
+        return response()->json([
+            'page' => $this->pagePayload($request, $page),
+            'duplicate' => true,
+            'progress' => [
+                'uploaded' => $uploaded,
+                'total' => $page->total_pages,
+                'is_complete' => $uploaded >= $page->total_pages,
+            ],
+        ], 200);
+    }
+
+    private function pagePayload(Request $request, OmrScanPage $page): array
+    {
+        $version = $request->is('api/v2/*') ? 'v2' : 'v1';
+        $payload = $page->makeHidden(['image_path', 'request_fingerprint'])->toArray();
+        $payload['image_url'] = url("/api/{$version}/omr/scans/pages/{$page->id}/image");
+
+        return $payload;
+    }
+
+    /** Lists keep their order; JSON objects are sorted recursively for stable retries. */
+    private function canonicalizeFingerprintValue(mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        if (array_is_list($value)) {
+            return array_map(fn (mixed $item): mixed => $this->canonicalizeFingerprintValue($item), $value);
+        }
+
+        ksort($value, SORT_STRING);
+
+        return array_map(fn (mixed $item): mixed => $this->canonicalizeFingerprintValue($item), $value);
     }
 
     public function confirm(Request $request, OmrScan $scan)
@@ -251,13 +364,7 @@ class OmrApiController extends Controller
             'student_id' => [
                 'required',
                 'integer',
-                Rule::exists('users', 'id')->where(
-                    fn ($query) => $query
-                        ->where('organization_id', $orgId)
-                        ->where('type', 'student')
-                        ->where('status', 'active')
-                        ->whereNull('deleted_at')
-                ),
+                new ActiveOrganizationMember((int) $orgId, 'student'),
             ],
             'confirmed_answers' => 'required|array',
         ]);

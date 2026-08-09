@@ -44,10 +44,18 @@ export default function ReviewMarksScreen() {
     { length: Math.max(0, (currentScan?.qEnd ?? 0) - (currentScan?.qStart ?? 1) + 1) },
     (_, index) => (currentScan?.qStart ?? 1) + index
   );
-  // Use questions_map from copy if available, otherwise use question IDs in order
-  const orderedQuestionIds = (copy?.questions_map && copy.questions_map.length > 0)
+  // The QR range is global (qs..qe), while oc/g describe only the current
+  // page. Slice the immutable copy order so page-local geometry and option
+  // counts cannot be applied to questions from another page.
+  const fullQuestionOrder = (copy?.questions_map && copy.questions_map.length > 0)
     ? copy.questions_map
     : questions.length > 0 ? questions.map((q) => q.id) : offlineQuestionIds;
+  const pageStart = Math.max(1, currentScan?.qStart ?? 1);
+  const pageEnd = Math.max(pageStart, currentScan?.qEnd ?? fullQuestionOrder.length);
+  const hasCachedQuestionOrder = Boolean(copy?.questions_map?.length) || questions.length > 0;
+  const orderedQuestionIds = hasCachedQuestionOrder
+    ? fullQuestionOrder.slice(pageStart - 1, pageEnd)
+    : fullQuestionOrder;
 
   const getOptionCount = (qId: number) => {
     const encoded = currentScan?.qrOptionCounts?.[orderedQuestionIds.indexOf(qId)];
@@ -76,6 +84,8 @@ export default function ReviewMarksScreen() {
         questionIds: orderedQuestionIds,
         optionCounts,
         layoutVersion: currentScan?.layoutVersion ?? 0,
+        templateVersion: currentScan?.templateVersion,
+        rowsPerPage: currentScan?.rowsPerPage,
         qrGeometry: currentScan?.qrGeometry,
       });
 

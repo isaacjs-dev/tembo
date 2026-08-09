@@ -23,7 +23,13 @@ export interface ScanResult {
   createdAt: string;
   syncedAt: string | null;
   serverScanId: number | null;
-  // New v1 fields
+  /** QR contract version (currently supported: 3, 4 and 5). */
+  qrVersion?: number;
+  /** Versioned OMR template identity, independent from the QR contract. */
+  templateId?: number;
+  templateVersion?: number;
+  rowsPerPage?: number;
+  // Historical name retained for persisted scans; now always mirrors tpl_v.
   layoutVersion?: number;
   pageIndex?: number;
   pageTotal?: number;
@@ -62,8 +68,10 @@ export interface QRPayload {
   pt?: number; // page_total
   qs?: number; // question_start (global sequential)
   qe?: number; // question_end   (global sequential)
-  // v1 fields
-  v?: number;    // layout_version (0 = legacy)
+  // Contract + template fields
+  v?: number;    // QR contract version
+  tpl_id?: number;
+  tpl_v?: number;
   cols?: number; // number of bubble columns
   rpp?: number;  // rows per page (per column)
   chk?: string;  // HMAC checksum (12-char hex)

@@ -138,12 +138,12 @@
                                     <p class="text-xs font-bold text-gray-500 p-1">Folha
                                         {{ $page->page_index }}/{{ $page->total_pages }}
                                     </p>
-                                    <img src="{{ Storage::url($page->image_path) }}" alt="Página"
+                                    <img src="{{ route('institution.omr.pages.image', ['scan' => $scan, 'page' => $page]) }}" alt="Página"
                                         class="w-full object-contain max-h-[600px]" loading="lazy">
                                 </div>
                             @endforeach
                         @else
-                            <img src="{{ Storage::url($scan->image_path) }}" alt="Gabarito" id="original-img"
+                            <img src="{{ route('institution.omr.image', ['scan' => $scan, 'variant' => 'original']) }}" alt="Gabarito" id="original-img"
                                 class="w-full object-contain max-h-[700px]" crossorigin="anonymous">
                         @endif
                     </div>
@@ -197,7 +197,7 @@
                     @endif
 
                     {{-- Tela de Ajuste Manual de Cantos (Drag & Drop) --}}
-                    <div x-show="view==='adjust'" x-data="cornerAdjuster('{{ Storage::url($scan->image_path) }}')"
+                    <div x-show="view==='adjust'" x-data="cornerAdjuster('{{ route('institution.omr.image', ['scan' => $scan, 'variant' => 'original']) }}')"
                         class="border-2 border-accent/40 rounded-xl bg-accent-light mt-2 relative p-2"
                         style="display: none;">
                         <div

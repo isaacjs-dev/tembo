@@ -10,11 +10,14 @@ class PublicStorageController extends Controller
 {
     public function __invoke(string $path): StreamedResponse
     {
-        $segments = explode('/', str_replace('\\', '/', $path));
+        $normalizedPath = str_replace('\\', '/', $path);
+        $segments = explode('/', $normalizedPath);
 
         abort_if(
             $path === ''
             || str_contains($path, "\0")
+            || strtolower($normalizedPath) === 'omr-scans'
+            || str_starts_with(strtolower($normalizedPath), 'omr-scans/')
             || collect($segments)->contains(
                 static fn (string $segment): bool => $segment === ''
                     || $segment === '.'

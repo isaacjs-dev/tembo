@@ -10,6 +10,7 @@ use App\Models\ExamAnswer;
 use App\Models\ExamCopy;
 use App\Models\ExamSubmission;
 use App\Models\OmrScan;
+use App\Models\OmrScanPage;
 use App\Models\Organization;
 use App\Models\Plan;
 use App\Models\PlanFeature;
@@ -325,7 +326,7 @@ class BackendSecurityHardeningTest extends TestCase
 
     public function test_omr_upload_persists_and_consolidates_only_in_authenticated_tenant(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $organization = $this->organization();
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);
@@ -356,6 +357,74 @@ class BackendSecurityHardeningTest extends TestCase
             'session_id' => $sessionId,
             'status' => 'processed',
         ]);
+    }
+
+    public function test_omr_page_upload_is_private_and_idempotent_with_conflict_detection(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+        $organization = $this->organization();
+        $teacher = $this->user($organization, 'teacher');
+        $exam = $this->exam($organization, $teacher);
+        $sessionId = (string) Str::uuid();
+        $image = UploadedFile::fake()->image('page.jpg', 20, 20);
+        $bytes = file_get_contents($image->getRealPath());
+
+        $payload = [
+            'session_id' => $sessionId,
+            'idempotency_key' => 'device-operation-1',
+            'exam_id' => $exam->id,
+            'page_index' => 1,
+            'total_pages' => 2,
+            'detected_answers' => json_encode([]),
+        ];
+
+        Sanctum::actingAs($teacher);
+        $first = $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', $payload + [
+                'image' => UploadedFile::fake()->createWithContent('page.jpg', $bytes),
+            ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonMissingPath('page.image_path');
+
+        $page = OmrScanPage::firstOrFail();
+        Storage::disk('local')->assertExists($page->image_path);
+        Storage::disk('public')->assertMissing($page->image_path);
+        $this->get($first->json('page.image_url'))->assertOk();
+
+        $this->post('/api/v1/omr/scans', $payload + [
+            'image' => UploadedFile::fake()->createWithContent('page.jpg', $bytes),
+        ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('duplicate', true)
+            ->assertJsonPath('page.id', $page->id);
+
+        $orderedPayload = $payload;
+        $orderedPayload['idempotency_key'] = 'device-operation-canonical-json';
+        $orderedPayload['page_index'] = 2;
+        $orderedPayload['detected_answers'] = json_encode(['2' => 1, '1' => 0]);
+        $this->post('/api/v1/omr/scans', $orderedPayload + [
+            'image' => UploadedFile::fake()->createWithContent('page.jpg', $bytes),
+        ], ['Accept' => 'application/json'])->assertCreated();
+
+        $orderedPayload['detected_answers'] = json_encode(['1' => 0, '2' => 1]);
+        $this->post('/api/v1/omr/scans', $orderedPayload + [
+            'image' => UploadedFile::fake()->createWithContent('page.jpg', $bytes),
+        ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('duplicate', true);
+
+        $conflictingPayload = $payload;
+        $conflictingPayload['detected_answers'] = json_encode(['1' => 0]);
+        $this->post('/api/v1/omr/scans', $conflictingPayload + [
+            'image' => UploadedFile::fake()->createWithContent('page.jpg', $bytes),
+        ], ['Accept' => 'application/json'])
+            ->assertConflict()
+            ->assertJsonPath('code', 'IDEMPOTENCY_CONFLICT');
+
+        $foreignTeacher = $this->user($this->organization(), 'teacher');
+        Sanctum::actingAs($foreignTeacher);
+        $this->get($first->json('page.image_url'))->assertNotFound();
     }
 
     public function test_omr_confirm_returns_submission_from_grading_result_contract(): void
@@ -394,7 +463,7 @@ class BackendSecurityHardeningTest extends TestCase
 
     public function test_offline_omr_qr_is_verified_then_mapped_and_corrected_on_server_sync(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $organization = $this->organization();
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);
@@ -441,7 +510,7 @@ class BackendSecurityHardeningTest extends TestCase
 
     public function test_offline_omr_rejects_tampered_qr_before_persisting_capture(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $organization = $this->organization();
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);
@@ -478,7 +547,7 @@ class BackendSecurityHardeningTest extends TestCase
 
     public function test_offline_omr_holds_card_for_review_when_decrypted_key_diverges(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $organization = $this->organization();
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);

@@ -175,16 +175,19 @@ Route::middleware(['auth', 'active_account', 'verified_account', 'password_chang
         Route::post('custom-skills/store', [CustomSkillController::class, 'store'])->name('custom-skills.store');
 
         // OMR
-        Route::prefix('omr')->name('omr.')->group(function () {
+        Route::prefix('omr')->name('omr.')->middleware('omr_api:permission-only')->group(function () {
             Route::get('/', [OmrController::class, 'index'])->name('index');
             Route::post('/batch-update', [OmrController::class, 'batchUpdate'])->name('batchUpdate');
             Route::get('/reports', [OmrController::class, 'reports'])->name('reports');
             Route::get('/upload', [OmrController::class, 'create'])->name('create');
             Route::post('/upload', [OmrController::class, 'store'])->name('store');
+            Route::get('/{scan}/image/{variant?}', [OmrController::class, 'image'])
+                ->where('variant', 'original|warped|debug')
+                ->name('image');
+            Route::get('/{scan}/pages/{page}/image', [OmrController::class, 'pageImage'])->name('pages.image');
             Route::get('/{scan}/review', [OmrController::class, 'review'])->name('review');
             Route::post('/{scan}/confirm', [OmrController::class, 'confirm'])->name('confirm');
             Route::post('/{scan}/reject', [OmrController::class, 'reject'])->name('reject');
-            Route::post('/store-local', [OmrController::class, 'storeLocal'])->name('storeLocal');
             Route::post('/{scan}/update-local', [OmrController::class, 'updateLocal'])->name('updateLocal');
             Route::get('/webscan', [OmrController::class, 'webscan'])->name('webscan');
             Route::get('/debug', [OmrController::class, 'debug'])->name('debug');

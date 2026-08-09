@@ -26,6 +26,7 @@ import { detectFiducials, type FiducialResult } from './fiducial-detector';
 import { computeHomography, warpPerspective, sortCorners } from './homography';
 import { classifyBubble, selectAnswer, extractROI, type QuestionResult } from './bubble-classifier';
 import { getTemplate, type LayoutTemplate } from './template-registry';
+import { isValidRowsPerPage, resolveGrid, resolveGridPosition } from './grid-mapping';
 import type { QuestionOMRResult, BubbleMarkType } from '@/types/scan';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -65,7 +66,12 @@ export interface OMRProcessingResult {
 export interface OMRProcessingOptions {
   questionIds: number[];
   optionCounts: Record<string, number>;   // questionId → number of options
-  layoutVersion?: number;                 // from QR payload
+  /** Historical registry version used only when signed QR geometry is absent. */
+  layoutVersion?: number;
+  /** Version of the persisted template; metadata only when g+rpp are present. */
+  templateVersion?: number;
+  /** Signed rows-per-column value (`rpp`) for this printed page. */
+  rowsPerPage?: number;
   /** Exact v4 layout encoded in the answer-sheet QR. */
   qrGeometry?: number[];
   /** Pixel data of the image (RGBA). If undefined, will be extracted from uri. */
@@ -84,13 +90,17 @@ export async function processOMR(
   imageUri: string,
   options: OMRProcessingOptions
 ): Promise<OMRProcessingResult> {
-  const { questionIds, optionCounts, layoutVersion = 0, qrGeometry } = options;
+  const { questionIds, optionCounts, layoutVersion = 0, templateVersion, rowsPerPage, qrGeometry } = options;
 
   if (!questionIds || questionIds.length === 0) {
     return createEmptyResult([], false);
   }
 
-  const template = getTemplate(layoutVersion);
+  const hasSignedGeometry = isValidQrGeometry(qrGeometry) && isValidRowsPerPage(rowsPerPage);
+  // tpl_v identifies a database snapshot, not a registry layout type. Modern
+  // cards carry their own geometry, so the registry is only a legacy fallback.
+  const template = getTemplate(hasSignedGeometry ? 0 : (templateVersion ?? layoutVersion));
+  const grid = resolveGrid(questionIds.length, template, hasSignedGeometry ? rowsPerPage : undefined);
 
   // ── Step 1: Resize image to working size ───────────────────────────────────
   let workingUri: string;
@@ -198,14 +208,13 @@ export async function processOMR(
   const multipleMarks: Record<string, number[]> = {};
   const flaggedForReview: string[] = [];
 
-  const totalQ = Math.min(questionIds.length, template.numCols * template.rowsPerCol);
+  const totalQ = grid.totalQuestions;
 
   if (activePixels) {
     // Pixel-based processing (preferred)
     for (let i = 0; i < totalQ; i++) {
       const qId = questionIds[i];
-      const col = Math.floor(i / template.rowsPerCol);
-      const row = i % template.rowsPerCol;
+      const { col, row } = resolveGridPosition(i, grid.rowsPerColumn);
       const numOpts = optionCounts[String(qId)] ?? template.maxOptions;
 
       try {
@@ -242,7 +251,15 @@ export async function processOMR(
   } else {
     // Fallback: legacy file-size approach (no pixel data available)
     console.warn('OMR: No pixel data available, falling back to legacy approach');
-    return await legacyFileSizeProcessing(workingUri, questionIds, optionCounts, workingW, workingH);
+    return await legacyFileSizeProcessing(
+      workingUri,
+      questionIds,
+      optionCounts,
+      workingW,
+      workingH,
+      grid.rowsPerColumn,
+      qrGeometry
+    );
   }
 
   const vals = Object.values(confidences).filter((c) => c > 0);
@@ -490,8 +507,6 @@ async function tryGetPixelData(
 // ─── Legacy fallback (file-size heuristic) ───────────────────────────────────
 // Kept as a fallback while pixel access is not yet available.
 
-const GRID_COLS_LEGACY = 4;
-const GRID_ROWS_LEGACY = 15;
 const MAX_OPTIONS_LEGACY = 5;
 const COL_BUBBLES_START_LEGACY = [0.149, 0.408, 0.630, 0.852];
 const COL_BUBBLES_END_LEGACY = [0.310, 0.568, 0.790, 0.935];
@@ -503,7 +518,9 @@ async function legacyFileSizeProcessing(
   questionIds: number[],
   optionCounts: Record<string, number>,
   W: number,
-  H: number
+  H: number,
+  rowsPerColumn: number,
+  qrGeometry?: number[]
 ): Promise<OMRProcessingResult> {
   const answers: Record<string, number | null> = {};
   const confidences: Record<string, number> = {};
@@ -511,18 +528,17 @@ async function legacyFileSizeProcessing(
   const markTypes: Record<string, BubbleMarkType> = {};
   const flaggedForReview: string[] = [];
 
-  const totalQ = Math.min(questionIds.length, GRID_COLS_LEGACY * GRID_ROWS_LEGACY);
+  const totalQ = questionIds.length;
 
   for (let i = 0; i < totalQ; i++) {
     const qId = questionIds[i];
-    const col = Math.floor(i / GRID_ROWS_LEGACY);
-    const row = i % GRID_ROWS_LEGACY;
+    const { col, row } = resolveGridPosition(i, rowsPerColumn);
     const numOpts = optionCounts[String(qId)] || MAX_OPTIONS_LEGACY;
 
     try {
       const sizes = await Promise.all(
         Array.from({ length: numOpts }, (_, opt) =>
-          legacyCropAndMeasure(uri, col, row, opt, numOpts, W, H)
+          legacyCropAndMeasure(uri, col, row, opt, numOpts, W, H, rowsPerColumn, qrGeometry)
         )
       );
 
@@ -559,9 +575,35 @@ async function legacyFileSizeProcessing(
 
 async function legacyCropAndMeasure(
   uri: string,
-  col: number, row: number, opt: number, numOpts: number,
-  imgW: number, imgH: number
+  col: number,
+  row: number,
+  opt: number,
+  numOpts: number,
+  imgW: number,
+  imgH: number,
+  rowsPerColumn: number,
+  qrGeometry?: number[]
 ): Promise<number> {
+  if (isValidQrGeometry(qrGeometry)) {
+    const [startX, startY, colStep, rowStep, bubbleWidth, optionStep] = qrGeometry.map((item) => item / 10000);
+    const bubblePx = Math.max(8, Math.round(bubbleWidth * imgW));
+    const roiSize = Math.max(6, Math.round(bubblePx * 0.58));
+    const centerX = (startX + col * colStep + opt * optionStep) * imgW + bubblePx / 2;
+    const centerY = (startY + row * rowStep) * imgH + bubblePx / 2;
+    const x = Math.max(0, Math.min(imgW - roiSize, Math.round(centerX - roiSize / 2)));
+    const y = Math.max(0, Math.min(imgH - roiSize, Math.round(centerY - roiSize / 2)));
+
+    try {
+      const cropped = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ crop: { originX: x, originY: y, width: roiSize, height: roiSize } }],
+        { format: ImageManipulator.SaveFormat.JPEG, compress: 0.1 }
+      );
+      const info = await FileSystem.getInfoAsync(cropped.uri);
+      if (info.exists && 'size' in info) return info.size;
+    } catch { /* continue with legacy proportional fallback */ }
+  }
+
   const colStart = COL_BUBBLES_START_LEGACY[col] ?? COL_BUBBLES_START_LEGACY[0];
   const colEnd = COL_BUBBLES_END_LEGACY[col] ?? COL_BUBBLES_END_LEGACY[0];
   const bw = (colEnd - colStart) * imgW / numOpts;
@@ -569,7 +611,7 @@ async function legacyCropAndMeasure(
 
   const gridTopPx = GRID_TOP_LEGACY * imgH;
   const gridH = (GRID_BOTTOM_LEGACY - GRID_TOP_LEGACY) * imgH;
-  const rowStep = (0.87 * gridH) / GRID_ROWS_LEGACY;
+  const rowStep = (0.87 * gridH) / rowsPerColumn;
   const cy = gridTopPx + (0.08 * gridH) + (row + 0.5) * rowStep;
 
   const cropW = Math.max(Math.round(bw * 0.75), 8);

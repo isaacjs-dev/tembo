@@ -7,12 +7,26 @@ use App\Models\Organization;
 /**
  * Assina os metadados do QR com HMAC e cifra o gabarito com AES-256-GCM.
  *
- * O formato atual (v4) autentica todos os campos do payload, inclusive geometria,
+ * O formato atual (v5) autentica todos os campos do payload, inclusive geometria,
  * limites de página e contagem de opções. QRs v3 emitidos anteriormente continuam
  * verificáveis pelo contrato legado restrito.
  */
 class QrCodeSigningService
 {
+    /** @var list<int> */
+    private const SUPPORTED_VERSIONS = [3, 4, 5];
+
+    /** @var array<int, list<string>> */
+    private const ALLOWED_FIELDS = [
+        // The v3 signature only covered this exact legacy set. Accepting any
+        // additional field would make unsigned metadata look trustworthy.
+        3 => ['e', 'c', 'h', 'p', 'v', 'tpl_id', 'tpl_v', 'gab_enc', 'chk'],
+        // v4/v5 authenticate the complete canonical payload.
+        // Historical v4 emitters also included the redundant `tpl` slug.
+        4 => ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'rpp', 'cols', 'tpl', 'tpl_id', 'tpl_v', 'g', 'oc', 'gab_enc', 'pts', 'chk'],
+        5 => ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'rpp', 'cols', 'tpl_id', 'tpl_v', 'g', 'oc', 'gab_enc', 'pts', 'chk'],
+    ];
+
     private const HMAC_LENGTH = 32;
 
     private const LEGACY_HMAC_LENGTH = 16;
@@ -95,6 +109,10 @@ class QrCodeSigningService
 
     public function verifyPayload(array $payload, ?int $organizationId): bool
     {
+        if (! $this->hasSupportedContract($payload)) {
+            return false;
+        }
+
         $actual = $payload['chk'] ?? '';
         if (! is_string($actual) || $actual === '') {
             return false;
@@ -116,8 +134,88 @@ class QrCodeSigningService
         }
 
         // Compatibilidade somente para QRs antigos. O emissor atual usa v5.
-        return (int) ($payload['v'] ?? 0) <= 3
+        return (int) $payload['v'] === 3
             && hash_equals($this->legacyPayloadSignature($payload, $organizationId), $actual);
+    }
+
+    /**
+     * Reject unknown versions, unknown fields and structurally incomplete
+     * payloads before signature verification. This prevents a modern QR from
+     * being downgraded into the permissive legacy path.
+     */
+    public function hasSupportedContract(array $payload): bool
+    {
+        $version = filter_var($payload['v'] ?? null, FILTER_VALIDATE_INT);
+        if ($version === false || ! in_array($version, self::SUPPORTED_VERSIONS, true)) {
+            return false;
+        }
+
+        if (array_diff(array_keys($payload), self::ALLOWED_FIELDS[$version]) !== []) {
+            return false;
+        }
+
+        $required = match ($version) {
+            3 => ['e', 'c', 'h', 'p', 'v', 'tpl_id', 'tpl_v', 'chk'],
+            // Early v4 cards did not always carry page ranges/option counts.
+            4 => ['e', 'c', 'h', 'p', 'v', 'tpl_id', 'tpl_v', 'g', 'chk'],
+            5 => ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'rpp', 'tpl_id', 'tpl_v', 'g', 'oc', 'chk'],
+        };
+
+        foreach ($required as $field) {
+            if (! array_key_exists($field, $payload) || $payload[$field] === '' || $payload[$field] === null) {
+                return false;
+            }
+        }
+
+        foreach (['e', 'c', 'p', 'tpl_id', 'tpl_v'] as $field) {
+            if (filter_var($payload[$field], FILTER_VALIDATE_INT) === false || (int) $payload[$field] < 1) {
+                return false;
+            }
+        }
+
+        if (! is_string($payload['h']) || $payload['h'] === '') {
+            return false;
+        }
+
+        if ($version >= 4) {
+            $pageFields = ['pt', 'qs', 'qe', 'rpp'];
+            $presentPageFields = array_filter($pageFields, fn (string $field): bool => array_key_exists($field, $payload));
+            if ($presentPageFields !== [] && count($presentPageFields) !== count($pageFields)) {
+                return false;
+            }
+            foreach ($presentPageFields as $field) {
+                if (filter_var($payload[$field], FILTER_VALIDATE_INT) === false || (int) $payload[$field] < 1) {
+                    return false;
+                }
+            }
+
+            if ($presentPageFields !== [] && ((int) $payload['p'] > (int) $payload['pt'] || (int) $payload['qs'] > (int) $payload['qe'])) {
+                return false;
+            }
+
+            if (! is_array($payload['g']) || count($payload['g']) !== 6) {
+                return false;
+            }
+            foreach ($payload['g'] as $coordinate) {
+                if (! is_int($coordinate) || $coordinate < 0) {
+                    return false;
+                }
+            }
+
+            if (array_key_exists('oc', $payload)) {
+                if (! is_string($payload['oc']) || ! preg_match('/^[0-9]+$/', $payload['oc'])) {
+                    return false;
+                }
+                if ($presentPageFields !== []) {
+                    $questionCount = (int) $payload['qe'] - (int) $payload['qs'] + 1;
+                    if (strlen($payload['oc']) !== $questionCount) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return true;
     }
 
     /** Cifra um vetor de índices em base64(iv|tag|ciphertext). */
