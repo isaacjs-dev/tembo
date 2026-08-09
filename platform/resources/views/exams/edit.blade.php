@@ -276,16 +276,29 @@
                     </div>
                 </div>
 
-                {{-- Classes + Publish (row) --}}
+                {{-- Audience + Publish (row) --}}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {{-- Turmas --}}
+                    {{-- Disciplina e público --}}
                     <div class="card p-6">
                         <h2
                             class="text-lg font-extrabold text-duo-heading mb-4 flex items-center gap-2 border-b-2 border-duo-border pb-3">
-                            <span class="material-symbols-outlined text-secondary">groups</span> Turmas Alvo
+                            <span class="material-symbols-outlined text-secondary">groups</span> Disciplina e público
                         </h2>
-                        <form action="{{ route('exams.syncClasses', $exam->id) }}" method="POST" class="space-y-4">
+                        <form action="{{ route('exams.syncAudience', $exam->id) }}" method="POST" class="space-y-4">
                             @csrf
+                            <div>
+                                <label for="discipline_id" class="input-label">Disciplina (opcional)</label>
+                                <select id="discipline_id" name="discipline_id" class="input-field">
+                                    <option value="">Sem disciplina definida</option>
+                                    @foreach($availableDisciplines as $discipline)
+                                        <option value="{{ $discipline->id }}" @selected((string) old('discipline_id', $exam->discipline_id) === (string) $discipline->id)>
+                                            {{ $discipline->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <fieldset>
+                                <legend class="mb-2 text-sm font-extrabold text-duo-heading">Turmas</legend>
                             <div class="max-h-48 overflow-y-auto space-y-2 pr-2">
                                 @php $assignedClasses = $exam->schoolClasses->pluck('id')->toArray(); @endphp
                                 @forelse($availableClasses as $class)
@@ -300,9 +313,30 @@
                                     <p class="text-gray-500 text-xs text-center italic">Nenhuma turma cadastrada.</p>
                                 @endforelse
                             </div>
+                            </fieldset>
+                            <fieldset>
+                                <legend class="mb-2 text-sm font-extrabold text-duo-heading">Alunos específicos</legend>
+                                <div class="max-h-48 overflow-y-auto space-y-2 pr-2">
+                                    @php $assignedStudents = $exam->students->pluck('id')->toArray(); @endphp
+                                    @forelse($availableStudents as $student)
+                                        <label class="flex items-center gap-3 rounded-lg border-2 border-duo-border p-3 transition-colors hover:border-primary/50 {{ in_array($student->id, $assignedStudents) ? 'border-primary bg-primary/10' : '' }}">
+                                            <input type="checkbox" name="student_ids[]" value="{{ $student->id }}"
+                                                @checked(in_array($student->id, old('student_ids', $assignedStudents)))
+                                                class="size-5 rounded border-gray-300 text-primary focus:ring-primary">
+                                            <span class="min-w-0 text-sm">
+                                                <span class="block truncate font-bold text-gray-800">{{ $student->name }}</span>
+                                                <span class="block truncate text-xs text-gray-500">{{ $student->email }}</span>
+                                            </span>
+                                        </label>
+                                    @empty
+                                        <p class="text-center text-xs italic text-gray-500">Nenhum aluno disponível no seu escopo.</p>
+                                    @endforelse
+                                </div>
+                            </fieldset>
+                            <p class="text-xs text-gray-500">Você pode combinar turmas e alunos ou deixar o público vazio enquanto prepara a avaliação.</p>
                             <button type="submit"
                                 class="w-full btn-secondary py-3 rounded-lg font-bold text-xs uppercase tracking-wider block">
-                                Atualizar Turmas
+                                Atualizar público
                             </button>
                         </form>
                     </div>

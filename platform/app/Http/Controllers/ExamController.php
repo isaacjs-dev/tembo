@@ -14,6 +14,7 @@ use App\Models\SchoolClass;
 use App\Models\User;
 use App\Services\AnswerSheetGeneratorService;
 use App\Services\ConfigPrecedenceResolver;
+use App\Services\ExamAudienceService;
 use App\Services\ExamPrintService;
 use App\Services\MonthlyUsageService;
 use App\Services\RevisionBuilderService;
@@ -31,6 +32,7 @@ class ExamController extends Controller
     {
         $exams = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
+            ->with('discipline:id,name')
             ->withCount('questions')
             ->latest()
             ->paginate(10);
@@ -72,17 +74,28 @@ class ExamController extends Controller
             ->with('status', 'Avaliação criada como rascunho. Adicione questões e revise as regras antes de publicar.');
     }
 
-    public function show(string $id)
+    public function show(string $id, ExamAudienceService $audiences)
     {
         $exam = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
-            ->with(['schoolClasses.students', 'questions'])
+            ->with(['discipline', 'schoolClasses.students', 'students.schoolClasses', 'questions'])
             ->findOrFail($id);
 
         $submissions = ExamSubmission::where('exam_id', $exam->id)
             ->with('user')
             ->get()
             ->keyBy('user_id');
+
+        $audienceStudentIds = collect($audiences->studentIds($exam))
+            ->merge($submissions->keys())
+            ->unique()
+            ->values();
+        $audienceStudents = User::query()
+            ->memberOfOrganization((int) $exam->organization_id, 'student')
+            ->whereIn('users.id', $audienceStudentIds)
+            ->with(['schoolClasses' => fn ($query) => $query->where('school_classes.organization_id', $exam->organization_id)])
+            ->orderBy('name')
+            ->get();
 
         $printSettings = $this->getPrintSettings(auth()->user());
 
@@ -93,26 +106,37 @@ class ExamController extends Controller
             ->orderBy('name')
             ->get();
 
-        return view('exams.show', compact('exam', 'submissions', 'printSettings', 'cardTemplates'));
+        return view('exams.show', compact('exam', 'audienceStudents', 'submissions', 'printSettings', 'cardTemplates'));
     }
 
-    public function edit(string $id)
+    public function edit(string $id, ExamAudienceService $audiences)
     {
         $organization_id = auth()->user()->organization_id;
         $user_id = auth()->id();
 
         $exam = Exam::where('organization_id', $organization_id)
             ->where('author_id', $user_id)
-            ->with(['questions.discipline', 'questions.knowledgeArea', 'schoolClasses'])
+            ->with(['discipline', 'questions.discipline', 'questions.knowledgeArea', 'schoolClasses', 'students'])
             ->findOrFail($id);
 
-        $availableClasses = SchoolClass::where('organization_id', $organization_id)->get();
+        $audienceOptions = $audiences->optionsFor(auth()->user());
+        $availableClasses = $audienceOptions['classes'];
+        $availableStudents = $audienceOptions['students'];
+        $availableDisciplines = $audienceOptions['disciplines'];
         $disciplines = Discipline::with('knowledgeArea')->orderBy('name')->get();
         $knowledgeAreas = KnowledgeArea::orderBy('name')->get();
 
         $printSettings = $this->getPrintSettings(auth()->user());
 
-        return view('exams.edit', compact('exam', 'availableClasses', 'disciplines', 'knowledgeAreas', 'printSettings'));
+        return view('exams.edit', compact(
+            'exam',
+            'availableClasses',
+            'availableStudents',
+            'availableDisciplines',
+            'disciplines',
+            'knowledgeAreas',
+            'printSettings',
+        ));
     }
 
     public function update(Request $request, string $id, MonthlyUsageService $usage, RevisionBuilderService $revisions)
@@ -231,7 +255,33 @@ class ExamController extends Controller
         return redirect()->route('exams.edit', $exam->id)->with('status', 'Questão removida!');
     }
 
-    public function syncClasses(Request $request, string $id)
+    public function syncAudience(Request $request, string $id, ExamAudienceService $audiences)
+    {
+        $exam = Exam::where('organization_id', auth()->user()->organization_id)
+            ->where('author_id', auth()->id())
+            ->findOrFail($id);
+
+        $validated = $request->validate([
+            'discipline_id' => 'nullable|integer',
+            'class_ids' => 'nullable|array',
+            'class_ids.*' => 'integer|distinct',
+            'student_ids' => 'nullable|array',
+            'student_ids.*' => 'integer|distinct',
+        ]);
+
+        $audiences->sync(
+            $exam,
+            $request->user(),
+            isset($validated['discipline_id']) ? (int) $validated['discipline_id'] : null,
+            $validated['class_ids'] ?? [],
+            $validated['student_ids'] ?? [],
+        );
+
+        return redirect()->route('exams.edit', $exam->id)
+            ->with('status', 'Disciplina e público atualizados!');
+    }
+
+    public function syncClasses(Request $request, string $id, ExamAudienceService $audiences)
     {
         $exam = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
@@ -242,20 +292,13 @@ class ExamController extends Controller
             'class_ids.*' => 'integer|distinct',
         ]);
 
-        $classIds = collect($validated['class_ids'] ?? [])->map(fn ($classId) => (int) $classId)->values();
-        $allowedClassIds = SchoolClass::withoutGlobalScopes()
-            ->where('organization_id', $exam->organization_id)
-            ->whereIn('id', $classIds)
-            ->pluck('id')
-            ->map(fn ($classId) => (int) $classId);
-
-        if ($allowedClassIds->count() !== $classIds->count()) {
-            throw ValidationException::withMessages([
-                'class_ids' => 'Uma ou mais turmas não pertencem à instituição desta avaliação.',
-            ]);
-        }
-
-        $exam->schoolClasses()->sync($allowedClassIds->all());
+        $audiences->sync(
+            $exam,
+            $request->user(),
+            $exam->discipline_id ? (int) $exam->discipline_id : null,
+            $validated['class_ids'] ?? [],
+            $exam->students()->pluck('users.id')->all(),
+        );
 
         return redirect()->route('exams.edit', $exam->id)->with('status', 'Turmas atualizadas!');
     }
@@ -804,12 +847,14 @@ class ExamController extends Controller
     public function duplicate(string $id)
     {
         $original = Exam::where('organization_id', auth()->user()->organization_id)
+            ->where('author_id', auth()->id())
             ->with('questions')
             ->findOrFail($id);
 
         $copy = Exam::create([
             'organization_id' => auth()->user()->organization_id,
             'author_id' => auth()->id(),
+            'discipline_id' => $original->discipline_id,
             'title' => $original->title.' (Cópia)',
             'status' => 'draft',
             'access_code' => strtoupper(substr(md5(uniqid()), 0, 4)),

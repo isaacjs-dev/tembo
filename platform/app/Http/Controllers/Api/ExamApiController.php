@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Exam;
 use App\Models\User;
+use App\Services\ExamAudienceService;
 use Illuminate\Http\Request;
 
 class ExamApiController extends Controller
@@ -21,7 +22,7 @@ class ExamApiController extends Controller
             ->whereIn('status', ['published', 'closed'])
             ->when(! $canReadInstitutionExams, fn ($query) => $query->where('author_id', $user->id))
             ->withCount(['questions', 'submissions'])
-            ->with('schoolClasses:id,name')
+            ->with(['discipline:id,name', 'schoolClasses:id,name'])
             ->orderByDesc('updated_at')
             ->get()
             ->map(fn ($exam) => [
@@ -30,6 +31,10 @@ class ExamApiController extends Controller
                 'status' => $exam->status,
                 'questions_count' => $exam->questions_count,
                 'submissions_count' => $exam->submissions_count,
+                'discipline' => $exam->discipline ? [
+                    'id' => $exam->discipline->id,
+                    'name' => $exam->discipline->name,
+                ] : null,
                 'classes' => $exam->schoolClasses->map(fn ($c) => [
                     'id' => $c->id,
                     'name' => $c->name,
@@ -40,7 +45,7 @@ class ExamApiController extends Controller
         return response()->json(['exams' => $exams]);
     }
 
-    public function download(Request $request, Exam $exam)
+    public function download(Request $request, Exam $exam, ExamAudienceService $audiences)
     {
         $user = $request->user();
         $orgId = $user->organization_id;
@@ -53,7 +58,7 @@ class ExamApiController extends Controller
             404
         );
 
-        $exam->load(['questions', 'schoolClasses']);
+        $exam->load(['discipline:id,name', 'questions', 'schoolClasses', 'students']);
 
         // Get all copies for this exam
         $copies = $exam->copies()->get()->map(fn ($copy) => [
@@ -74,11 +79,10 @@ class ExamApiController extends Controller
             'order' => $q->pivot->order ?? 0,
         ]);
 
-        // Students in the classes assigned to this exam
-        $classIds = $exam->schoolClasses->pluck('id');
+        // Direct and class audiences share one deduplicated offline contract.
         $students = User::query()
             ->memberOfOrganization((int) $orgId, 'student')
-            ->whereHas('schoolClasses', fn ($q) => $q->whereIn('school_classes.id', $classIds))
+            ->whereIn('users.id', $audiences->studentIds($exam))
             ->with('studentProfile:id,user_id,registration_number')
             ->orderBy('name')
             ->get()
@@ -94,6 +98,10 @@ class ExamApiController extends Controller
                 'title' => $exam->title,
                 'status' => $exam->status,
                 'settings' => $exam->settings,
+                'discipline' => $exam->discipline ? [
+                    'id' => $exam->discipline->id,
+                    'name' => $exam->discipline->name,
+                ] : null,
             ],
             'copies' => $copies,
             'questions' => $questions,

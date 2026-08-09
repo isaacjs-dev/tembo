@@ -10,6 +10,9 @@
                     <span class="current">Resultados</span>
                 </nav>
                 <h1 class="page-title">Resultados: {{ $exam->title }}</h1>
+                @if($exam->discipline)
+                    <p class="mt-1 text-sm font-semibold text-gray-600">{{ $exam->discipline->name }}</p>
+                @endif
             </div>
             <div class="flex items-center gap-2">
                 @if($exam->access_code)
@@ -34,9 +37,7 @@
         <div class="stat-card">
             <h3 class="text-gray-500 font-bold text-sm mb-1 uppercase tracking-wider">Total de Alunos</h3>
             @php
-                $totalStudents = $exam->schoolClasses->sum(function ($class) {
-                    return $class->students->count();
-                });
+                $totalStudents = $audienceStudents->count();
             @endphp
             <p class="stat-card-value">{{ $totalStudents }}</p>
         </div>
@@ -134,8 +135,7 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y-2 divide-gray-100">
-                    @foreach($exam->schoolClasses as $class)
-                        @foreach($class->students as $student)
+                    @foreach($audienceStudents as $student)
                             @php
                                 $sub = $submissions->get($student->id);
                             @endphp
@@ -147,7 +147,7 @@
                                 <td class="p-4">
                                     <span
                                         class="inline-flex items-center px-2 py-1 rounded-md text-xs font-bold bg-gray-100 text-gray-600 border border-gray-200">
-                                        {{ $class->name }} ({{ $class->year }})
+                                        {{ $student->schoolClasses->pluck('name')->join(', ') ?: 'Aluno específico' }}
                                     </span>
                                 </td>
                                 <td class="p-4">
@@ -189,13 +189,12 @@
                                     @endif
                                 </td>
                             </tr>
-                        @endforeach
                     @endforeach
 
                     @if($totalStudents === 0)
                         <tr>
                             <td colspan="5" class="p-8 text-center text-gray-500 font-medium">
-                                Nenhuma turma vinculada a esta avaliação. Configure as turmas alvo na edição da prova.
+                                Nenhum público vinculado. A avaliação pode permanecer assim enquanto estiver em preparação.
                             </td>
                         </tr>
                     @endif

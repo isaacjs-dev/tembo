@@ -4,6 +4,7 @@ export interface ExamListItem {
   status: string;
   questions_count: number;
   submissions_count: number;
+  discipline?: ExamDiscipline | null;
   classes: { id: number; name: string }[];
   updated_at: string;
 }
@@ -14,11 +15,17 @@ export interface ExamDownload {
     title: string;
     status: string;
     settings: Record<string, unknown>;
+    discipline?: ExamDiscipline | null;
   };
   copies: ExamCopy[];
   questions: QuestionData[];
   students: StudentData[];
   downloaded_at: string;
+}
+
+export interface ExamDiscipline {
+  id: number;
+  name: string;
 }
 
 export interface ExamCopy {

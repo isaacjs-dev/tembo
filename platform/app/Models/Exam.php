@@ -19,6 +19,7 @@ class Exam extends Model
     protected $fillable = [
         'organization_id',
         'author_id',
+        'discipline_id',
         'title',
         'status',
         'access_code',
@@ -53,6 +54,11 @@ class Exam extends Model
         return $this->belongsTo(User::class, 'author_id');
     }
 
+    public function discipline()
+    {
+        return $this->belongsTo(Discipline::class);
+    }
+
     public function questions()
     {
         return $this->belongsToMany(Question::class, 'exam_questions')
@@ -64,6 +70,13 @@ class Exam extends Model
     public function schoolClasses()
     {
         return $this->belongsToMany(SchoolClass::class, 'exam_school_class')
+            ->withTimestamps();
+    }
+
+    public function students()
+    {
+        return $this->belongsToMany(User::class, 'exam_student', 'exam_id', 'student_id')
+            ->withPivot('organization_id', 'assigned_by')
             ->withTimestamps();
     }
 
