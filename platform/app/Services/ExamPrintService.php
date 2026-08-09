@@ -12,6 +12,13 @@ class ExamPrintService
 {
     public const OUTPUT_TYPES = ['exam', 'answer_sheet', 'both', 'answer_key'];
 
+    private readonly QuestionResourceSnapshotService $resourceSnapshots;
+
+    public function __construct(?QuestionResourceSnapshotService $resourceSnapshots = null)
+    {
+        $this->resourceSnapshots = $resourceSnapshots ?? new QuestionResourceSnapshotService;
+    }
+
     /**
      * Gera cópias completas da prova e persiste os mapas de questões e alternativas.
      *
@@ -61,7 +68,11 @@ class ExamPrintService
             $outputType,
         ): Collection {
             $lockedExam = Exam::withoutGlobalScopes()->lockForUpdate()->findOrFail($exam->id);
-            $lockedExam->load(['questions.discipline']);
+            $lockedExam->load([
+                'questions.discipline',
+                'questions.resourceLinks.resource',
+                'questions.resourceLinks.version',
+            ]);
             $questions = $lockedExam->questions;
             if ($questions->isEmpty()) {
                 throw new \RuntimeException('Não é possível gerar uma versão impressa sem questões.');
@@ -185,6 +196,7 @@ class ExamPrintService
             'order' => (int) ($question->pivot->order ?? $index + 1),
             'discipline_id' => $question->discipline_id ? (int) $question->discipline_id : null,
             'discipline_name' => $question->discipline?->name,
+            'resources' => $this->resourceSnapshots->forQuestion($question, true),
         ])->all();
     }
 

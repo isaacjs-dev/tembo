@@ -231,6 +231,10 @@
                                 href="{{ route('questions.index') }}">
                                 <span class="material-symbols-outlined text-[20px]">import_contacts</span> Questões
                             </a>
+                            <a class="sidebar-link {{ request()->routeIs('question-resources.*') ? 'active' : '' }}"
+                                href="{{ route('question-resources.index') }}">
+                                <span class="material-symbols-outlined text-[20px]">collections_bookmark</span> Apoios de questões
+                            </a>
                             <a class="sidebar-link {{ request()->routeIs('exams.*') ? 'active' : '' }}"
                                 href="{{ route('exams.index') }}">
                                 <span class="material-symbols-outlined text-[20px]">assignment</span> Avaliações

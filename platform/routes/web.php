@@ -27,6 +27,7 @@ use App\Http\Controllers\OmrTemplateController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicStorageController;
 use App\Http\Controllers\QuestionController;
+use App\Http\Controllers\QuestionResourceController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RevisionController;
 use App\Http\Controllers\SchoolClassController;
@@ -87,10 +88,14 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
             ->middleware('throttle:30,1')
             ->name('exam.submit');
         Route::get('/exam/{exam}/results', [StudentPortalController::class, 'results'])->name('exam.results');
+        Route::get('/exam/{exam}/resources/{version}', [StudentPortalController::class, 'resource'])
+            ->name('exam.resource');
         Route::get('/revisions', [StudentRevisionController::class, 'index'])->name('revisions.index');
         Route::get('/revisions/{revision}', [StudentRevisionController::class, 'show'])->name('revisions.show');
         Route::post('/revisions/{revision}/start', [StudentRevisionController::class, 'start'])->middleware('throttle:30,1')->name('revisions.start');
         Route::get('/revisions/{revision}/attempts/{attempt}', [StudentRevisionController::class, 'execute'])->name('revisions.execute');
+        Route::get('/revisions/{revision}/attempts/{attempt}/items/{item}/resources/{version}', [StudentRevisionController::class, 'resource'])
+            ->name('revisions.resource');
         Route::post('/revisions/{revision}/attempts/{attempt}/items/{item}', [StudentRevisionController::class, 'answer'])->middleware('throttle:120,1')->name('revisions.answer');
         Route::post('/revisions/{revision}/attempts/{attempt}/complete', [StudentRevisionController::class, 'complete'])->middleware('throttle:30,1')->name('revisions.complete');
         Route::get('/revisions/{revision}/attempts/{attempt}/result', [StudentRevisionController::class, 'result'])->name('revisions.result');
@@ -254,6 +259,11 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
         Route::post('questions/{question}/share', [QuestionController::class, 'storeShare'])->name('questions.storeShare');
         Route::post('questions/{question}/duplicate', [QuestionController::class, 'duplicate'])->name('questions.duplicate');
         Route::resource('questions', QuestionController::class);
+        Route::get('question-resources/{questionResource}/versions/{version}/download', [QuestionResourceController::class, 'download'])
+            ->name('question-resources.versions.download');
+        Route::resource('question-resources', QuestionResourceController::class)
+            ->parameters(['question-resources' => 'questionResource'])
+            ->except(['show']);
 
         Route::resource('exams', ExamController::class);
         Route::patch('exams/{exam}/draft', [ExamController::class, 'autosaveDraft'])->name('exams.autosaveDraft');

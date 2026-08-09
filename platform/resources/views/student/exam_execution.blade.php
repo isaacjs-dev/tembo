@@ -91,6 +91,8 @@
                         </span>
                     </legend>
 
+                    @include('questions.partials.resource-list', ['context' => 'web'])
+
                     <div class="mt-6 md:ml-14">
                         @if($question->type === 'multiple_choice')
                             @php

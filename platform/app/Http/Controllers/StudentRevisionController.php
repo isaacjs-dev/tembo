@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\QuestionResourceVersion;
 use App\Models\Revision;
 use App\Models\RevisionAttempt;
 use App\Models\RevisionItem;
@@ -12,8 +13,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StudentRevisionController extends Controller
 {
@@ -66,6 +69,41 @@ class StudentRevisionController extends Controller
         $attempt->load('responses');
 
         return view('student.revisions.execute', compact('revision', 'attempt'));
+    }
+
+    public function resource(
+        Request $request,
+        Revision $revision,
+        RevisionAttempt $attempt,
+        RevisionItem $item,
+        QuestionResourceVersion $version,
+    ): StreamedResponse {
+        $this->ensureAttempt($request, $revision, $attempt);
+        abort_unless((int) $item->revision_id === (int) $revision->id && $item->is_active, 404);
+
+        $snapshot = collect($item->content['resources'] ?? [])
+            ->first(fn (array $resource): bool => (int) ($resource['resource_version_id'] ?? 0) === (int) $version->id);
+        abort_unless(is_array($snapshot), 404);
+
+        $disk = data_get($snapshot, 'file.storage_disk');
+        $path = data_get($snapshot, 'file.storage_path');
+        $sha256 = data_get($snapshot, 'file.sha256');
+        abort_unless(is_string($disk) && is_string($path), 404);
+        $version->loadMissing('resource');
+        abort_unless($version->resource
+            && (int) $version->resource->id === (int) ($snapshot['resource_id'] ?? 0)
+            && (int) $version->resource->organization_id === (int) $revision->organization_id, 404);
+        abort_unless($version->storage_disk === $disk && $version->storage_path === $path, 404);
+        abort_unless(! $sha256 || hash_equals((string) $sha256, (string) $version->sha256), 404);
+        abort_unless(Storage::disk($disk)->exists($path), 404);
+
+        $inline = str_starts_with((string) $version->mime_type, 'image/');
+
+        return Storage::disk($disk)->response($path, basename($path), [
+            'Content-Type' => $version->mime_type ?: 'application/octet-stream',
+            'Content-Disposition' => ($inline ? 'inline' : 'attachment').'; filename="'.basename($path).'"',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function answer(Request $request, Revision $revision, RevisionAttempt $attempt, RevisionItem $item, RevisionGraderService $grader): JsonResponse|RedirectResponse

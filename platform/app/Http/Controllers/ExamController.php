@@ -783,7 +783,11 @@ class ExamController extends Controller
 
         $exam = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
-            ->with(['questions.discipline'])
+            ->with([
+                'questions.discipline',
+                'questions.resourceLinks.resource',
+                'questions.resourceLinks.version',
+            ])
             ->findOrFail($id);
 
         $pdf = Pdf::loadView('exams.pdf', compact('exam'));
@@ -799,7 +803,12 @@ class ExamController extends Controller
 
         $exam = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
-            ->with(['questions.discipline', 'organization'])
+            ->with([
+                'questions.discipline',
+                'questions.resourceLinks.resource',
+                'questions.resourceLinks.version',
+                'organization',
+            ])
             ->findOrFail($id);
 
         $validated = $request->validate([

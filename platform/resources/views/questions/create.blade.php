@@ -242,6 +242,8 @@
                         placeholder="Digite o texto da questão aqui...">{{ old('statement') }}</textarea>
                 </div>
 
+                @include('questions.partials.resources-card')
+
                 <!-- Section 4: Alternativas (Multiple Choice) -->
                 <div id="multiple_choice_section" role="group" aria-labelledby="multiple-choice-heading"
                     class="space-y-4 p-6 bg-gray-50 border-2 border-duo-border rounded-xl">

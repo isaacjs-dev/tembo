@@ -22,3 +22,12 @@ Each lesson follows the format:
 ## Lessons
 
 <!-- New lessons will be added below this comment by the /learning command -->
+
+### Contagem de progresso em tabelas Markdown
+
+- **Date:** 2026-08-09
+- **Context:** estimativa de progresso do roadmap em `task-master.md` durante `LIB-001`.
+- **What went wrong:** a expressão usada para contar IDs também aceitou a linha separadora `| --- |`, inflando o total em uma tarefa.
+- **Root cause:** o padrão `[A-Z0-9-]+` aceitava uma sequência composta apenas por hífens.
+- **How to avoid:** validar IDs com ao menos uma letra ou número e conferir se `done + pending + in_progress + blocked = total` antes de informar percentuais.
+- **Tags:** roadmap, métricas, markdown, comunicação

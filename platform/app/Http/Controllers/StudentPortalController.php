@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Exam;
 use App\Models\ExamAnswer;
 use App\Models\ExamSubmission;
+use App\Models\QuestionResourceVersion;
 use App\Models\Revision;
 use App\Services\ExamAccessService;
 use App\Services\ExamPresentationService;
@@ -15,9 +16,11 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StudentPortalController extends Controller
 {
@@ -250,6 +253,8 @@ class StudentPortalController extends Controller
             'questions.discipline',
             'questions.customSkills',
             'questions.bnccSkills',
+            'questions.resourceLinks.resource',
+            'questions.resourceLinks.version',
         ]);
 
         $submission = $this->inProgressSubmission($exam, $request);
@@ -390,6 +395,8 @@ class StudentPortalController extends Controller
             'questions.discipline',
             'questions.customSkills',
             'questions.bnccSkills',
+            'questions.resourceLinks.resource',
+            'questions.resourceLinks.version',
         ]);
         $submission = ExamSubmission::query()
             ->with('answers')
@@ -423,6 +430,53 @@ class StudentPortalController extends Controller
             'applicationModeLabel',
             'availability',
         ));
+    }
+
+    public function resource(
+        Request $request,
+        string $id,
+        QuestionResourceVersion $version,
+    ): StreamedResponse {
+        $exam = $this->access->findForStudent($request->user(), $id);
+        $release = $this->access->releaseSettings($exam);
+        $hasReleasedResult = $this->access->resultsCanBeViewed($exam)
+            && $release['show_answers']
+            && ExamSubmission::query()
+                ->where('exam_id', $exam->id)
+                ->where('user_id', $request->user()->id)
+                ->where('status', 'graded')
+                ->exists();
+
+        if (! $hasReleasedResult) {
+            $this->access->ensureCanAccess($exam, $request->user(), $request);
+            abort_unless(ExamSubmission::query()
+                ->where('exam_id', $exam->id)
+                ->where('user_id', $request->user()->id)
+                ->where('status', 'in_progress')
+                ->exists(), 403);
+        }
+
+        $linkedToExam = $exam->questions()
+            ->whereHas('resourceLinks', fn ($query) => $query
+                ->where('question_resource_version_id', $version->id))
+            ->exists();
+
+        abort_unless($linkedToExam, 404);
+        abort_unless($version->storage_disk && $version->storage_path, 404);
+        abort_unless(Storage::disk($version->storage_disk)->exists($version->storage_path), 404);
+
+        $inline = str_starts_with((string) $version->mime_type, 'image/');
+
+        return Storage::disk($version->storage_disk)->response(
+            $version->storage_path,
+            basename($version->storage_path),
+            [
+                'Content-Type' => $version->mime_type ?: 'application/octet-stream',
+                'Content-Disposition' => ($inline ? 'inline' : 'attachment')
+                    .'; filename="'.basename($version->storage_path).'"',
+                'X-Content-Type-Options' => 'nosniff',
+            ],
+        );
     }
 
     /**

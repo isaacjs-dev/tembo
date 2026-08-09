@@ -84,6 +84,13 @@
         .page-break {
             page-break-after: always;
         }
+
+        .question-resources { margin: 8px 0 12px; padding: 8px; border: 1px solid #777; background: #f7f7f7; }
+        .question-resource + .question-resource { margin-top: 8px; border-top: 1px solid #bbb; padding-top: 8px; }
+        .question-resource-title { margin: 0 0 4px; font-weight: bold; }
+        .question-resource-body { margin: 0; white-space: pre-wrap; }
+        .question-resource-image { display: block; max-width: 100%; max-height: 420px; margin: 6px auto; }
+        .question-resource-file, .question-resource-url { margin: 4px 0 0; font-size: 11px; color: #555; }
     </style>
 </head>
 
@@ -109,6 +116,8 @@
                 <span style="font-size: 11px; color: #666; font-weight: normal;">(Valor:
                     {{ number_format($question->pivot->points, 1) }})</span>
             </div>
+
+            @include('questions.partials.resource-list', ['context' => 'pdf'])
 
             @if($question->type === 'multiple_choice')
                 <ul class="options">
