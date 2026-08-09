@@ -7,15 +7,15 @@ Fonte: `ai-docs/PRD.md`. Estados válidos: `pending`, `in_progress`, `done`, `bl
 | BASE-001 | Inventário, auditoria e baseline automatizado | Governança, §4 | — | done | Arquitetura, lacunas e testes registrados |
 | BASE-002 | Checkpoint do worktree e push solicitado | Governança | BASE-001 | done | Commits `509072b` e `9f09471` em `origin/main` |
 | BASE-003 | PRD, matriz e roadmap únicos | §1–§10 | BASE-002 | done | Sem placeholders, requisitos e dependências rastreáveis |
-| IAM-001 | Contexto obrigatório e isolamento fail-closed | IAM-02, IAM-11 | BASE-002 | in_progress | Contexto nulo não expõe dados; testes cross-tenant |
+| IAM-001 | Contexto obrigatório e isolamento fail-closed | IAM-02, IAM-11 | BASE-002 | done | Contexto nulo não expõe dados; testes cross-tenant |
 | IAM-002 | Membership autoritativo e workspace pessoal | IAM-01..06 | IAM-001 | pending | Usuário multi-contexto e professor independente |
 | IAM-003 | Relações acadêmicas tenant-aware | IAM-03, IAM-07 | IAM-002 | pending | Pivôs validados e índices únicos |
 | IAM-004 | Matriz de policies, convites e desvinculação | IAM-05..08, IAM-10..12 | IAM-003 | pending | Papéis não excedem escopo; conta global preservada |
 | IAM-005 | Plano somente pelo proprietário | IAM-09 | IAM-004 | pending | Diretor/coordenador/pedagogo rejeitados |
 | AUD-001 | Auditoria unificada e tenant-aware | IAM-10, IAM-12, REP-04 | IAM-004 | pending | Ator/contexto/before-after/origem e filtros seguros |
-| OMR-P0-001 | Fechar bypass QR/tenant e tornar imagens privadas | QR-01..03, IAM-11, OFF-01 | BASE-002 | in_progress | QR adulterado/tenant externo rejeitado; arquivo autenticado |
-| OMR-P0-002 | Idempotência atômica e recibo determinístico | OMR-07, OFF-02..04 | OMR-P0-001 | pending | Concorrência/retry produz uma página/operação |
-| OMR-P0-003 | Corrigir `v`, `tpl_v`, `rpp`, `qs/qe` e maps Mobile | OMR-01, OMR-06, OMR-10 | OMR-P0-001 | pending | Paridade de fixtures single-page e shuffle |
+| OMR-P0-001 | Fechar bypass QR/tenant e tornar imagens privadas | QR-01..03, IAM-11, OFF-01 | BASE-002 | done | QR adulterado/tenant externo rejeitado; arquivo autenticado |
+| OMR-P0-002 | Idempotência atômica e recibo determinístico | OMR-07, OFF-02..04 | OMR-P0-001 | done | Concorrência/retry produz uma página/operação |
+| OMR-P0-003 | Corrigir `v`, `tpl_v`, `rpp`, `qs/qe` e maps Mobile | OMR-01, OMR-06, OMR-10 | OMR-P0-001 | done | Paridade de fixtures single-page e shuffle |
 | ASM-001 | Disciplina e público por aluno/turma | ASM-04, IAM-07 | IAM-004 | pending | Compatibilidade com códigos/turmas históricos |
 | ASM-002 | Wizard de oito etapas com recuperação | ASM-02, ASM-03 | ASM-001 | pending | Autosave e validação backend por etapa/publicação |
 | ASM-003 | Modalidades, outputs e cópias versionadas | ASM-01, ASM-05..07, ASM-10..11 | ASM-002 | pending | Digital/Avaliação/cartão/ambos/gabarito autorizados |
@@ -59,3 +59,11 @@ Fonte: `ai-docs/PRD.md`. Estados válidos: `pending`, `in_progress`, `done`, `bl
 - Playwright: 6 cenários em Chromium desktop e Pixel 7.
 - Vite build, TypeScript Mobile, Expo Doctor 18/18 e Composer validate aprovados.
 - OMR automatizado não equivale a teste com fotografia real; estado inicial continua não homologado.
+
+## Validação da fase 0
+
+- Relatório: `ai-docs/actual-todo/PHASE_0_SECURITY_OMR_2026-08-08.md`.
+- Laravel: 352 testes, 1.142 asserções.
+- Mobile: 6 testes de contrato/grid, TypeScript e Expo Doctor 18/18.
+- Web: 11 testes JavaScript, build Vite e 6 cenários Playwright.
+- OMR físico e multipágina Mobile continuam nas tarefas `QR-002`, `OMR-001..004` e `OFF-001..003`; não foram declarados homologados nesta fase.
