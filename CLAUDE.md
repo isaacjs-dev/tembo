@@ -117,14 +117,21 @@ For gitignored files you want copied into new worktrees (like `.env.local`), add
 
 ## Project-specific notes
 
-> Fill this in once you adopt the template — it is the first context every
-> `/dev` run reads. Describe what an implementing agent must always know.
-
-- **Stack:** {{frameworks, language, key libraries}}
-- **Backend / database:** {{e.g. Convex, Postgres + Prisma, Supabase}}
-- **Package manager:** {{npm | pnpm | yarn | bun}}. Note: the bundled
-  `.claude/hooks/block-npm-npx.sh` hook assumes **pnpm** and rewrites
-  `npm`/`npx` calls. If you use another package manager, delete that hook
-  file and the `hooks` block in `.claude/settings.json` (see `README.md`).
-- **Conventions:** {{folder layout, naming, validation library, auth pattern,
-  i18n — anything the agents should never have to rediscover}}
+- **Stack Web:** `platform/` é um monólito Laravel 12/PHP 8.2+ com Blade,
+  Alpine.js, Tailwind CSS, Vite e OMR Web em TypeScript/OpenCV.js.
+- **Stack Mobile:** `duoscanner/` usa Expo 52, React Native 0.76 e TypeScript;
+  mantém cache/fila offline em SQLite e credenciais no SecureStore.
+- **Backend / banco:** Laravel é a autoridade de tenancy, autorização, planos,
+  correção oficial e auditoria. A configuração padrão usa SQLite e filas/cache
+  em banco; nunca presuma o banco de produção sem consultar o ambiente.
+- **Autenticação:** sessões Web e Laravel Sanctum 4 para API/Mobile. Toda
+  autorização sensível deve ser validada no backend e no contexto ativo.
+- **Gerenciador de pacotes:** npm em `platform/` e `duoscanner/`. O hook local
+  opcional que redireciona npm para pnpm não é compatível com este projeto e
+  deve ser desabilitado antes de executar comandos npm em sessões Claude.
+- **Testes:** Pest/PHPUnit, Vitest e Playwright na plataforma; TypeScript e Expo
+  Doctor no Mobile. Alterações de contratos compartilhados exigem regressão das
+  duas aplicações.
+- **Convenções:** preserve APIs/QR/templates históricos, use migrations
+  aditivas, trate o worktree como trabalho do usuário e consulte
+  `ai-docs/PRD.md` e `ai-docs/todos/task-master.md` antes de iniciar uma task.
