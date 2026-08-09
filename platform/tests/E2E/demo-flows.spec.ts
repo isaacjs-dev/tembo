@@ -40,6 +40,20 @@ test('professor consulta créditos e gerencia aulas, atividades e revisões', as
     expect(errors).toEqual([]);
 });
 
+test('professor acessa o gerenciador de materiais reutilizáveis', async ({ page }) => {
+    const errors = await login(page, 'teacher@email.com');
+    await page.goto('/question-resources');
+    await expect(page.getByRole('heading', { name: 'Materiais de apoio', exact: true })).toBeVisible();
+    await page.getByRole('link', { name: 'Novo recurso' }).click();
+    await expect(page.getByRole('heading', { name: 'Novo material de apoio' })).toBeVisible();
+    await expect(page.getByLabel('Título')).toBeVisible();
+    await expect(page.getByLabel('Tipo')).toBeVisible();
+    await expect(page.getByLabel('Visibilidade')).toBeVisible();
+    await expect(page.getByLabel(/Arquivo privado/)).toBeVisible();
+    await expectResponsive(page);
+    expect(errors).toEqual([]);
+});
+
 test('professor navega pelo wizard recuperável de oito etapas', async ({ page }) => {
     const errors = await login(page, 'teacher@email.com');
     await page.goto('/exams');

@@ -60,6 +60,9 @@
                         <select id="visibility_scope" name="visibility_scope"
                             class="block w-full px-4 py-3 bg-background-light border-2 border-duo-border rounded-xl text-gray-800 focus:outline-none focus:border-primary focus:ring-0 transition-all font-medium">
                             <option value="private" {{ old('visibility_scope', $question->visibility_scope) == 'private' ? 'selected' : '' }}>Privada (Só eu)</option>
+                            @if(old('visibility_scope', $question->visibility_scope) === 'shared_specific')
+                                <option value="shared_specific" selected>Compartilhada com professores selecionados</option>
+                            @endif
                             <option value="org_public" {{ old('visibility_scope', $question->visibility_scope) == 'org_public' ? 'selected' : '' }}>Pública na Instituição
                             </option>
                         </select>
@@ -241,6 +244,8 @@
                         class="block w-full px-4 py-3 bg-background-light border-2 border-duo-border rounded-xl text-gray-800 focus:outline-none focus:border-primary focus:ring-0 transition-all font-medium"
                         placeholder="Digite o texto da questão aqui...">{{ old('statement', $question->content['statement'] ?? '') }}</textarea>
                 </div>
+
+                @include('questions.partials.resources-card')
 
                 <!-- Section 4: Alternativas (Multiple Choice) -->
                 <div id="multiple_choice_section" role="group" aria-labelledby="multiple-choice-heading"

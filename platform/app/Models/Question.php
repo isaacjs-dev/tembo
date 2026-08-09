@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Question extends Model
@@ -49,6 +51,20 @@ class Question extends Model
     public function shares()
     {
         return $this->hasMany(QuestionShare::class);
+    }
+
+    public function resources(): BelongsToMany
+    {
+        return $this->belongsToMany(QuestionResource::class, 'question_question_resource')
+            ->using(QuestionResourceLink::class)
+            ->withPivot(['id', 'question_resource_version_id', 'is_required', 'sort_order'])
+            ->withTimestamps()
+            ->orderByPivot('sort_order');
+    }
+
+    public function resourceLinks(): HasMany
+    {
+        return $this->hasMany(QuestionResourceLink::class)->orderBy('sort_order');
     }
 
     public function knowledgeArea()

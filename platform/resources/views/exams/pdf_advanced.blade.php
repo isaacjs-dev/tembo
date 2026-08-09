@@ -37,6 +37,12 @@
         .col-wrapper { display: inline-block; width: 32%; vertical-align: top; margin-right: 1%; margin-bottom: 10px; }
         .prof-key { font-size: 16px; margin-bottom: 5px; border-bottom: 1px solid #ccc; padding: 5px; }
         .essay-space { margin-top: 10px; border: 1px solid #ccc; height: 100px; border-radius: 4px; }
+        .question-resources { margin: 8px 0 12px; padding: 8px; border: 1px solid #777; background: #f7f7f7; }
+        .question-resource + .question-resource { margin-top: 8px; border-top: 1px solid #bbb; padding-top: 8px; }
+        .question-resource-title { margin: 0 0 4px; font-weight: bold; }
+        .question-resource-body { margin: 0; white-space: pre-wrap; }
+        .question-resource-image { display: block; max-width: 100%; max-height: 420px; margin: 6px auto; }
+        .question-resource-file, .question-resource-url { margin: 4px 0 0; font-size: 11px; color: #555; }
 
         /* === Cartão-Resposta OMR (posicionamento absoluto = mesma geometria do `g`) === */
         .omr-sheet { position: relative; width: 190mm; height: 255mm; }
@@ -98,6 +104,8 @@
                     <span style="font-size: 10px; color: #666; font-weight: normal;">(Valor: {{ number_format($question->pivot->points, 1) }})</span>
                 @endif
             </div>
+
+            @include('questions.partials.resource-list', ['context' => 'pdf'])
 
             @if($question->type === 'multiple_choice' && $optMap)
                 <ul class="options">

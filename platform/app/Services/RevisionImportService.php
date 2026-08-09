@@ -66,9 +66,11 @@ class RevisionImportService
             }
             $order = (int) ($revision->items()->max('order') ?? -1) + 1;
             foreach ($payload['items'] as $item) {
+                $content = $item['content'] ?? [];
+                unset($content['resources']);
                 $revision->items()->create([
                     'type' => $item['type'], 'order' => $order++, 'difficulty' => $item['difficulty'] ?? 1,
-                    'prompt' => trim($item['prompt']), 'content' => $item['content'] ?? [], 'solution' => $item['solution'],
+                    'prompt' => trim($item['prompt']), 'content' => $content, 'solution' => $item['solution'],
                     'explanation' => $item['explanation'] ?? null, 'hints' => $item['hints'] ?? [],
                     'points' => $item['points'] ?? 1, 'updated_by' => $user->id,
                 ]);

@@ -81,7 +81,11 @@ class RevisionController extends Controller
     public function updateItem(Request $request, Revision $revision, RevisionItem $item, PedagogicalAccessService $access): RedirectResponse
     {
         abort_unless((int) $item->revision_id === (int) $revision->id && $access->canManage($request->user(), $revision->organization_id, $revision->author_id), 403);
-        $item->update([...$this->itemData($request), 'updated_by' => $request->user()->id]);
+        $data = $this->itemData($request);
+        if (! empty($item->content['resources'])) {
+            $data['content']['resources'] = $item->content['resources'];
+        }
+        $item->update([...$data, 'updated_by' => $request->user()->id]);
 
         return back()->with('status', 'Item atualizado. Alunos em andamento verão a nova versão nos itens ainda não respondidos.');
     }
@@ -172,7 +176,10 @@ class RevisionController extends Controller
             'solution_json' => ['required', 'json'], 'explanation' => ['nullable', 'string', 'max:10000'], 'hints_text' => ['nullable', 'string', 'max:5000'], 'difficulty' => ['required', 'integer', 'between:1,5'],
             'points' => ['required', 'numeric', 'min:0', 'max:1000'], 'is_active' => ['nullable', 'boolean']]);
 
-        return ['type' => $data['type'], 'prompt' => $data['prompt'], 'content' => json_decode($data['content_json'] ?: '{}', true), 'solution' => json_decode($data['solution_json'], true),
+        $content = json_decode($data['content_json'] ?: '{}', true);
+        unset($content['resources']);
+
+        return ['type' => $data['type'], 'prompt' => $data['prompt'], 'content' => $content, 'solution' => json_decode($data['solution_json'], true),
             'explanation' => $data['explanation'] ?? null, 'hints' => array_values(array_filter(array_map('trim', preg_split('/\R/', $data['hints_text'] ?? '')))), 'difficulty' => $data['difficulty'],
             'points' => $data['points'], 'is_active' => $request->boolean('is_active')];
     }

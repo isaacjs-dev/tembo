@@ -9,11 +9,13 @@ use App\Models\Question;
 use App\Models\User;
 use App\Rules\ActiveOrganizationMember;
 use App\Services\MonthlyUsageService;
+use App\Services\QuestionResourceService;
 use App\Services\RevisionBuilderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class QuestionController extends Controller
 {
@@ -88,22 +90,31 @@ class QuestionController extends Controller
         return view('questions.index', compact('questions', 'disciplines', 'tab', 'counts', 'myExams'));
     }
 
-    public function create()
+    public function create(QuestionResourceService $resources)
     {
         $organizationId = $this->currentOrganizationId();
         $knowledgeAreas = KnowledgeArea::where('organization_id', $organizationId)->orderBy('name')->get();
         $disciplines = Discipline::where('organization_id', $organizationId)->orderBy('name')->get();
 
-        return view('questions.create', compact('knowledgeAreas', 'disciplines'));
+        $availableResources = $resources->visibleTo(auth()->user())
+            ->with('currentVersion:id,question_resource_id,version_number')
+            ->orderBy('title')
+            ->get();
+
+        return view('questions.create', compact('knowledgeAreas', 'disciplines', 'availableResources'));
     }
 
-    public function store(Request $request, MonthlyUsageService $usage, RevisionBuilderService $revisions)
-    {
+    public function store(
+        Request $request,
+        MonthlyUsageService $usage,
+        RevisionBuilderService $revisions,
+        QuestionResourceService $resources,
+    ) {
         $orgId = $this->currentOrganizationId();
         $validated = $this->validateQuestion($request, $orgId);
         $content = $this->buildQuestionContent($validated);
 
-        $question = DB::transaction(function () use ($validated, $content, $orgId, $usage) {
+        $question = DB::transaction(function () use ($validated, $content, $orgId, $usage, $resources) {
             $question = Question::create([
                 'organization_id' => $orgId,
                 'owner_id' => auth()->id(),
@@ -123,6 +134,7 @@ class QuestionController extends Controller
             if (isset($validated['custom_skills'])) {
                 $question->customSkills()->sync($validated['custom_skills']);
             }
+            $resources->syncQuestion($question, $validated['resource_ids'] ?? [], auth()->user());
 
             $usage->consume(auth()->user(), MonthlyUsageService::QUESTIONS_CREATED, 1, "question:create:{$question->id}", $question, auth()->user());
 
@@ -139,7 +151,7 @@ class QuestionController extends Controller
         return redirect()->route('questions.index')->with('status', 'Questão criada com sucesso!');
     }
 
-    public function edit(string $id)
+    public function edit(string $id, QuestionResourceService $resources)
     {
         $organizationId = $this->currentOrganizationId();
         $question = Question::where('organization_id', $organizationId)
@@ -148,11 +160,19 @@ class QuestionController extends Controller
 
         $knowledgeAreas = KnowledgeArea::where('organization_id', $organizationId)->orderBy('name')->get();
         $disciplines = Discipline::where('organization_id', $organizationId)->orderBy('name')->get();
+        $question->load([
+            'resources:id,title,type',
+            'resourceLinks.resource:id,title,type,status,deleted_at',
+        ]);
+        $availableResources = $resources->visibleTo(auth()->user())
+            ->with('currentVersion:id,question_resource_id,version_number')
+            ->orderBy('title')
+            ->get();
 
-        return view('questions.edit', compact('question', 'knowledgeAreas', 'disciplines'));
+        return view('questions.edit', compact('question', 'knowledgeAreas', 'disciplines', 'availableResources'));
     }
 
-    public function update(Request $request, string $id)
+    public function update(Request $request, string $id, QuestionResourceService $resources)
     {
         $organizationId = $this->currentOrganizationId();
         $question = Question::where('organization_id', $organizationId)
@@ -162,28 +182,23 @@ class QuestionController extends Controller
         $validated = $this->validateQuestion($request, $organizationId);
         $content = $this->buildQuestionContent($validated);
 
-        $question->update([
-            'type' => $validated['type'],
-            'visibility_scope' => $validated['visibility_scope'],
-            'content' => $content,
-            'knowledge_area_id' => $validated['knowledge_area_id'] ?? null,
-            'discipline_id' => $validated['discipline_id'] ?? null,
-            'level' => $validated['level'] ?? null,
-            'stage' => $validated['stage'],
-            'grade' => $validated['grade'],
-        ]);
+        DB::transaction(function () use ($question, $validated, $content, $resources): void {
+            $question->update([
+                'type' => $validated['type'],
+                'visibility_scope' => $validated['visibility_scope'],
+                'content' => $content,
+                'knowledge_area_id' => $validated['knowledge_area_id'] ?? null,
+                'discipline_id' => $validated['discipline_id'] ?? null,
+                'level' => $validated['level'] ?? null,
+                'stage' => $validated['stage'],
+                'grade' => $validated['grade'],
+            ]);
 
-        if (isset($validated['bncc_skills'])) {
-            $question->bnccSkills()->sync($validated['bncc_skills']);
-        } else {
-            $question->bnccSkills()->detach();
-        }
-
-        if (isset($validated['custom_skills'])) {
-            $question->customSkills()->sync($validated['custom_skills']);
-        } else {
-            $question->customSkills()->detach();
-        }
+            $question->bnccSkills()->sync($validated['bncc_skills'] ?? []);
+            $question->customSkills()->sync($validated['custom_skills'] ?? []);
+            $resources->syncQuestion($question, $validated['resource_ids'] ?? [], auth()->user());
+            $resources->assertQuestionLinksCompatible($question, $validated['visibility_scope']);
+        });
 
         return redirect()->route('questions.index')->with('status', 'Questão atualizada com sucesso!');
     }
@@ -211,7 +226,7 @@ class QuestionController extends Controller
         return view('questions.share', compact('question', 'teachers', 'sharedWithIds'));
     }
 
-    public function storeShare(Request $request, string $id)
+    public function storeShare(Request $request, string $id, QuestionResourceService $resources)
     {
         $organizationId = $this->currentOrganizationId();
         $question = Question::where('organization_id', $organizationId)
@@ -223,20 +238,19 @@ class QuestionController extends Controller
             'teacher_ids.*' => ['integer', 'distinct', new ActiveOrganizationMember($organizationId, 'teacher')],
         ]);
 
-        $question->shares()->delete(); // Limpa atuais
+        $teacherIds = collect($validated['teacher_ids'] ?? [])->map(fn ($id) => (int) $id)->unique()->values();
+        $visibility = $teacherIds->isNotEmpty()
+            ? 'shared_specific'
+            : ($question->visibility_scope === 'shared_specific' ? 'private' : $question->visibility_scope);
+        $resources->assertQuestionLinksCompatible($question, $visibility, $teacherIds);
 
-        // Altera o escopo caso defina shares
-        if (! empty($validated['teacher_ids']) && $question->visibility_scope === 'private') {
-            $question->update(['visibility_scope' => 'shared_specific']);
-        }
-
-        if (! empty($validated['teacher_ids'])) {
-            foreach ($validated['teacher_ids'] as $teacherId) {
-                $question->shares()->create([
-                    'shared_with_user_id' => $teacherId,
-                ]);
-            }
-        }
+        DB::transaction(function () use ($question, $teacherIds, $visibility): void {
+            $question->shares()->delete();
+            $question->update(['visibility_scope' => $visibility]);
+            $question->shares()->createMany(
+                $teacherIds->map(fn ($id) => ['shared_with_user_id' => $id])->all()
+            );
+        });
 
         return redirect()->route('questions.index')->with('status', 'Opções de compartilhamento atualizadas!');
     }
@@ -253,7 +267,7 @@ class QuestionController extends Controller
         return redirect()->route('questions.index')->with('status', 'Questão excluída.');
     }
 
-    public function duplicate(string $id, MonthlyUsageService $usage)
+    public function duplicate(string $id, MonthlyUsageService $usage, QuestionResourceService $resources)
     {
         // Pega a questão original (mesmo a organização ou se é pública)
         $organization_id = $this->currentOrganizationId();
@@ -267,8 +281,22 @@ class QuestionController extends Controller
                         $sq->where('shared_with_user_id', $user_id);
                     });
             })
-            ->with(['bnccSkills:id', 'customSkills:id'])
+            ->with(['bnccSkills:id', 'customSkills:id', 'resourceLinks.version'])
             ->findOrFail($id);
+
+        $resourceIds = $original->resourceLinks->pluck('question_resource_id')->unique();
+        if ($resourceIds->isNotEmpty()
+            && $resources->visibleTo(auth()->user())->whereKey($resourceIds)->count() !== $resourceIds->count()) {
+            throw ValidationException::withMessages([
+                'resource_ids' => 'A questão possui material de apoio que não está acessível para duplicação.',
+            ]);
+        }
+        if ($original->resourceLinks->contains(fn ($link): bool => ! $link->version
+            || (int) $link->version->question_resource_id !== (int) $link->question_resource_id)) {
+            throw ValidationException::withMessages([
+                'resource_ids' => 'A questão possui um vínculo histórico de recurso inconsistente.',
+            ]);
+        }
 
         $copy = DB::transaction(function () use ($original, $organization_id, $user_id, $usage) {
             // Preserve every taxonomy column, including fields added in future migrations.
@@ -289,6 +317,13 @@ class QuestionController extends Controller
 
             $copy->bnccSkills()->sync($original->bnccSkills->modelKeys());
             $copy->customSkills()->sync($original->customSkills->modelKeys());
+            foreach ($original->resourceLinks as $link) {
+                $copy->resources()->attach($link->question_resource_id, [
+                    'question_resource_version_id' => $link->question_resource_version_id,
+                    'is_required' => $link->is_required,
+                    'sort_order' => $link->sort_order,
+                ]);
+            }
             $usage->consume(auth()->user(), MonthlyUsageService::QUESTIONS_CREATED, 1, "question:create:{$copy->id}", $copy, auth()->user(), ['source_question_id' => $original->id]);
 
             return $copy;
@@ -304,7 +339,9 @@ class QuestionController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'type' => ['required', 'in:multiple_choice,true_false,essay'],
-            'visibility_scope' => ['required', 'in:private,org_public'],
+            'visibility_scope' => ['required', 'in:private,shared_specific,org_public'],
+            'resource_ids' => ['nullable', 'array', 'max:20'],
+            'resource_ids.*' => ['integer', 'distinct'],
             'statement' => ['required', 'string', 'max:50000'],
             'options' => ['nullable', 'array', 'max:5'],
             'options.*' => ['nullable', 'string', 'max:5000'],

@@ -56,13 +56,22 @@ class RevisionWorkflowTest extends TestCase
         $payload = json_encode([
             'schema_version' => 1,
             'items' => [
-                ['type' => 'multiple_choice', 'prompt' => 'Quanto é 2 + 2?', 'content' => ['options' => ['3', '4']], 'solution' => ['correct_option' => 1]],
+                [
+                    'type' => 'multiple_choice',
+                    'prompt' => 'Quanto é 2 + 2?',
+                    'content' => [
+                        'options' => ['3', '4'],
+                        'resources' => [['resource_version_id' => 999]],
+                    ],
+                    'solution' => ['correct_option' => 1],
+                ],
                 ['type' => 'short_answer', 'prompt' => 'Capital do ES?', 'content' => [], 'solution' => ['accepted_answers' => ['Vitória', 'Vitoria']]],
             ],
         ]);
 
         app(RevisionImportService::class)->import($revision, $this->teacher, $payload);
         $this->assertSame(2, $revision->items()->count());
+        $this->assertArrayNotHasKey('resources', $revision->items()->first()->content);
         $this->assertDatabaseHas('revision_imports', ['revision_id' => $revision->id, 'status' => 'imported', 'items_imported' => 2]);
 
         try {

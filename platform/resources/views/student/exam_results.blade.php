@@ -184,6 +184,8 @@
                             {{ $question->content['statement'] }}
                         </h3>
 
+                        @include('questions.partials.resource-list', ['context' => 'web'])
+
                         <div class="space-y-4">
                             <div class="p-4 bg-gray-50 rounded-xl border-l-4 border-gray-500">
                                 <h4 class="text-sm font-extrabold text-gray-700 mb-2">Sua resposta</h4>

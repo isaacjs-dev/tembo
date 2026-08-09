@@ -14,6 +14,10 @@ use Illuminate\Support\Facades\DB;
 
 class RevisionBuilderService
 {
+    public function __construct(
+        private readonly QuestionResourceSnapshotService $resourceSnapshots,
+    ) {}
+
     public function createDraft(Model $source, User $author, array $classIds = []): Revision
     {
         abort_unless((int) $source->organization_id === (int) $author->organization_id, 403);
@@ -43,7 +47,10 @@ class RevisionBuilderService
     private function seedItems(Revision $revision, Model $source, User $author): void
     {
         if ($source instanceof Exam || $source instanceof Activity) {
-            $source->loadMissing('questions');
+            $source->loadMissing([
+                'questions.resourceLinks.resource',
+                'questions.resourceLinks.version',
+            ]);
             foreach ($source->questions as $index => $question) {
                 $this->addQuestion($revision, $question, $author, $index);
             }
@@ -52,6 +59,10 @@ class RevisionBuilderService
         }
 
         if ($source instanceof Question) {
+            $source->loadMissing([
+                'resourceLinks.resource',
+                'resourceLinks.version',
+            ]);
             $this->addQuestion($revision, $source, $author, 0);
 
             return;
@@ -89,7 +100,10 @@ class RevisionBuilderService
             'type' => $type,
             'order' => $order,
             'prompt' => $content['statement'] ?? 'Questão sem enunciado',
-            'content' => ['options' => $content['options'] ?? []],
+            'content' => [
+                'options' => $content['options'] ?? [],
+                'resources' => $this->resourceSnapshots->forQuestion($question, true),
+            ],
             'solution' => $solution,
             'explanation' => $content['feedback'] ?? null,
             'points' => (float) ($question->pivot?->points ?? 1),

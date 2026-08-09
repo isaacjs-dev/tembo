@@ -9,10 +9,16 @@
                 </nav>
                 <h1 class="page-title">Banco de Questões</h1>
             </div>
+            <div class="flex flex-wrap gap-2">
+            <a href="{{ route('question-resources.index') }}" class="btn-secondary">
+                <span aria-hidden="true" class="material-symbols-outlined">collections_bookmark</span>
+                Materiais de apoio
+            </a>
             <a href="{{ route('questions.create') }}" class="btn-primary">
                 <span aria-hidden="true" class="material-symbols-outlined">add_circle</span>
                 Nova Questão
             </a>
+            </div>
         </div>
     </x-slot>
 
