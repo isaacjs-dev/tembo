@@ -14,6 +14,10 @@
     .canonical-page { color: #111; font-family: "DejaVu Sans", Arial, sans-serif; font-size: 11pt; line-height: 1.42; }
     .canonical-source { color: #777; font-size: 7pt; text-align: right; }
     .canonical-header { border-bottom: 1.5pt solid #111; margin-bottom: 7mm; padding-bottom: 3mm; text-align: center; }
+    .canonical-header-canvas { box-sizing: border-box; overflow: visible; padding: 0; position: relative; text-align: left; }
+    .canonical-canvas-element { box-sizing: border-box; overflow-wrap: anywhere; position: absolute; white-space: normal; }
+    .canonical-canvas-field { border-bottom: 0.6pt dotted #777; }
+    .canonical-canvas-image { object-fit: contain; overflow: hidden; }
     .canonical-header-title { font-size: 18pt; font-weight: 700; margin: 0 0 1.5mm; }
     .canonical-header-text { font-size: 10pt; margin: 0.5mm 0; }
     .canonical-header-fields { border-collapse: collapse; margin-top: 3mm; width: 100%; }

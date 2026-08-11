@@ -217,3 +217,24 @@ test('superadministrador acessa consumo e cortesias sem dados de outro painel', 
     await expectResponsive(page);
     expect(errors).toEqual([]);
 });
+
+test('professor personaliza cabecalho versionado no editor visual', async ({ page }) => {
+    const errors = await login(page, 'teacher@email.com');
+    await page.goto('/appearance-templates');
+    await expect(page.getByRole('heading', { name: /Layouts e cabe/ })).toBeVisible();
+    expect(await page.locator('[data-template-kind="assessment_layout"]').count()).toBeGreaterThanOrEqual(10);
+    expect(await page.locator('[data-template-kind="assessment_header"]').count()).toBeGreaterThanOrEqual(10);
+    await expectResponsive(page);
+
+    const systemHeader = page.locator('[data-template-kind="assessment_header"]').first();
+    await systemHeader.getByRole('button', { name: /Personalizar/ }).click();
+    await expect(page.getByRole('heading', { name: /C.pia de/ })).toBeVisible();
+    await expect(page.getByLabel(/Canvas visual/)).toBeVisible();
+    await page.getByRole('button', { name: 'Campo', exact: true }).click();
+    await expect(page.locator('option[value="student.name"]')).toHaveCount(1);
+    await page.getByLabel(/Resumo da vers/).fill('Campo adicionado pelo teste visual');
+    await page.getByRole('button', { name: /Salvar nova vers/ }).click();
+    await expect(page.getByText(/Vers.o atual 2/)).toBeVisible();
+    await expectResponsive(page);
+    expect(errors).toEqual([]);
+});
