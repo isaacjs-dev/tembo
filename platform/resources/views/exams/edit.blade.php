@@ -708,28 +708,8 @@
                         {{-- ===== PRINT MODE ===== --}}
                         <div x-show="previewMode === 'print'" class="w-full">
 
-                            {{-- Shuffle Controls --}}
-                            <div class="flex flex-wrap items-center gap-3 mb-3 p-2.5 bg-gray-50 border border-gray-200 rounded-xl"
-                                style="font-family: sans-serif;">
-                                <label class="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="checkbox" x-model="previewShuffle.questions" @change="reshuffle()"
-                                        class="rounded border-gray-300 text-primary shadow-sm focus:ring-primary size-4">
-                                    <span class="text-[11px] font-bold text-gray-600">Questões</span>
-                                </label>
-                                <label class="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="checkbox" x-model="previewShuffle.mc" @change="reshuffle()"
-                                        class="rounded border-gray-300 text-primary shadow-sm focus:ring-primary size-4">
-                                    <span class="text-[11px] font-bold text-gray-600">Múlt. Escolha</span>
-                                </label>
-                                <label class="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="checkbox" x-model="previewShuffle.tf" @change="reshuffle()"
-                                        class="rounded border-gray-300 text-primary shadow-sm focus:ring-primary size-4">
-                                    <span class="text-[11px] font-bold text-gray-600">V/F</span>
-                                </label>
-                                <button type="button" @click="reshuffle()"
-                                    class="ml-auto text-[11px] font-bold text-primary hover:underline flex items-center gap-1">
-                                    <span class="material-symbols-outlined text-[14px]">refresh</span> Nova versão
-                                </button>
+                            <div class="mb-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-800">
+                                Esta prévia mostra o conteúdo e a aparência atuais. Embaralhamento e individualização são aplicados somente ao gerar o lote; cada cópia gerada preserva seu próprio snapshot.
                             </div>
 
                             {{-- Print Sub-tabs --}}
@@ -752,7 +732,26 @@
                             </div>
 
                             {{-- === PRINT: PROVA === --}}
-                            <div x-show="printTab === 'exam'"
+                            <div x-show="printTab === 'exam'" class="w-full overflow-hidden rounded-xl border-2 border-gray-300 bg-gray-100 shadow-md">
+                                <div class="flex justify-end border-b border-gray-200 bg-white px-3 py-2">
+                                    <button type="button"
+                                        @click="$refs.canonicalPrintPreview.src = $refs.canonicalPrintPreview.src"
+                                        class="inline-flex min-h-11 items-center gap-1 rounded-lg px-3 text-xs font-extrabold text-primary hover:bg-primary/5">
+                                        <span class="material-symbols-outlined text-base">refresh</span>
+                                        Atualizar preview real
+                                    </button>
+                                </div>
+                                <iframe
+                                    x-ref="canonicalPrintPreview"
+                                    src="{{ route('exams.previewPrint', $exam->id) }}"
+                                    title="Pré-visualização canônica da Avaliação impressa"
+                                    class="h-[70vh] min-h-[560px] w-full bg-white"
+                                    loading="lazy"
+                                    sandbox></iframe>
+                            </div>
+
+                            {{-- Renderizador local legado mantido temporariamente apenas para comparação durante PREV-001. --}}
+                            <div x-show="false"
                                 class="bg-white border-2 border-gray-300 shadow-md p-5 overflow-y-auto max-h-[60vh]"
                                 style="font-family: 'Times New Roman', serif;">
 

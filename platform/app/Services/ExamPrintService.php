@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Exam;
 use App\Models\ExamCopy;
+use App\Models\SchoolClass;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -12,16 +14,22 @@ class ExamPrintService
 {
     public const OUTPUT_TYPES = ['exam', 'answer_sheet', 'both', 'answer_key'];
 
-    private readonly QuestionResourceSnapshotService $resourceSnapshots;
+    private readonly ExamQuestionSnapshotService $questionSnapshots;
 
     private readonly AppearanceTemplateService $appearanceTemplates;
+
+    private readonly AssessmentPrintContextService $printContexts;
 
     public function __construct(
         ?QuestionResourceSnapshotService $resourceSnapshots = null,
         ?AppearanceTemplateService $appearanceTemplates = null,
+        ?ExamQuestionSnapshotService $questionSnapshots = null,
+        ?AssessmentPrintContextService $printContexts = null,
     ) {
-        $this->resourceSnapshots = $resourceSnapshots ?? new QuestionResourceSnapshotService;
+        $resourceSnapshots ??= new QuestionResourceSnapshotService;
+        $this->questionSnapshots = $questionSnapshots ?? new ExamQuestionSnapshotService($resourceSnapshots);
         $this->appearanceTemplates = $appearanceTemplates ?? new AppearanceTemplateService;
+        $this->printContexts = $printContexts ?? new AssessmentPrintContextService;
     }
 
     /**
@@ -74,6 +82,9 @@ class ExamPrintService
         ): Collection {
             $lockedExam = Exam::withoutGlobalScopes()->lockForUpdate()->findOrFail($exam->id);
             $lockedExam->load([
+                'author',
+                'organization',
+                'discipline',
                 'questions.discipline',
                 'questions.resourceLinks.resource',
                 'questions.resourceLinks.version',
@@ -99,7 +110,7 @@ class ExamPrintService
                 $blocks['all'] = $questions->all();
             }
 
-            $snapshot = $this->questionSnapshot($questions);
+            $snapshot = $this->questionSnapshots->fromQuestions($questions);
             $appearanceSnapshot = $this->appearanceTemplates->snapshotForExam(
                 $lockedExam,
                 is_array($options['template_snapshot'] ?? null) ? $options['template_snapshot'] : null,
@@ -117,6 +128,8 @@ class ExamPrintService
 
             $firstCopyNumber = ((int) $lockedExam->copies()->max('copy_number')) + 1;
             $generationUuid = (string) Str::uuid();
+            $students = User::query()->with('studentProfile')->whereIn('id', $studentIds)->get()->keyBy('id');
+            $schoolClass = $schoolClassId ? SchoolClass::query()->find($schoolClassId) : null;
             $copies = [];
 
             for ($offset = 0; $offset < $quantity; $offset++) {
@@ -172,6 +185,14 @@ class ExamPrintService
                     }
                 }
 
+                $copyAppearanceSnapshot = $appearanceSnapshot;
+                $copyAppearanceSnapshot['render_context'] = $this->printContexts->snapshot(
+                    $lockedExam,
+                    $students->get($studentIds[$offset] ?? 0),
+                    $schoolClass,
+                    $copyNumber,
+                );
+
                 $copies[] = ExamCopy::create([
                     'exam_id' => $lockedExam->id,
                     'school_class_id' => $schoolClassId,
@@ -182,7 +203,7 @@ class ExamPrintService
                     'card_template_id' => $options['card_template_id'] ?? null,
                     'card_template_version' => $options['card_template_version'] ?? null,
                     'output_type' => $outputType,
-                    'template_snapshot' => $appearanceSnapshot,
+                    'template_snapshot' => $copyAppearanceSnapshot,
                     'questions_map' => $questionIds,
                     'options_map' => $optionsMap,
                     'question_snapshot' => $snapshot,
@@ -193,21 +214,6 @@ class ExamPrintService
 
             return new Collection($copies);
         }, 3);
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    private function questionSnapshot(Collection $questions): array
-    {
-        return $questions->values()->map(fn ($question, int $index): array => [
-            'id' => (int) $question->id,
-            'type' => (string) $question->type,
-            'content' => $question->content,
-            'points' => (float) ($question->pivot->points ?? 0),
-            'order' => (int) ($question->pivot->order ?? $index + 1),
-            'discipline_id' => $question->discipline_id ? (int) $question->discipline_id : null,
-            'discipline_name' => $question->discipline?->name,
-            'resources' => $this->resourceSnapshots->forQuestion($question, true),
-        ])->all();
     }
 
     /** @param array<int, array<string, mixed>>|null $snapshot */
