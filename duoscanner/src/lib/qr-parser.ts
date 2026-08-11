@@ -5,6 +5,7 @@
  * (`tpl_v`). Unknown versions and fields are rejected before capture.
  */
 import type { QRPayload } from '@/types/scan';
+import { parseCardPageGeometry } from './geometry-contract.ts';
 
 export interface QRPayloadV2 extends QRPayload {
   // v1+ fields for qr_embedded and hybrid modes
@@ -53,6 +54,16 @@ export function parseQRCode(data: string): QRPayloadV2 | null {
       return null;
     }
 
+    const modernGeometry = version >= 4 ? parseCardPageGeometry(parsed) : null;
+    const rawGeometry = version >= 4 ? parseGeometry(parsed.g) : undefined;
+    if (version === 5 && !modernGeometry) return null;
+    if (version === 4) {
+      if (!rawGeometry) return null;
+      const pageFields = ['pt', 'qs', 'qe', 'rpp'].filter((field) => parsed[field] !== undefined);
+      if (pageFields.length !== 0 && pageFields.length !== 4) return null;
+      if (parsed.oc !== undefined && pageFields.length === 4 && !modernGeometry) return null;
+    }
+
     const payload: QRPayloadV2 = {
       e: parsed.e,
       c: parsed.c,
@@ -74,8 +85,8 @@ export function parseQRCode(data: string): QRPayloadV2 | null {
       pts: typeof parsed.pts === 'string' ? parsed.pts : undefined,
       // v4 fields. Geometry is public layout data; the encrypted answer key is
       // intentionally opaque to the device and can only be graded by the API.
-      g: parseGeometry(parsed.g),
-      oc: typeof parsed.oc === 'string' && /^[0-9]+$/.test(parsed.oc) ? parsed.oc : undefined,
+      g: modernGeometry?.g ?? rawGeometry,
+      oc: modernGeometry?.oc ?? (typeof parsed.oc === 'string' && /^[0-9]+$/.test(parsed.oc) ? parsed.oc : undefined),
       gab_enc: typeof parsed.gab_enc === 'string' ? parsed.gab_enc : undefined,
       // Do not rebuild this object before sync: v4 HMAC covers every field,
       // including template identifiers that the scanner does not otherwise use.

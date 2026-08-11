@@ -7,6 +7,12 @@ import jsQR from 'jsqr';
 import Sortable from 'sortablejs';
 import { OmrBrowserEngine, OmrEngine } from './omr-core/index';
 import { appearanceEditor } from './appearance-editor';
+import {
+    parseCardPageGeometry,
+    resolveCardPageGeometry,
+    resolvePageLocalGridPosition,
+    questionsForCardPage,
+} from './omr-core/geometry-contract';
 
 let chartPromise;
 let konvaPromise;
@@ -49,5 +55,11 @@ window.Sortable = Sortable;
 window.OmrEngine = OmrEngine;
 window.OmrBrowserEngine = OmrBrowserEngine;
 window.appearanceEditor = appearanceEditor;
+window.omrGeometry = {
+    parse: parseCardPageGeometry,
+    resolve: resolveCardPageGeometry,
+    position: resolvePageLocalGridPosition,
+    questions: questionsForCardPage,
+};
 
 Alpine.start();

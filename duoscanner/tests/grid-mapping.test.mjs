@@ -2,13 +2,47 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { resolveGrid, resolveGridPosition } from '../src/lib/grid-mapping.ts';
-import { parseQRCode } from '../src/lib/qr-parser.ts';
+import { canCaptureOffline, parseQRCode } from '../src/lib/qr-parser.ts';
 import { gradeAnswers } from '../src/lib/grading.ts';
 import { individualizedStudent } from '../src/lib/exam-copy.ts';
+import {
+  parseCardPageGeometry,
+  resolveCardPageGeometryPixels,
+  resolvePageLocalGridPosition,
+} from '../src/lib/geometry-contract.ts';
+import { readFileSync } from 'node:fs';
 import {
   mapQuestionValuesToPrintedPositions,
   mapVisualAnswersToOriginalOptions,
 } from '../src/lib/answer-mapping.ts';
+
+const geometryFixture = JSON.parse(readFileSync(
+  new URL('../../contracts/omr/card-page-geometry.v1.json', import.meta.url),
+  'utf8'
+));
+
+test('matches all PHP card-page geometry golden vectors', () => {
+  for (const fixture of geometryFixture.cases) {
+    const contract = parseCardPageGeometry({
+      g: fixture.expected.g,
+      rpp: fixture.expected.rpp,
+      qs: fixture.q_start,
+      qe: fixture.expected.q_end,
+      oc: fixture.option_counts,
+      tpl_id: fixture.template_id,
+      tpl_v: fixture.template_version,
+    });
+
+    assert.ok(contract, fixture.name);
+    assert.deepEqual(
+      resolvePageLocalGridPosition(fixture.q_start, fixture.q_start, contract.rpp),
+      { column: 0, row: 0 }
+    );
+    const pixels = resolveCardPageGeometryPixels(contract.g, 1000, 1000);
+    assert.ok(Math.abs(pixels.startX - (fixture.expected.g[0] / 10)) < 1e-9);
+    assert.ok(Math.abs(pixels.bubbleWidth - (fixture.expected.g[4] / 10)) < 1e-9);
+  }
+});
 
 test('uses signed rpp instead of the legacy registry capacity', () => {
   const grid = resolveGrid(40, { numCols: 4, rowsPerCol: 15 }, 20);
@@ -49,6 +83,26 @@ test('keeps the historical signed v4 template slug compatible', () => {
   assert.equal(qr?.signedPayload?.tpl, 'legacy-professional');
 });
 
+test('keeps an early v4 QR readable but not eligible for offline capture', () => {
+  const qr = parseQRCode(JSON.stringify({
+    e: 10,
+    c: 20,
+    h: 'legacy-hash',
+    p: 1,
+    v: 4,
+    tpl: 'legacy-professional',
+    tpl_id: 5,
+    tpl_v: 2,
+    g: [1, 2, 3, 4, 5, 6],
+    chk: 'signed-value',
+  }));
+
+  assert.equal(qr?.v, 4);
+  assert.equal(qr?.qs, undefined);
+  assert.equal(qr?.g?.length, 6);
+  assert.equal(canCaptureOffline(qr), false);
+});
+
 test('rejects unknown fields in the current v5 contract', () => {
   const qr = parseQRCode(JSON.stringify({
     e: 10,
@@ -69,6 +123,30 @@ test('rejects unknown fields in the current v5 contract', () => {
   }));
 
   assert.equal(qr, null);
+});
+
+test('rejects modern QR contracts with absent or out-of-frame geometry', () => {
+  const base = {
+    e: 10,
+    c: 20,
+    h: 'hash',
+    p: 1,
+    pt: 1,
+    qs: 1,
+    qe: 2,
+    v: 5,
+    rpp: 20,
+    tpl_id: 5,
+    tpl_v: 2,
+    oc: '55',
+    chk: 'signed-value',
+  };
+
+  assert.equal(parseQRCode(JSON.stringify(base)), null);
+  assert.equal(parseQRCode(JSON.stringify({
+    ...base,
+    g: [9900, 1000, 5000, 500, 300, 400],
+  })), null);
 });
 
 test('maps shuffled visual alternatives back to authoritative option indexes', () => {

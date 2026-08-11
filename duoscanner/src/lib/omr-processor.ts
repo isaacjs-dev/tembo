@@ -27,6 +27,7 @@ import { computeHomography, warpPerspective, sortCorners } from './homography';
 import { classifyBubble, selectAnswer, extractROI, type QuestionResult } from './bubble-classifier';
 import { getTemplate, type LayoutTemplate } from './template-registry';
 import { isValidRowsPerPage, resolveGrid, resolveGridPosition } from './grid-mapping';
+import { isValidGeometryVector, resolveCardPageGeometryPixels } from './geometry-contract';
 import type { QuestionOMRResult, BubbleMarkType } from '@/types/scan';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -74,6 +75,8 @@ export interface OMRProcessingOptions {
   rowsPerPage?: number;
   /** Exact v4 layout encoded in the answer-sheet QR. */
   qrGeometry?: number[];
+  /** QR transport contract version; modern contracts must never use legacy geometry. */
+  qrVersion?: number;
   /** Pixel data of the image (RGBA). If undefined, will be extracted from uri. */
   pixelData?: { data: Uint8ClampedArray; width: number; height: number };
 }
@@ -90,16 +93,19 @@ export async function processOMR(
   imageUri: string,
   options: OMRProcessingOptions
 ): Promise<OMRProcessingResult> {
-  const { questionIds, optionCounts, layoutVersion = 0, templateVersion, rowsPerPage, qrGeometry } = options;
+  const { questionIds, optionCounts, layoutVersion = 0, rowsPerPage, qrGeometry, qrVersion } = options;
 
   if (!questionIds || questionIds.length === 0) {
     return createEmptyResult([], false);
   }
 
   const hasSignedGeometry = isValidQrGeometry(qrGeometry) && isValidRowsPerPage(rowsPerPage);
+  if ((qrVersion === 4 || qrVersion === 5) && !hasSignedGeometry) {
+    return createEmptyResult(questionIds, false);
+  }
   // tpl_v identifies a database snapshot, not a registry layout type. Modern
   // cards carry their own geometry, so the registry is only a legacy fallback.
-  const template = getTemplate(hasSignedGeometry ? 0 : (templateVersion ?? layoutVersion));
+  const template = getTemplate(hasSignedGeometry ? 0 : layoutVersion);
   const grid = resolveGrid(questionIds.length, template, hasSignedGeometry ? rowsPerPage : undefined);
 
   // ── Step 1: Resize image to working size ───────────────────────────────────
@@ -285,13 +291,7 @@ export async function processOMR(
 }
 
 function isValidQrGeometry(value: number[] | undefined): value is number[] {
-  return Array.isArray(value)
-    && value.length === 6
-    && value.every((item) => Number.isFinite(item) && item >= 0)
-    && value[2] > 0
-    && value[3] > 0
-    && value[4] > 0
-    && value[5] > 0;
+  return isValidGeometryVector(value);
 }
 
 /**
@@ -308,13 +308,13 @@ function readQuestionFromQrGeometry(
   row: number,
   numOpts: number
 ): QuestionOMRResult & { markType: BubbleMarkType; multipleOptions?: number[] } {
-  const [startX, startY, colStep, rowStep, bubbleWidth, optionStep] = geometry.map((item) => item / 10000);
-  const bubblePx = Math.max(8, Math.round(bubbleWidth * imgW));
-  const centerY = (startY + row * rowStep) * imgH + bubblePx / 2;
+  const resolved = resolveCardPageGeometryPixels(geometry, imgW, imgH);
+  const bubblePx = Math.max(8, Math.round(resolved.bubbleWidth));
+  const centerY = resolved.startY + row * resolved.rowStep + bubblePx / 2;
   const classifications = [];
 
   for (let opt = 0; opt < numOpts; opt++) {
-    const centerX = (startX + col * colStep + opt * optionStep) * imgW + bubblePx / 2;
+    const centerX = resolved.startX + col * resolved.columnStep + opt * resolved.optionStep + bubblePx / 2;
     // Read only the centre of the bubble: the printed ring and letter should
     // not be mistaken for a filled response.
     const roiSize = Math.max(6, Math.round(bubblePx * 0.58));
@@ -585,11 +585,11 @@ async function legacyCropAndMeasure(
   qrGeometry?: number[]
 ): Promise<number> {
   if (isValidQrGeometry(qrGeometry)) {
-    const [startX, startY, colStep, rowStep, bubbleWidth, optionStep] = qrGeometry.map((item) => item / 10000);
-    const bubblePx = Math.max(8, Math.round(bubbleWidth * imgW));
+    const resolved = resolveCardPageGeometryPixels(qrGeometry, imgW, imgH);
+    const bubblePx = Math.max(8, Math.round(resolved.bubbleWidth));
     const roiSize = Math.max(6, Math.round(bubblePx * 0.58));
-    const centerX = (startX + col * colStep + opt * optionStep) * imgW + bubblePx / 2;
-    const centerY = (startY + row * rowStep) * imgH + bubblePx / 2;
+    const centerX = resolved.startX + col * resolved.columnStep + opt * resolved.optionStep + bubblePx / 2;
+    const centerY = resolved.startY + row * resolved.rowStep + bubblePx / 2;
     const x = Math.max(0, Math.min(imgW - roiSize, Math.round(centerX - roiSize / 2)));
     const y = Math.max(0, Math.min(imgH - roiSize, Math.round(centerY - roiSize / 2)));
 

@@ -132,7 +132,16 @@ describe('OmrEngine Unit Tests', () => {
                 questions: [
                     { id: 1, question_number: 1, type: 'multiple_choice', option_labels_json: ['A', 'B'] }
                 ],
-                layout_meta: { g: [1000, 1000, 2000, 500, 200, 280], rpp: 15 } // Proportions scaled to 10000
+                layout_meta: {
+                    v: 5,
+                    g: [1000, 1000, 2000, 500, 200, 280],
+                    rpp: 15,
+                    qs: 1,
+                    qe: 1,
+                    oc: '2',
+                    tpl_id: 1,
+                    tpl_v: 1,
+                } // Proportions scaled to 10000
             } as any;
 
             // Intercept countNonZero
@@ -163,7 +172,16 @@ describe('OmrEngine Unit Tests', () => {
         it('should classify as UNCERTAIN if non-zero count is within uncertainty threshold', () => {
              const template = {
                 questions: [{ question_number: 1, option_labels_json: ['A'] }],
-                layout_meta: { g: [1000, 1000, 2000, 500, 200, 280], rpp: 15 }
+                layout_meta: {
+                    v: 5,
+                    g: [1000, 1000, 2000, 500, 200, 280],
+                    rpp: 15,
+                    qs: 1,
+                    qe: 1,
+                    oc: '1',
+                    tpl_id: 1,
+                    tpl_v: 1,
+                }
             } as any;
 
             // 59 / 196 ~= 0.30 -> > 0.25 and < 0.40
@@ -174,6 +192,32 @@ describe('OmrEngine Unit Tests', () => {
             
             expect(results[0].status).toBe('UNCERTAIN');
             expect(results[0].selected).toBe('A'); // the best guess, even if uncertain
+        });
+
+        it('filters a global template to the signed second-page range', () => {
+            const template = {
+                questions: Array.from({ length: 48 }, (_, index) => ({
+                    question_number: index + 1,
+                    option_labels_json: ['A'],
+                })),
+                layout_meta: {
+                    v: 5,
+                    g: [645, 606, 5000, 606, 226, 306],
+                    rpp: 15,
+                    qs: 31,
+                    qe: 48,
+                    oc: '111111111111111111',
+                    tpl_id: 20,
+                    tpl_v: 7,
+                },
+            } as any;
+            global.cv.countNonZero = vi.fn().mockReturnValue(0);
+
+            const results = engine.readBubbles(new global.cv.Mat(), template, null);
+
+            expect(results).toHaveLength(18);
+            expect(results[0].q).toBe(31);
+            expect(results.at(-1)?.q).toBe(48);
         });
     });
 });
