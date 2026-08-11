@@ -4,12 +4,14 @@ namespace App\Services;
 
 use App\Models\SchoolClass;
 use App\Models\User;
-use App\Models\UserOrganization;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class PedagogicalAccessService
 {
+    public function __construct(private readonly InstitutionPermissionService $permissions) {}
+
     public function classesFor(User $user): Collection
     {
         return SchoolClass::query()
@@ -38,34 +40,46 @@ class PedagogicalAccessService
 
     public function canManage(User $user, int $organizationId, int $authorId): bool
     {
-        if ($user->type === 'global_admin') {
-            return true;
-        }
-
         if ((int) $user->organization_id !== $organizationId) {
             return false;
         }
 
-        return $user->hasWorkspaceRole('admin', 'institution_admin') || (int) $user->id === $authorId;
+        return (int) $user->id === $authorId
+            || $this->permissions->allows($user, 'manage_pedagogical_content', $organizationId);
+    }
+
+    public function canCreate(User $user, int $organizationId): bool
+    {
+        return (int) $user->organization_id === $organizationId
+            && $this->permissions->allows($user, 'manage_pedagogical_content', $organizationId);
+    }
+
+    public function canView(User $user, int $organizationId): bool
+    {
+        return (int) $user->organization_id === $organizationId
+            && $this->permissions->allows($user, 'view_pedagogical_content', $organizationId);
+    }
+
+    public function shouldScopeToAuthor(User $user, int $organizationId): bool
+    {
+        if ($user->roleInOrganization($organizationId) !== 'teacher') {
+            return false;
+        }
+
+        return ! DB::table('user_organization')
+            ->where('user_id', $user->id)
+            ->where('organization_id', $organizationId)
+            ->where('status', 'active')
+            ->whereNotNull('institution_role_id')
+            ->exists();
     }
 
     public function canReview(User $user, int $organizationId): bool
     {
-        if ($user->type === 'global_admin') {
-            return true;
-        }
         if ((int) $user->organization_id !== $organizationId) {
             return false;
         }
-        if ($user->hasWorkspaceRole('admin', 'institution_admin')) {
-            return true;
-        }
 
-        return UserOrganization::query()
-            ->where('user_id', $user->id)
-            ->where('organization_id', $organizationId)
-            ->where('status', 'active')
-            ->whereHas('role.permissions', fn (Builder $query) => $query->where('permission', 'review_revisions'))
-            ->exists();
+        return $this->permissions->allows($user, 'review_revisions', $organizationId);
     }
 }

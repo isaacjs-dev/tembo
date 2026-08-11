@@ -3,7 +3,7 @@
     <div class="mx-auto max-w-3xl space-y-5" x-data="{open:{{ $attempt->current_position }}}">
         <div class="sticky top-0 z-10 rounded-xl bg-white p-3 shadow"><div class="h-3 overflow-hidden rounded-full bg-gray-200"><div class="h-full bg-primary transition-all" style="width:{{ $revision->activeItems->count()?min(100,($attempt->responses->count()/$revision->activeItems->count())*100):0 }}%"></div></div><p class="mt-1 text-center text-xs font-bold text-gray-600">{{ $attempt->responses->count() }} de {{ $revision->activeItems->count() }} etapas registradas</p></div>
         @foreach($revision->activeItems as $item)
-            @php $saved = $attempt->responses->firstWhere('revision_item_id', $item->id); @endphp
+            @php $saved = $attempt->responses->firstWhere('snapshot_item_key', $item->id); @endphp
             <section class="rounded-2xl border-2 bg-white p-5 {{ $saved?'border-green-300':'border-duo-border' }}" id="item-{{ $item->id }}"><div class="flex items-center justify-between gap-3"><span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-bold">Etapa {{ $loop->iteration }}</span><span class="text-xs font-bold text-gray-600">{{ str_replace('_',' ',ucfirst($item->type)) }}</span></div><h2 class="mt-4 text-lg font-extrabold">{{ $item->prompt }}</h2>
                 @if(!empty($item->content['resources']))
                     <aside class="mt-4 space-y-3 rounded-xl border-2 border-blue-200 bg-blue-50 p-4" aria-label="Materiais de apoio">

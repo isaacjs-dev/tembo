@@ -9,8 +9,25 @@ class RevisionGraderService
 {
     public function grade(RevisionItem $item, mixed $answer): array
     {
-        $solution = $item->solution ?? [];
-        $correct = match ($item->type) {
+        return $this->gradeDefinition($item->type, $item->solution ?? [], $item->explanation, (float) $item->points, $answer);
+    }
+
+    /** @param array<string, mixed> $snapshot */
+    public function gradeSnapshot(array $snapshot, mixed $answer): array
+    {
+        return $this->gradeDefinition(
+            (string) ($snapshot['type'] ?? ''),
+            (array) ($snapshot['solution'] ?? []),
+            $snapshot['explanation'] ?? null,
+            (float) ($snapshot['points'] ?? 0),
+            $answer,
+        );
+    }
+
+    /** @param array<string, mixed> $solution */
+    private function gradeDefinition(string $type, array $solution, ?string $explanation, float $points, mixed $answer): array
+    {
+        $correct = match ($type) {
             'multiple_choice', 'true_false' => (string) $this->scalar($answer) === (string) ($solution['correct_option'] ?? ''),
             'matching' => $this->canonicalPairs($answer) === $this->canonicalPairs($solution['pairs'] ?? []),
             'ordering' => $this->stringList($answer) === $this->stringList($solution['order'] ?? []),
@@ -19,8 +36,8 @@ class RevisionGraderService
             default => false,
         };
 
-        return ['is_correct' => $correct, 'points_awarded' => $correct ? (float) $item->points : 0.0,
-            'feedback' => $correct ? 'Resposta correta.' : ($item->explanation ?: 'Revise o conteúdo e tente novamente.')];
+        return ['is_correct' => $correct, 'points_awarded' => $correct ? $points : 0.0,
+            'feedback' => $correct ? 'Resposta correta.' : ($explanation ?: 'Revise o conteúdo e tente novamente.')];
     }
 
     public function snapshot(RevisionItem $item): array

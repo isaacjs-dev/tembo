@@ -9,22 +9,30 @@ use App\Services\QuestionLibraryService;
 use App\Services\RevisionBuilderService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class ActivityController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request, PedagogicalAccessService $access): View
     {
         $activities = Activity::query()->where('organization_id', $request->user()->organization_id)
-            ->when($request->user()->hasWorkspaceRole('teacher'), fn ($q) => $q->where('author_id', $request->user()->id))
+            ->when($access->shouldScopeToAuthor($request->user(), (int) $request->user()->organization_id), fn ($q) => $q->where('author_id', $request->user()->id))
             ->with(['author', 'discipline', 'schoolClasses'])->withCount('questions')->latest()->paginate(15);
 
-        return view('activities.index', compact('activities'));
+        $manageableIds = $activities->getCollection()
+            ->filter(fn (Activity $activity): bool => $access->canManage($request->user(), $activity->organization_id, $activity->author_id))
+            ->pluck('id')->map(fn ($id): int => (int) $id)->all();
+        $canCreate = $access->canCreate($request->user(), (int) $request->user()->organization_id);
+
+        return view('activities.index', compact('activities', 'manageableIds', 'canCreate'));
     }
 
     public function create(Request $request, PedagogicalAccessService $access): View
     {
+        abort_unless($access->canCreate($request->user(), (int) $request->user()->organization_id), 403);
+
         return $this->form($request, new Activity, $access);
     }
 
@@ -35,17 +43,29 @@ class ActivityController extends Controller
         return $this->form($request, $activity, $access);
     }
 
+    public function show(Request $request, Activity $activity, PedagogicalAccessService $access): View
+    {
+        abort_unless($access->canView($request->user(), $activity->organization_id), 403);
+
+        return view('activities.show', ['activity' => $activity->load(['author', 'discipline', 'schoolClasses', 'questions'])]);
+    }
+
     public function store(Request $request, PedagogicalAccessService $access, RevisionBuilderService $builder): RedirectResponse
     {
+        abort_unless($access->canCreate($request->user(), (int) $request->user()->organization_id), 403);
         $data = $this->validated($request);
         $classIds = $access->validateClassIds($request->user(), $data['class_ids']);
-        $activity = Activity::create([...collect($data)->except(['class_ids', 'question_ids'])->all(), 'organization_id' => $request->user()->organization_id,
-            'author_id' => $request->user()->id, 'generate_review' => $request->boolean('generate_review'), 'published_at' => $data['status'] === 'published' ? now() : null]);
-        $activity->schoolClasses()->sync($classIds);
-        $this->syncQuestions($activity, $data['question_ids'] ?? [], $request);
-        if ($activity->generate_review) {
-            $builder->createDraft($activity, $request->user(), $classIds);
-        }
+        $activity = DB::transaction(function () use ($data, $classIds, $request, $builder): Activity {
+            $activity = Activity::create([...collect($data)->except(['class_ids', 'question_ids'])->all(), 'organization_id' => $request->user()->organization_id,
+                'author_id' => $request->user()->id, 'generate_review' => $request->boolean('generate_review'), 'published_at' => $data['status'] === 'published' ? now() : null]);
+            $activity->schoolClasses()->sync($classIds);
+            $this->syncQuestions($activity, $data['question_ids'] ?? [], $request);
+            if ($activity->generate_review) {
+                $builder->createDraft($activity, $request->user(), $classIds, $request->user());
+            }
+
+            return $activity;
+        }, 3);
 
         return redirect()->route('activities.edit', $activity)->with('status', 'Atividade criada com sucesso.');
     }
@@ -55,14 +75,18 @@ class ActivityController extends Controller
         abort_unless($access->canManage($request->user(), $activity->organization_id, $activity->author_id), 403);
         $data = $this->validated($request);
         $classIds = $access->validateClassIds($request->user(), $data['class_ids']);
-        $makeReview = $request->boolean('generate_review') && ! $activity->generate_review && ! $activity->revisionSources()->exists();
-        $activity->update([...collect($data)->except(['class_ids', 'question_ids'])->all(), 'generate_review' => $request->boolean('generate_review'),
-            'published_at' => $data['status'] === 'published' ? ($activity->published_at ?: now()) : null]);
-        $activity->schoolClasses()->sync($classIds);
-        $this->syncQuestions($activity, $data['question_ids'] ?? [], $request);
-        if ($makeReview) {
-            $builder->createDraft($activity, $request->user(), $classIds);
-        }
+        DB::transaction(function () use ($activity, $request, $data, $classIds, $builder): void {
+            $locked = Activity::query()->lockForUpdate()->findOrFail($activity->id);
+            $makeReview = $request->boolean('generate_review') && ! $locked->generate_review && ! $locked->revisionSources()->exists();
+            $locked->update([...collect($data)->except(['class_ids', 'question_ids'])->all(), 'generate_review' => $request->boolean('generate_review'),
+                'published_at' => $data['status'] === 'published' ? ($locked->published_at ?: now()) : null]);
+            $locked->schoolClasses()->sync($classIds);
+            $this->syncQuestions($locked, $data['question_ids'] ?? [], $request);
+            if ($makeReview) {
+                $author = $locked->author()->withTrashed()->firstOrFail();
+                $builder->createDraft($locked, $author, $classIds, $request->user());
+            }
+        }, 3);
 
         return back()->with('status', 'Atividade atualizada.');
     }

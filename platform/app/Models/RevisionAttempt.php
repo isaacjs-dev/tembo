@@ -6,11 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class RevisionAttempt extends Model
 {
-    protected $fillable = ['revision_id', 'student_id', 'organization_id', 'attempt_number', 'status', 'current_position', 'score', 'total_points', 'xp_earned', 'started_at', 'last_activity_at', 'completed_at'];
+    protected $fillable = ['revision_id', 'student_id', 'organization_id', 'content_snapshot', 'snapshot_hash', 'attempt_number', 'status', 'current_position', 'score', 'total_points', 'xp_earned', 'rewarded_at', 'started_at', 'last_activity_at', 'completed_at'];
 
     protected function casts(): array
     {
-        return ['started_at' => 'datetime', 'last_activity_at' => 'datetime', 'completed_at' => 'datetime', 'score' => 'decimal:2', 'total_points' => 'decimal:2'];
+        return ['content_snapshot' => 'array', 'rewarded_at' => 'datetime', 'started_at' => 'datetime', 'last_activity_at' => 'datetime', 'completed_at' => 'datetime', 'score' => 'decimal:2', 'total_points' => 'decimal:2'];
     }
 
     public function revision()

@@ -8,6 +8,7 @@ use App\Models\LearningMaterial;
 use App\Models\Lesson;
 use App\Models\Question;
 use App\Models\Revision;
+use App\Models\SchoolClass;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -18,13 +19,18 @@ class RevisionBuilderService
         private readonly QuestionResourceSnapshotService $resourceSnapshots,
     ) {}
 
-    public function createDraft(Model $source, User $author, array $classIds = []): Revision
+    public function createDraft(Model $source, User $author, array $classIds = [], ?User $actor = null): Revision
     {
-        abort_unless((int) $source->organization_id === (int) $author->organization_id, 403);
+        $actor ??= $author;
+        $organizationId = (int) $source->organization_id;
+        abort_unless($author->canUseOrganizationContext($organizationId)
+            && (int) $actor->organization_id === $organizationId, 403);
+        $classIds = array_values(array_unique(array_map('intval', $classIds)));
+        abort_unless(SchoolClass::query()->where('organization_id', $organizationId)->whereIn('id', $classIds)->count() === count($classIds), 403);
 
-        return DB::transaction(function () use ($source, $author, $classIds): Revision {
+        return DB::transaction(function () use ($source, $author, $actor, $classIds): Revision {
             $revision = Revision::create([
-                'organization_id' => $author->organization_id,
+                'organization_id' => $source->organization_id,
                 'author_id' => $author->id,
                 'discipline_id' => $source->discipline_id ?? null,
                 'title' => 'Revisão — '.($source->title ?? data_get($source, 'content.statement', 'conteúdo')),
@@ -38,7 +44,7 @@ class RevisionBuilderService
             ]);
             $revision->schoolClasses()->sync($classIds);
 
-            $this->seedItems($revision, $source, $author);
+            $this->seedItems($revision, $source, $actor);
 
             return $revision->load(['items', 'sources', 'schoolClasses']);
         });

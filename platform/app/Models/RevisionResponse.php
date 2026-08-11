@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class RevisionResponse extends Model
 {
-    protected $fillable = ['revision_attempt_id', 'revision_item_id', 'answer', 'is_correct', 'points_awarded', 'response_time_seconds', 'item_snapshot', 'feedback', 'answered_at'];
+    protected $fillable = ['revision_attempt_id', 'revision_item_id', 'snapshot_item_key', 'answer', 'is_correct', 'points_awarded', 'response_time_seconds', 'item_snapshot', 'feedback', 'answered_at'];
 
     protected function casts(): array
     {
