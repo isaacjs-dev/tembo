@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "dataset_id": "tembo-omr-synthetic-tuning-v1",
+  "split": "tuning",
+  "status": "synthetic_baseline",
+  "threshold_profile": "omr-baseline-v1",
+  "samples": [
+    {
+      "id": "synthetic-tuning-mixed-marks-001",
+      "group_id": "synthetic-sheet-tuning-001",
+      "source": {
+        "kind": "synthetic",
+        "uri": "generated://omr-v1/synthetic-tuning-mixed-marks-001",
+        "sha256": "bf899307de484d0de73f529934eaaa32720c2aece6d6aba5fc0752a1f3b85f9f",
+        "provenance": "Generated deterministically by platform/tests/omr-dataset.mjs.",
+        "license": "generated",
+        "rights_reference": "repository-generated-test-fixture",
+        "pii": "none",
+        "consent": "not_applicable",
+        "retention_policy": "Versioned while the v1 baseline remains supported."
+      },
+      "contract": {
+        "qr_version": 5,
+        "qr_contract_hash": "ffb03a35677b40601a5c67827e48b458815aa736f87d33e24aa871901bb02602",
+        "template_slug": "synthetic-classifier-v1",
+        "template_version": 1,
+        "template_hash": "c0a77215901c320bd1195ecc6cf07ee5356408634f58e59bcfaf2ab52243c87f",
+        "page": 1,
+        "total_pages": 1,
+        "qs": 1,
+        "qe": 6,
+        "rpp": 6,
+        "oc": "526345",
+        "g": [1000, 1000, 5000, 1400, 600, 750]
+      },
+      "ground_truth": {
+        "fiducials": "absent",
+        "annotation": {
+          "method": "deterministic_generator",
+          "annotators": ["generator-v1"],
+          "adjudicated": true,
+          "adjudicator": "generator-v1",
+          "protocol_version": "synthetic-recipes-v1"
+        },
+        "questions": [
+          { "position": 1, "state": "answered", "selected_index": 2, "marked_indices": [2], "expected_action": "accept", "recipe": ["empty", "empty", "strong", "empty", "empty"] },
+          { "position": 2, "state": "blank", "selected_index": null, "marked_indices": [], "expected_action": "accept", "recipe": ["empty", "empty"] },
+          { "position": 3, "state": "weak", "selected_index": 1, "marked_indices": [1], "expected_action": "review", "recipe": ["empty", "weak", "empty", "empty", "empty", "empty"] },
+          { "position": 4, "state": "multiple_marks", "selected_index": null, "marked_indices": [0, 2], "expected_action": "review", "recipe": ["strong", "empty", "strong"] },
+          { "position": 5, "state": "erased", "selected_index": null, "marked_indices": [1], "expected_action": "review", "recipe": ["empty", "erased", "empty", "empty"] },
+          { "position": 6, "state": "ambiguous", "selected_index": null, "marked_indices": [3], "expected_action": "review", "recipe": ["empty", "empty", "empty", "ambiguous", "empty"] }
+        ]
+      },
+      "capture": {
+        "device_class": "synthetic",
+        "device_model": null,
+        "camera": "deterministic-grayscale-generator-v1",
+        "width": 400,
+        "height": 500,
+        "distance_mm": null,
+        "angle_degrees": 0,
+        "illumination": "synthetic_even",
+        "shadow": "none",
+        "blur": "none",
+        "paper": "synthetic",
+        "printer": "synthetic",
+        "scale": "synthetic",
+        "compression": "none"
+      },
+      "conditions": ["synthetic", "mixed_marks", "classifier_only"]
+    }
+  ]
+}

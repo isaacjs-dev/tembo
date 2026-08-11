@@ -8,12 +8,16 @@
         "test:js": "vitest run",
         "test:e2e": "playwright test",
         "test:e2e:headed": "playwright test --headed",
+        "test:omr-dataset": "node --experimental-strip-types tests/omr-dataset.mjs",
+        "test:omr-dataset:holdout": "node --experimental-strip-types tests/omr-dataset.mjs --split=holdout --confirm-frozen-profile",
+        "test:omr-dataset:gates": "node --experimental-strip-types tests/omr-dataset.mjs --split=holdout --confirm-frozen-profile --require-gates",
         "test:qr-raster": "node tests/qr-raster.mjs"
     },
     "devDependencies": {
         "@playwright/test": "^1.62.1",
         "@tailwindcss/forms": "^0.5.2",
         "@tailwindcss/vite": "^4.0.0",
+        "ajv": "^8.20.0",
         "alpinejs": "^3.4.2",
         "autoprefixer": "^10.4.2",
         "axios": "^1.11.0",

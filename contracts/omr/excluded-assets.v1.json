@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "inventory_id": "legacy-unclassified-2026-08-11",
+  "policy": "excluded_from_all_metrics_until_provenance_rights_consent_and_ground_truth_are_documented",
+  "assets": [
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0005.jpg", "bytes": 338565, "sha256": "2c5466bf55a00f3c0a8362c8fcb617ee1f9ce914b84fffffa419a9aa499a669d", "reason": "unknown_provenance_license_consent_and_ground_truth" },
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0011.jpg", "bytes": 335718, "sha256": "04ca86b1f86053c5432e129dd46317e1c21fac127da700829fe15854f72d2f8d", "reason": "unknown_provenance_license_consent_and_ground_truth" },
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0017.jpg", "bytes": 336816, "sha256": "da69d97f7173b48f1ce3334a4536bad86d7799bd2573cea01629a88d84ff7a79", "reason": "unknown_provenance_license_consent_and_ground_truth" },
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0023.jpg", "bytes": 218927, "sha256": "99efa1d61865b4d5ba5e0aa1f5e69f093faa0c642a1e45d43dade11a8b656cd7", "reason": "unknown_provenance_license_consent_and_ground_truth" },
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0029.jpg", "bytes": 335922, "sha256": "0251c6b3a64529ad1a59e224e1cc534632f72b4638b391c59efb1b079a5b7c72", "reason": "unknown_provenance_license_consent_and_ground_truth" },
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0035.jpg", "bytes": 224444, "sha256": "d8fbaae84062d5557305d64a7569786d155295f2f72a49347b722aa1989a328c", "reason": "unknown_provenance_license_consent_and_ground_truth" },
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0041.jpg", "bytes": 217872, "sha256": "badfa4dee61061810cae4779bfbdceb7c2dcd66aa83897ca71733f3b2f698e72", "reason": "unknown_provenance_license_consent_and_ground_truth" },
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0047.jpg", "bytes": 219258, "sha256": "c652e55589a4e940f698ff1348815122b897093b946304288469ff20a2927e86", "reason": "unknown_provenance_license_consent_and_ground_truth" },
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0053.jpg", "bytes": 338057, "sha256": "7ccef6e5a9a9addd02323592d90b963eda8df409dce75f252f1bd116cec1d6af", "reason": "unknown_provenance_license_consent_and_ground_truth" },
+    { "path": "Exemplo Gabaritos/lote_cxas_page-0059.jpg", "bytes": 223025, "sha256": "4c0caeca20d330a786ec2fc8a889851c57a82e17926966348d1ebb50ba2525af", "reason": "unknown_provenance_license_consent_and_ground_truth" }
+  ],
+  "runtime_assets": {
+    "path": "platform/storage/app/public/omr-scans/",
+    "tracked": false,
+    "policy": "never_copy_to_repository_or_metrics_without_explicit_authorization_anonymization_and_retention_policy"
+  }
+}
