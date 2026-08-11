@@ -2,124 +2,59 @@
 
 namespace App\Services;
 
+use App\Models\Organization;
 use App\Models\Plan;
 use App\Models\User;
-use Illuminate\Support\Collection;
 
+/** Compatibility adapter. New code should use EntitlementService directly. */
 class EffectivePlanResolver
 {
-    /**
-     * Resolve o plano efetivo de um usuário.
-     * Leva em conta: plano individual + planos das instituições ativas.
-     * Retorna o plano com maior tier_level.
-     *
-     * Cache: 10 minutos por usuário.
-     */
-    public function resolve(User $user): ?Plan
+    public function __construct(private readonly ?EntitlementService $entitlements = null) {}
+
+    public function resolve(User $user, ?Organization $organization = null): ?Plan
     {
-        return cache()->remember(
-            "effective_plan_user_{$user->id}",
-            now()->addMinutes(10),
-            fn () => $this->computeEffectivePlan($user)
-        );
-    }
-
-    /**
-     * Resolve o limite efetivo de um recurso.
-     * Retorna o maior limite dentre todos os planos ativos (null = ilimitado).
-     */
-    public function resolveLimit(User $user, string $resourceKey): ?int
-    {
-        $plans = $this->getAllActivePlans($user);
-
-        $limits = $plans->map(fn (Plan $p) => $p->getLimit($resourceKey));
-
-        // Se algum plano tem ilimitado (null), retorna null
-        if ($limits->contains(null)) {
-            return null;
+        $entitlements = $this->entitlements ?? app(EntitlementService::class);
+        $plan = $entitlements->effectivePlan($user, $organization);
+        if ($plan || $organization || $user->organization) {
+            return $plan;
         }
 
-        return $limits->max() ?: 0;
-    }
-
-    /**
-     * Verifica se qualquer plano ativo do usuário tem a feature.
-     */
-    public function hasFeature(User $user, string $featureKey): bool
-    {
-        return $this->getAllActivePlans($user)
-            ->contains(fn (Plan $p) => $p->hasFeature($featureKey));
-    }
-
-    /**
-     * Retorna informações completas do plano efetivo.
-     */
-    public function info(User $user): array
-    {
-        $plan = $this->resolve($user);
-        $allPlans = $this->getAllActivePlans($user);
-
-        return [
-            'effective_plan' => $plan,
-            'is_individual' => $this->hasIndividualPlan($user),
-            'is_institutional' => $this->hasInstitutionalPlan($user),
-            'active_plans_count' => $allPlans->count(),
-            'tier_level' => $plan?->tier_level ?? 0,
-        ];
-    }
-
-    /**
-     * Calcula o plano efetivo (sem cache).
-     */
-    private function computeEffectivePlan(User $user): ?Plan
-    {
-        return $this->getAllActivePlans($user)
-            ->sortByDesc('tier_level')
+        return $user->activeOrganizations()->get()
+            ->map(fn (Organization $workspace) => $entitlements->planForOrganization($workspace))
+            ->filter()->sortByDesc(fn (Plan $candidate): array => [(int) $candidate->tier_level, (int) $candidate->id])
             ->first();
     }
 
-    /**
-     * Coleta todos os planos ativos do usuário (individual + institucionais).
-     */
-    private function getAllActivePlans(User $user): Collection
+    public function resolveLimit(User $user, string $resourceKey, ?Organization $organization = null): ?int
     {
-        $plans = collect();
-
-        // 1. Plano individual (morph subscription)
-        $individualPlan = $user->subscription?->plan;
-        if ($individualPlan) {
-            $plans->push($individualPlan);
+        if (! $organization && ! $user->organization) {
+            return $this->resolve($user)?->getLimit($resourceKey);
         }
 
-        // 2. Planos das instituições ativas (via pivot user_organization)
-        $orgPlans = $user->activeOrganizations()
-            ->with('subscription.plan')
-            ->get()
-            ->pluck('subscription.plan')
-            ->filter();
+        return ($this->entitlements ?? app(EntitlementService::class))
+            ->monthlyAllowance($user, $resourceKey, $organization);
+    }
 
-        $plans = $plans->merge($orgPlans);
-
-        // 3. Fallback legado: organização direta (organization_id FK)
-        if ($plans->isEmpty() && $user->organization_id) {
-            $legacyPlan = $user->organization?->subscription?->plan;
-            if ($legacyPlan) {
-                $plans->push($legacyPlan);
-            }
+    public function hasFeature(User $user, string $featureKey, ?Organization $organization = null): bool
+    {
+        if (! $organization && ! $user->organization) {
+            return $this->resolve($user)?->hasFeature($featureKey) ?? false;
         }
 
-        return $plans->unique('id');
+        return ($this->entitlements ?? app(EntitlementService::class))
+            ->hasFeature($user, $featureKey, $organization);
     }
 
-    private function hasIndividualPlan(User $user): bool
+    public function info(User $user, ?Organization $organization = null): array
     {
-        return $user->subscription?->status === 'active';
-    }
+        $plan = $this->resolve($user, $organization);
 
-    private function hasInstitutionalPlan(User $user): bool
-    {
-        return $user->activeOrganizations()
-            ->whereHas('subscription', fn ($q) => $q->where('status', 'active'))
-            ->exists();
+        return [
+            'effective_plan' => $plan,
+            'is_individual' => $organization === null || $organization->isPersonalWorkspace(),
+            'is_institutional' => $organization !== null && ! $organization->isPersonalWorkspace(),
+            'active_plans_count' => $plan ? 1 : 0,
+            'tier_level' => $plan?->tier_level ?? 0,
+        ];
     }
 }

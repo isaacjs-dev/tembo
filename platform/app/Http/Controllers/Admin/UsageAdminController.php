@@ -77,17 +77,32 @@ class UsageAdminController extends Controller
         $processed = 0;
         $failed = [];
         foreach ($users as $user) {
-            foreach ($data['resource_keys'] as $resource) {
-                try {
-                    $this->usage->reset(
-                        $user,
-                        $resource,
-                        $actor,
-                        $data['reason'],
-                        "admin-reset:{$operation->id}:{$user->id}:{$resource}",
-                    );
-                } catch (\Throwable $exception) {
-                    $failed[] = ['user_id' => $user->id, 'resource' => $resource, 'error' => $exception->getMessage()];
+            $contexts = $data['target_scope'] === 'organization'
+                ? ($user->roleInOrganization((int) $data['target_id']) === 'teacher'
+                    ? [Organization::query()->find($data['target_id'])]
+                    : [])
+                : $user->activeOrganizations()->wherePivot('role_in_org', 'teacher')->get()->all();
+            if ($contexts === [] && $user->type === 'teacher' && ! $user->organizations()->exists()) {
+                $contexts = [$user->organization];
+            }
+            foreach ($contexts as $organization) {
+                foreach ($data['resource_keys'] as $resource) {
+                    try {
+                        $scopeKey = $organization ? 'organization:'.$organization->id : 'user:'.$user->id;
+                        $this->usage->reset(
+                            $user,
+                            $resource,
+                            $actor,
+                            $data['reason'],
+                            "admin-reset:{$operation->id}:{$user->id}:{$scopeKey}:{$resource}",
+                            $organization,
+                        );
+                    } catch (\Throwable $exception) {
+                        $failed[] = [
+                            'user_id' => $user->id, 'organization_id' => $organization?->id,
+                            'resource' => $resource, 'error' => $exception->getMessage(),
+                        ];
+                    }
                 }
             }
             $processed++;

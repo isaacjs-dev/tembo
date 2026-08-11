@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class UsagePeriod extends Model
 {
     protected $fillable = [
-        'user_id', 'organization_id', 'resource_key', 'period_start', 'period_end',
+        'user_id', 'organization_id', 'scope_key', 'membership_id', 'resource_key', 'period_start', 'period_end',
         'allowance', 'consumed', 'manual_resets',
     ];
 

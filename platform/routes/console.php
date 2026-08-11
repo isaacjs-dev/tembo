@@ -13,14 +13,29 @@ Artisan::command('inspire', function () {
 
 Artisan::command('usage:open-month', function (MonthlyUsageService $usage) {
     $count = 0;
-    User::query()->where('type', 'teacher')->where('status', 'active')->chunkById(200, function ($users) use ($usage, &$count): void {
-        foreach ($users as $user) {
-            foreach (MonthlyUsageService::RESOURCES as $resource) {
-                $usage->ensurePeriod($user, $resource);
+    User::query()->where('status', 'active')
+        ->where(function ($query): void {
+            $query->where('type', 'teacher')->orWhereHas('organizations', fn ($organizations) => $organizations
+                ->where('user_organization.status', 'active')
+                ->where('user_organization.role_in_org', 'teacher'));
+        })->chunkById(200, function ($users) use ($usage, &$count): void {
+            foreach ($users as $user) {
+                $organizations = $user->activeOrganizations()->wherePivot('role_in_org', 'teacher')->get();
+                $contexts = $organizations;
+                if ($contexts->isEmpty() && $user->type === 'teacher' && ! $user->organizations()->exists()) {
+                    $contexts = collect([$user->organization]);
+                }
+                if ($contexts->isEmpty()) {
+                    continue;
+                }
+                foreach ($contexts as $organization) {
+                    foreach (MonthlyUsageService::RESOURCES as $resource) {
+                        $usage->ensurePeriod($user, $resource, organization: $organization);
+                    }
+                }
+                $count++;
             }
-            $count++;
-        }
-    });
+        });
     $this->info("Períodos mensais abertos para {$count} professor(es).");
 })->purpose('Abre os períodos mensais individuais sem apagar o histórico.');
 

@@ -92,7 +92,6 @@
 
         {{-- Ações --}}
         <div class="space-y-4">
-            @role('global_admin')
             <div class="bg-white rounded-2xl border-2 border-duo-border p-6">
                 <h3 class="text-sm font-extrabold text-gray-700 mb-3">Trocar Plano</h3>
                 <form action="{{ route('institution.billing.changePlan') }}" method="POST" class="space-y-3">
@@ -111,15 +110,8 @@
                     </button>
                 </form>
             </div>
-            @else
-            <div class="bg-blue-50 border-2 border-blue-100 rounded-2xl p-6">
-                <h3 class="text-sm font-extrabold text-blue-700 mb-2">Troca de Plano</h3>
-                <p class="text-xs text-blue-600">Para alterar seu plano ou adicionar pacotes extras, entre em contato com o administrador da plataforma.</p>
-            </div>
-            @endrole
 
-            @if ($activeSubscription)
-                @role('global_admin')
+            @if ($activeSubscription && $activeSubscription->status !== 'canceled')
                 <div class="bg-white rounded-2xl border-2 border-red-100 p-6" x-data="{ showCancel: false }">
                     <h3 class="text-sm font-extrabold text-red-600 mb-2">Cancelar Plano</h3>
                     <p class="text-xs text-gray-400 mb-3">O cancelamento concede 30 dias de carencia.</p>
@@ -141,7 +133,6 @@
                         </button>
                     </form>
                 </div>
-                @endrole
             @endif
         </div>
     </div>

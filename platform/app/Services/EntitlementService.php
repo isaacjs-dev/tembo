@@ -4,32 +4,97 @@ namespace App\Services;
 
 use App\Models\CourtesyBenefit;
 use App\Models\CourtesyGrant;
+use App\Models\Organization;
 use App\Models\Plan;
 use App\Models\Subscription;
 use App\Models\User;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class EntitlementService
 {
-    public function effectivePlan(User $user): ?Plan
-    {
-        $plans = collect([$this->basePlan($user)]);
+    public function effectivePlan(
+        User $user,
+        ?Organization $organization = null,
+        ?CarbonInterface $at = null,
+    ): ?Plan {
+        $organization ??= $user->organization;
+        if ($organization && ! $user->canUseOrganizationContext((int) $organization->id)) {
+            return null;
+        }
 
-        $courtesyPlans = $this->benefitsFor($user)
-            ->where('benefit_type', 'plan')
-            ->pluck('plan')
-            ->filter();
+        $subscription = $organization
+            ? ($organization->isPersonalWorkspace()
+                ? $this->effectiveUserSubscription($user, $at) ?? $this->effectiveOrganizationSubscription($organization, $at)
+                : $this->effectiveOrganizationSubscription($organization, $at))
+            : $this->effectiveUserSubscription($user, $at);
 
-        return $plans->merge($courtesyPlans)
-            ->filter()
+        $basePlan = $subscription?->plan ?? $this->freePlan($user, $organization);
+        $courtesyPlans = $this->benefitsFor($user, $organization, $at)
+            ->where('benefit_type', 'plan')->pluck('plan')->filter();
+
+        return collect([$basePlan])->merge($courtesyPlans)->filter()
             ->sortByDesc(fn (Plan $plan): array => [(int) $plan->tier_level, (int) $plan->id])
             ->first();
     }
 
-    public function monthlyAllowance(User $user, string $resourceKey): ?int
+    public function planForOrganization(Organization $organization, ?CarbonInterface $at = null): ?Plan
     {
-        $base = $this->effectivePlan($user)?->getLimit($resourceKey);
-        $benefits = $this->benefitsFor($user)->where('resource_key', $resourceKey);
+        return $this->effectiveOrganizationSubscription($organization, $at)?->plan
+            ?? $this->freePlan(null, $organization);
+    }
+
+    public function effectiveSubscription(
+        User $user,
+        ?Organization $organization = null,
+        ?CarbonInterface $at = null,
+    ): ?Subscription {
+        $organization ??= $user->organization;
+        if ($organization && ! $user->canUseOrganizationContext((int) $organization->id)) {
+            return null;
+        }
+
+        if ($organization && ! $organization->isPersonalWorkspace()) {
+            return $this->effectiveOrganizationSubscription($organization, $at);
+        }
+
+        return $this->effectiveUserSubscription($user, $at)
+            ?? ($organization ? $this->effectiveOrganizationSubscription($organization, $at) : null);
+    }
+
+    public function effectiveOrganizationSubscription(
+        Organization $organization,
+        ?CarbonInterface $at = null,
+    ): ?Subscription {
+        return $this->effectiveQuery(
+            Subscription::query()->where(function (Builder $query) use ($organization): void {
+                $query->where(function (Builder $morph) use ($organization): void {
+                    $morph->where('subscriber_type', Organization::class)
+                        ->where('subscriber_id', $organization->id);
+                })->orWhere(function (Builder $legacy) use ($organization): void {
+                    $legacy->where('organization_id', $organization->id)
+                        ->whereNull('subscriber_type')->whereNull('subscriber_id');
+                });
+            }),
+            $at,
+        )->with('plan')->first();
+    }
+
+    public function monthlyAllowance(
+        User $user,
+        string $resourceKey,
+        ?Organization $organization = null,
+        ?CarbonInterface $at = null,
+    ): ?int {
+        $organization ??= $user->organization;
+        if ($organization && ! $user->canUseOrganizationContext((int) $organization->id)) {
+            return 0;
+        }
+
+        $plan = $this->effectivePlan($user, $organization, $at);
+        $base = $plan?->getLimit($resourceKey);
+        $benefits = $this->benefitsFor($user, $organization, $at)->where('resource_key', $resourceKey);
 
         if ($benefits->contains('benefit_type', 'unlimited')) {
             return null;
@@ -38,73 +103,112 @@ class EntitlementService
         $replacement = $benefits->where('benefit_type', 'replace')->max('quantity');
         $additional = (int) $benefits->where('benefit_type', 'credit')->sum('quantity');
 
-        if ($base === null && $replacement === null) {
+        // Compatibility for installations created before the plan catalog was
+        // seeded. Once Start/Free exists, it is the mandatory fallback.
+        if (! $plan) {
+            return null;
+        }
+
+        if ($plan && $base === null && $replacement === null) {
             return null;
         }
 
         return max((int) ($base ?? 0), (int) ($replacement ?? 0)) + $additional;
     }
 
-    public function hasFeature(User $user, string $featureKey): bool
-    {
-        if ($this->effectivePlan($user)?->hasFeature($featureKey)) {
+    public function hasFeature(
+        User $user,
+        string $featureKey,
+        ?Organization $organization = null,
+        ?CarbonInterface $at = null,
+    ): bool {
+        if ($this->effectivePlan($user, $organization, $at)?->hasFeature($featureKey)) {
             return true;
         }
 
-        return $this->benefitsFor($user)
+        return $this->benefitsFor($user, $organization, $at)
             ->where('benefit_type', 'feature')
             ->contains('feature_key', $featureKey);
     }
 
     /** @return Collection<int, CourtesyBenefit> */
-    public function benefitsFor(User $user): Collection
-    {
-        $organizationIds = collect([$user->organization_id])
-            ->merge($user->activeOrganizations()->pluck('organizations.id'))
-            ->filter()->unique()->values();
+    public function benefitsFor(
+        User $user,
+        ?Organization $organization = null,
+        ?CarbonInterface $at = null,
+    ): Collection {
+        $organization ??= $user->organization;
+        if ($organization && ! $user->canUseOrganizationContext((int) $organization->id)) {
+            return collect();
+        }
 
+        $at ??= now();
+        $contextRole = $organization
+            ? ($user->roleInOrganization((int) $organization->id) ?? $user->type)
+            : $user->type;
         $grants = CourtesyGrant::query()
-            ->effective()
-            ->where(function ($query) use ($user, $organizationIds): void {
+            ->whereIn('status', ['scheduled', 'active'])
+            ->where('starts_at', '<=', $at)
+            ->where('ends_at', '>=', $at)
+            ->where(function (Builder $query) use ($user, $organization, $contextRole): void {
                 $query->where('target_scope', 'all')
-                    ->orWhere(function ($query) use ($user): void {
-                        $query->where('target_scope', 'user')->where('target_id', $user->id);
-                    })
-                    ->orWhere(function ($query) use ($user): void {
-                        $query->where('target_scope', 'role')->where('target_role', $user->type);
-                    });
+                    ->orWhere(fn (Builder $target) => $target->where('target_scope', 'user')->where('target_id', $user->id))
+                    ->orWhere(fn (Builder $target) => $target->where('target_scope', 'role')->where('target_role', $contextRole));
 
-                if ($organizationIds->isNotEmpty()) {
-                    $query->orWhere(function ($query) use ($organizationIds): void {
-                        $query->where('target_scope', 'organization')->whereIn('target_id', $organizationIds);
-                    });
+                if ($organization) {
+                    $query->orWhere(fn (Builder $target) => $target
+                        ->where('target_scope', 'organization')->where('target_id', $organization->id));
                 }
             })
             ->with('benefits.plan')
             ->get()
-            ->filter(function (CourtesyGrant $grant) use ($user): bool {
+            ->filter(function (CourtesyGrant $grant) use ($contextRole): bool {
                 $eligibleRoles = $grant->metadata['eligible_roles'] ?? [];
 
-                return $eligibleRoles === [] || in_array($user->type, $eligibleRoles, true);
+                return $eligibleRoles === [] || in_array($contextRole, $eligibleRoles, true);
             });
 
         return $grants->flatMap->benefits->values();
     }
 
-    private function basePlan(User $user): ?Plan
+    private function effectiveUserSubscription(User $user, ?CarbonInterface $at = null): ?Subscription
     {
-        $individual = Subscription::query()
-            ->where('subscriber_type', User::class)
-            ->where('subscriber_id', $user->id)
-            ->where('status', 'active')
-            ->where(fn ($query) => $query->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
-            ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>=', now()))
-            ->latest('id')->with('plan')->first()?->plan;
+        return $this->effectiveQuery(
+            Subscription::query()
+                ->where('subscriber_type', User::class)
+                ->where('subscriber_id', $user->id),
+            $at,
+        )->with('plan')->first();
+    }
 
-        if ($individual) {
-            return $individual;
-        }
+    private function effectiveQuery(Builder $query, ?CarbonInterface $at = null): Builder
+    {
+        $at ??= now();
 
-        return $user->organization?->subscription?->plan;
+        return $query
+            ->where(fn (Builder $window) => $window->whereNull('starts_at')->orWhere('starts_at', '<=', $at))
+            ->where(function (Builder $state) use ($at): void {
+                $state->where(function (Builder $current) use ($at): void {
+                    $current->whereIn('status', ['active', 'scheduled'])
+                        ->where(fn (Builder $expiry) => $expiry->whereNull('expires_at')->orWhere('expires_at', '>=', $at));
+                })->orWhere(function (Builder $grace) use ($at): void {
+                    $grace->whereIn('status', ['canceled', 'past_due'])
+                        ->whereNotNull('grace_ends_at')->where('grace_ends_at', '>=', $at);
+                });
+            })
+            ->orderByDesc('starts_at')
+            ->orderByDesc('id');
+    }
+
+    private function freePlan(?User $user, ?Organization $organization): ?Plan
+    {
+        $audience = $organization && ! $organization->isPersonalWorkspace()
+            ? 'institution'
+            : (($user?->type === 'student') ? 'student' : 'teacher');
+
+        return Plan::query()->where('status', 'active')->whereIn('slug', ['free', 'start'])
+            ->where(function (Builder $query) use ($audience): void {
+                $query->whereNull('target_audience')->orWhereIn('target_audience', [$audience, 'both']);
+            })->orderBy('tier_level')->orderBy('id')->first();
     }
 }

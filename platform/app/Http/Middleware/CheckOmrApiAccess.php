@@ -35,7 +35,7 @@ class CheckOmrApiAccess
             ], 403);
         }
 
-        if ($mode !== 'permission-only' && ! $user->organization->hasFeature('omr')) {
+        if ($mode !== 'permission-only' && ! $user->hasFeature('omr')) {
             return response()->json(['error' => 'Recurso OMR mobile não disponível no plano atual.'], 403);
         }
 

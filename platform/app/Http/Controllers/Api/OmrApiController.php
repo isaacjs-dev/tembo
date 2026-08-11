@@ -9,6 +9,7 @@ use App\Models\Exam;
 use App\Models\ExamCopy;
 use App\Models\OmrScan;
 use App\Models\OmrScanPage;
+use App\Models\Organization;
 use App\Models\User;
 use App\Rules\ActiveOrganizationMember;
 use App\Services\MonthlyUsageService;
@@ -135,7 +136,12 @@ class OmrApiController extends Controller
         }
 
         $quotaSubject = User::query()->findOrFail($exam->author_id);
-        $quota = $this->monthlyUsage->snapshot($quotaSubject, MonthlyUsageService::OMR_SCANS);
+        $quotaOrganization = Organization::query()->findOrFail($orgId);
+        $quota = $this->monthlyUsage->snapshot(
+            $quotaSubject,
+            MonthlyUsageService::OMR_SCANS,
+            $quotaOrganization,
+        );
         if ($quota['remaining'] !== null && $quota['remaining'] < 1) {
             throw new QuotaExceededException(MonthlyUsageService::OMR_SCANS, 1, $quota['remaining']);
         }

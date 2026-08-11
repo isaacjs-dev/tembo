@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Traits\Auditable;
 use App\Models\Traits\HasPlanLimits;
+use App\Services\EntitlementService;
 use App\Services\UserFinderService;
 use Database\Factories\UserFactory;
 use Illuminate\Auth\MustVerifyEmail;
@@ -308,26 +309,7 @@ class User extends Authenticatable implements MustVerifyEmailContract
 
     public function hasFeature(string $feature): bool
     {
-        // 1. Plano individual
-        $plan = $this->subscription?->plan;
-        if ($plan && $plan->hasFeature($feature)) {
-            return true;
-        }
-
-        // 2. Planos institucionais (via pivot)
-        foreach ($this->activeOrganizations as $org) {
-            $orgPlan = $org->subscription?->plan;
-            if ($orgPlan && $orgPlan->hasFeature($feature)) {
-                return true;
-            }
-        }
-
-        // 3. Legado: organização direta
-        $directOrg = $this->organization;
-        if ($directOrg) {
-            return $directOrg->hasFeature($feature);
-        }
-
-        return false;
+        return app(EntitlementService::class)
+            ->hasFeature($this, $feature, $this->organization);
     }
 }

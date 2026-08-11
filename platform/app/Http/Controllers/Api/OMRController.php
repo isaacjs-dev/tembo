@@ -9,7 +9,7 @@ class OMRController extends Controller
 {
     public function processScan(Request $request)
     {
-        if (! auth()->user()->organization->hasFeature('omr')) {
+        if (! auth()->user()->hasFeature('omr')) {
             return response()->json(['error' => 'Recurso OMR não disponível no seu plano atual.'], 403);
         }
 
