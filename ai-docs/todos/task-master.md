@@ -33,7 +33,7 @@ Fonte: `ai-docs/PRD.md`. Estados válidos: `pending`, `in_progress`, `done`, `bl
 | APP-003 | Catálogo 10 layouts e 10 cabeçalhos | APP-01..03, APP-09 | APP-002 | done | 10×10 opções únicas, selecionáveis, acessíveis e testadas em A4 |
 | APP-004 | Editor canvas, galeria, logo e padrões | APP-02, APP-04..06 | APP-003 | done | 513 testes/2.330; E2E desktop/mobile; revisão independente aprovada |
 | CARD-001 | Fonte única de geometria e histórico | APP-08, OMR-01, OMR-08 | APP-001 | done | Serviço PHP canônico, índice local e fixtures golden PHP/Web/Mobile |
-| CARD-002 | Catálogo de 10 cartões parametrizados | APP-01, APP-09 | CARD-001 | pending | Um motor; 10 organizações funcionais distintas |
+| CARD-002 | Catálogo de 10 cartões parametrizados | APP-01, APP-09 | CARD-001 | done | Dez geometrias A4 versionadas, um motor e seleção compatível/transacional |
 | PREV-001 | Previews desktop/tablet/mobile/print | ASM-09, ASM-11, APP-07 | APP-002, ASM-002 | pending | Conteúdo/paginação equivalentes ao resultado final |
 | QR-001 | Contrato QR vNext e retrocompatibilidade | QR-01..03 | CARD-001, OMR-P0-001 | pending | v3/v4/v5 preservados; schema e fixtures publicados |
 | QR-002 | Regressão raster e homologação física QR | QR-04, APP-09 | QR-001, CARD-002 | pending | Quiet zone, contraste e leitura no envelope |
