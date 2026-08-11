@@ -14,8 +14,13 @@ class AdminAudienceService
         return match ($scope) {
             'all' => $query,
             'user' => $query->whereKey($targetId),
-            'role' => $query->where('type', $targetRole),
-            'organization' => $query->where('organization_id', $targetId),
+            'role' => $query->where(function (Builder $roles) use ($targetRole): void {
+                $roles->where('type', $targetRole)
+                    ->orWhereHas('organizations', fn (Builder $organizations) => $organizations
+                        ->where('user_organization.status', 'active')
+                        ->where('user_organization.role_in_org', $targetRole));
+            }),
+            'organization' => $query->memberOfOrganization((int) $targetId),
             default => throw new \InvalidArgumentException('Escopo administrativo inválido.'),
         };
     }

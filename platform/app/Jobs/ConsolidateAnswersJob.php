@@ -7,6 +7,7 @@ use App\Models\ExamCopy;
 use App\Models\OmrAuditLog;
 use App\Models\OmrScan;
 use App\Models\OmrScanPage;
+use App\Models\Organization;
 use App\Models\User;
 use App\Services\MonthlyUsageService;
 use App\Services\OfflineOmrQrService;
@@ -213,6 +214,7 @@ class ConsolidateAnswersJob implements ShouldQueue
 
             $exam->loadMissing('author');
             if ($exam->author) {
+                $usageOrganization = Organization::query()->findOrFail($this->organizationId);
                 $monthlyUsage->consume(
                     $exam->author,
                     MonthlyUsageService::OMR_SCANS,
@@ -221,6 +223,7 @@ class ConsolidateAnswersJob implements ShouldQueue
                     $scan,
                     User::query()->find($firstPage->uploaded_by),
                     ['pages' => $pages->count(), 'exam_id' => $exam->id],
+                    $usageOrganization,
                 );
             }
 

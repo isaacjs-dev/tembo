@@ -17,11 +17,15 @@ class Subscription extends Model
         'status',
         'starts_at',
         'expires_at',
+        'grace_ends_at',
+        'cancelled_at',
     ];
 
     protected $casts = [
         'starts_at' => 'datetime',
         'expires_at' => 'datetime',
+        'grace_ends_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     /* ---- Relationships ---- */

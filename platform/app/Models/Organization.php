@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Traits\Auditable;
 use App\Models\Traits\HasPlanLimits;
+use App\Services\EntitlementService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -104,12 +105,8 @@ class Organization extends Model
 
     public function hasFeature(string $feature): bool
     {
-        $sub = $this->subscription;
-        if (! $sub || ! $sub->plan) {
-            return false;
-        }
-
-        return $sub->plan->hasFeature($feature);
+        return app(EntitlementService::class)
+            ->planForOrganization($this)?->hasFeature($feature) ?? false;
     }
 
     public function canAddStudent(): bool

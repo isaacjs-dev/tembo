@@ -328,6 +328,7 @@ class BackendSecurityHardeningTest extends TestCase
     {
         Storage::fake('local');
         $organization = $this->organization();
+        $this->enableOmr($organization);
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);
         $sessionId = (string) Str::uuid();
@@ -363,6 +364,7 @@ class BackendSecurityHardeningTest extends TestCase
     {
         Storage::fake('local');
         $organization = $this->organization();
+        $this->enableOmr($organization);
         $teacher = $this->user($organization, 'teacher');
         $assignedStudent = $this->user($organization, 'student');
         $otherStudent = $this->user($organization, 'student');
@@ -428,6 +430,7 @@ class BackendSecurityHardeningTest extends TestCase
         Storage::fake('local');
         Storage::fake('public');
         $organization = $this->organization();
+        $this->enableOmr($organization);
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);
         $sessionId = (string) Str::uuid();
@@ -529,6 +532,7 @@ class BackendSecurityHardeningTest extends TestCase
     {
         Storage::fake('local');
         $organization = $this->organization();
+        $this->enableOmr($organization);
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);
         $question = $this->question($organization, $teacher, 'private');
@@ -576,6 +580,7 @@ class BackendSecurityHardeningTest extends TestCase
     {
         Storage::fake('local');
         $organization = $this->organization();
+        $this->enableOmr($organization);
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);
         $question = $this->question($organization, $teacher, 'private');
@@ -613,6 +618,7 @@ class BackendSecurityHardeningTest extends TestCase
     {
         Storage::fake('local');
         $organization = $this->organization();
+        $this->enableOmr($organization);
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);
         $question = $this->question($organization, $teacher, 'private');

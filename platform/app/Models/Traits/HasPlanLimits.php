@@ -3,6 +3,7 @@
 namespace App\Models\Traits;
 
 use App\Models\Organization;
+use App\Services\EntitlementService;
 use App\Services\PlanLimiterService;
 
 /**
@@ -66,7 +67,7 @@ trait HasPlanLimits
             return false;
         }
 
-        $plan = $org->subscription?->plan;
+        $plan = app(EntitlementService::class)->planForOrganization($org);
         if (! $plan) {
             return false;
         }
@@ -80,7 +81,7 @@ trait HasPlanLimits
     public function quotaInfo(string $resourceKey, int $currentCount): array
     {
         $org = $this->getOrganizationForPlan();
-        $plan = $org?->subscription?->plan;
+        $plan = $org ? app(EntitlementService::class)->planForOrganization($org) : null;
         $limit = $plan?->getLimit($resourceKey);
 
         return [

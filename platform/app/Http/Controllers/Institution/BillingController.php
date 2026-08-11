@@ -8,13 +8,18 @@ use App\Models\Plan;
 use App\Models\SchoolClass;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Services\EntitlementService;
 use App\Services\PlanOwnershipService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class BillingController extends Controller
 {
-    public function __construct(private readonly PlanOwnershipService $planOwnership) {}
+    public function __construct(
+        private readonly PlanOwnershipService $planOwnership,
+        private readonly EntitlementService $entitlements,
+    ) {}
 
     /**
      * Dashboard de billing: plano atual, uso, status, vencimento.
@@ -23,12 +28,9 @@ class BillingController extends Controller
     {
         $this->authorizePlanOwner();
         $organization = auth()->user()->organization;
-        $activeSubscription = $organization->subscriptions()
-            ->where('status', 'active')
-            ->with('plan')
-            ->first();
+        $activeSubscription = $this->entitlements->effectiveOrganizationSubscription($organization);
 
-        $plans = Plan::where('status', 'active')
+        $plans = Plan::where('status', 'active')->whereIn('target_audience', ['institution', 'both'])
             ->orderBy('tier_level')
             ->get();
 
@@ -58,12 +60,13 @@ class BillingController extends Controller
     {
         $this->authorizePlanOwner();
         $validated = $request->validate([
-            'plan_id' => 'required|exists:plans,id',
+            'plan_id' => ['required', Rule::exists('plans', 'id')->where('status', 'active')],
         ]);
 
         $organization = auth()->user()->organization;
-        $newPlan = Plan::findOrFail($validated['plan_id']);
-        $currentSub = $organization->subscriptions()->where('status', 'active')->first();
+        $newPlan = Plan::query()->whereIn('target_audience', ['institution', 'both'])
+            ->findOrFail($validated['plan_id']);
+        $currentSub = $this->entitlements->effectiveOrganizationSubscription($organization);
 
         // Validar downgrade: verificar se uso atual não excede limites do novo plano
         $usage = $this->getUsage($organization);
@@ -86,7 +89,30 @@ class BillingController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($organization, $newPlan, $currentSub) {
+        $scheduledDowngrade = false;
+        DB::transaction(function () use ($organization, $newPlan, $currentSub, &$scheduledDowngrade) {
+            $organization->subscriptions()->where('status', 'scheduled')->update(['status' => 'canceled', 'cancelled_at' => now()]);
+            if ($currentSub && $currentSub->status === 'active'
+                && (int) $newPlan->tier_level < (int) $currentSub->plan?->tier_level
+                && $currentSub->expires_at?->isFuture()) {
+                Subscription::create([
+                    'organization_id' => $organization->id,
+                    'subscriber_type' => $organization::class,
+                    'subscriber_id' => $organization->id,
+                    'plan_id' => $newPlan->id,
+                    'status' => 'scheduled',
+                    'starts_at' => $currentSub->expires_at,
+                ]);
+                $scheduledDowngrade = true;
+                AuditLog::log('plan_downgrade_scheduled', Subscription::class, $currentSub->id, [
+                    'organization_id' => $organization->id,
+                    'before' => ['plan_id' => $currentSub->plan_id, 'expires_at' => $currentSub->expires_at?->toISOString()],
+                    'after' => ['plan_id' => $newPlan->id, 'starts_at' => $currentSub->expires_at?->toISOString()],
+                ]);
+
+                return;
+            }
+
             $extraDays = 0;
             $newPlanPrice = floatval($newPlan->effective_price);
 
@@ -112,8 +138,9 @@ class BillingController extends Controller
                 }
 
                 $currentSub->update([
-                    'status' => 'canceled',
+                    'status' => 'superseded',
                     'expires_at' => now(),
+                    'grace_ends_at' => null,
                 ]);
             }
 
@@ -124,6 +151,8 @@ class BillingController extends Controller
             // Criar nova assinatura
             Subscription::create([
                 'organization_id' => $organization->id,
+                'subscriber_type' => $organization::class,
+                'subscriber_id' => $organization->id,
                 'plan_id' => $newPlan->id,
                 'status' => 'active',
                 'starts_at' => now(),
@@ -146,8 +175,12 @@ class BillingController extends Controller
             ]);
         });
 
-        return redirect()->route('institution.billing.index')
-            ->with('status', "Plano alterado para {$newPlan->name} com sucesso!");
+        return redirect()->route('institution.billing.index')->with(
+            'status',
+            $scheduledDowngrade
+                ? "Downgrade para {$newPlan->name} agendado para o fim da vigência atual."
+                : "Plano alterado para {$newPlan->name} com sucesso!",
+        );
     }
 
     /**
@@ -168,18 +201,26 @@ class BillingController extends Controller
             ]);
         }
 
-        $currentSub = $organization->subscriptions()->where('status', 'active')->first();
+        $currentSub = $this->entitlements->effectiveOrganizationSubscription($organization);
 
         if (! $currentSub) {
             return back()->withErrors(['Nenhuma assinatura ativa para cancelar.']);
+        }
+        if ($currentSub->status !== 'active') {
+            return back()->withErrors(['Somente uma assinatura ativa pode ser cancelada.']);
         }
 
         $graceUntil = now()->addDays(30);
 
         DB::transaction(function () use ($currentSub, $organization, $graceUntil) {
+            $organization->subscriptions()->where('status', 'scheduled')->update([
+                'status' => 'canceled', 'cancelled_at' => now(), 'grace_ends_at' => null,
+            ]);
             $currentSub->update([
                 'status' => 'canceled',
+                'cancelled_at' => now(),
                 'expires_at' => $graceUntil,
+                'grace_ends_at' => $graceUntil,
             ]);
 
             AuditLog::log('plan_canceled', Subscription::class, $currentSub->id, [
@@ -189,6 +230,7 @@ class BillingController extends Controller
                 'after' => [
                     'status' => 'canceled',
                     'expires_at' => $graceUntil->toISOString(),
+                    'grace_ends_at' => $graceUntil->toISOString(),
                 ],
             ]);
         });

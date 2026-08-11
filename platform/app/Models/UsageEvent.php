@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class UsageEvent extends Model
 {
     protected $fillable = [
-        'usage_period_id', 'user_id', 'organization_id', 'actor_id', 'resource_key',
+        'usage_period_id', 'user_id', 'organization_id', 'scope_key', 'membership_id', 'actor_id', 'resource_key',
         'event_type', 'amount', 'idempotency_key', 'context_type', 'context_id',
         'metadata', 'occurred_at',
     ];
