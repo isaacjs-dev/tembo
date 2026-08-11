@@ -49,7 +49,7 @@ O sistema está **funcional de ponta a ponta** nos fluxos principais (criar prov
 - **Correção manual de submissões** (`gradeSubmission`/`storeGrade`). ✅
 
 ### OMR (núcleo, maduro)
-- **Geração de cartão** template-driven, adaptativa (colunas conforme nº de questões), **frame compacto**, marcadores fiduciais, **QR seguro** (HMAC `chk` + gabarito AES-256-GCM `gab_enc` + `g` geometria + `oc` contagem de opções). ✅
+- **Geração de cartão** template-driven, adaptativa (colunas conforme nº de questões), **frame compacto**, marcadores fiduciais e **QR seguro e compacto** (HMAC `chk` + `g` geometria + `oc` contagem de opções; `gab_enc` somente histórico). ✅
 - **Templates dinâmicos** (`omr_templates` + `omr_template_versions`): editor visual Konva.js, auto-detecção OpenCV, visibilidade (sistema/org/privado), versionamento. ✅ Fases 1–5 (ver `docs/OMR_TEMPLATES.md`).
 - **Leitura no navegador** (Web Scan + Upload): OpenCV.js detecta 4 marcadores (filtro de solidez exclui QR), corrige perspectiva (warp), lê bolhas (Otsu), respeita `oc` (V/F = só A/B). ✅ Validado 43/43.
 - **Tela de Debug** (`/institution/omr/debug`): mostra marcadores, warp, ROIs e preenchimento. ✅ Ferramenta de diagnóstico.
@@ -142,7 +142,7 @@ O sistema está **funcional de ponta a ponta** nos fluxos principais (criar prov
 1. **🔴 Permissões granulares não aplicadas** — professor acessa rotas de gestão como admin. Risco de segurança/negócio.
 2. **🔴 Correção online de V/F é "mock"** — pode pontuar errado provas feitas pelo portal do aluno (diferente do OMR, que está correto).
 3. **🟠 Vínculo usuário↔org duplo** (FK + pivot) — historicamente causa "aluno/professor não aparece"; sempre criar a pivot ativa (ver memória `dual-org-membership-gotcha`).
-4. **🟠 Capacidade do QR** — `gab_enc` + `g` + `oc` crescem com o nº de questões; provas muito grandes podem estourar a densidade do QR. Monitorar.
+4. **🟢 Capacidade do QR** — novos cartões omitem o `gab_enc` redundante e dimensionam o QR pela malha modular; o limite físico continua validado antes da impressão.
 5. **🟠 Idempotência do scan** — reenvio da mesma imagem de um scan não-confirmado **apaga e refaz**; correto, mas destrutivo se mal usado. Confirmados ficam bloqueados (ok).
 6. **🟠 Backfill V/F default 0** — enunciados não mapeados receberam "Verdadeiro" como padrão; o professor precisa revisar gabaritos genéricos.
 7. **🟠 Dois sistemas de config** podem divergir (cartão gerado por um caminho, lido/configurado por outro).

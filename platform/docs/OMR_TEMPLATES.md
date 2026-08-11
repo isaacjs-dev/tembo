@@ -82,7 +82,7 @@ Campos atuais:
 | `v` | versão do wire QR |
 | `tpl_id`, `tpl_v` | template OMR e versão imutável |
 | `g`, `oc` | geometria e alternativas reais por questão |
-| `gab_enc` | gabarito opcional cifrado; somente o servidor decifra |
+| `gab_enc` | gabarito cifrado aceito apenas para cartões históricos |
 | `chk` | HMAC do payload completo |
 
 `v` e `tpl_v` são domínios diferentes. `cols`, `tpl` e `pts` são aceitos apenas por
@@ -130,15 +130,34 @@ da organização ao aplicativo.
 
 `questions_map` converte posição impressa em ID da questão. `options_map` converte a
 bolha visual para a alternativa original. O gabarito oficial vem do snapshot da cópia;
-`gab_enc`, quando presente, é apenas uma verificação adicional contra divergência e
-leva a revisão humana se não coincidir.
+`gab_enc`, quando presente em cartão histórico, é apenas uma verificação adicional
+contra divergência e leva a revisão humana se não coincidir. Novos cartões não o
+emitem: o snapshot imutável da cópia é a fonte oficial e o payload menor melhora a
+leitura física do QR.
 
 Scans Web entram em revisão. No Mobile, marcações são confirmadas, persistidas e
 enviadas com o payload QR original; o servidor valida novamente antes de consolidar.
 
+## Perfil físico do QR
+
+Novos cartões usam um único perfil controlado por `OmrQrRendererService`:
+
+- 30 mm, preto sobre branco, correção de erro `M`;
+- quiet zone de 4 módulos;
+- passo modular mínimo de 0,35 mm; payload maior falha antes da impressão;
+- um QR distinto em cada página do cartão;
+- gabarito fora do QR novo, reduzindo o pior caso de versão 19 para versão 13.
+
+`npm run test:qr-raster` valida v3, early/full-v4, v5 atual e uma página de 80
+questões. O teste usa a view real `answer-sheet-essential`, rasteriza o PDF Dompdf em
+150, 200 e 300 dpi e também aplica rotação, blur, baixo contraste e sombra ao SVG.
+No envelope fotográfico automatizado, o QR precisa ocupar ao menos 300 px da imagem.
+A orientação automática de aproximação no aplicativo ainda pertence a `OMR-002`;
+este valor é atualmente um gate de teste, não uma função da UI.
+
 ## Limites e tarefas futuras
 
-- qualidade física, quiet zone, contraste, raster e aparelhos: `QR-002`;
+- papel, impressoras e câmeras reais: homologação humana pendente de `QR-002`;
 - dataset fotográfico, confiança e condições adversas: `OMR-001/002`;
 - sessão multipágina e associação completa: `OMR-003`;
 - pacote puro mais amplo entre Web/Mobile: `OMR-004`;
@@ -155,6 +174,7 @@ impressora ou câmera real.
 | geometria | `app/Services/OmrPageGeometryService.php` |
 | assinatura/cifra | `app/Services/QrCodeSigningService.php` |
 | vínculo semântico | `app/Services/PrintedQrBindingService.php` |
+| perfil físico/raster | `app/Services/OmrQrRendererService.php` e `tests/qr-raster.mjs` |
 | geração | `app/Services/AnswerSheetGeneratorService.php` |
 | cópias | `app/Services/ExamPrintService.php` |
 | Web OMR | `resources/js/omr-core/` e `OmrController` |

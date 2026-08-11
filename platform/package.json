@@ -7,7 +7,8 @@
         "dev": "vite",
         "test:js": "vitest run",
         "test:e2e": "playwright test",
-        "test:e2e:headed": "playwright test --headed"
+        "test:e2e:headed": "playwright test --headed",
+        "test:qr-raster": "node tests/qr-raster.mjs"
     },
     "devDependencies": {
         "@playwright/test": "^1.62.1",
