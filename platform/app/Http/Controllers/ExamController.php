@@ -12,6 +12,7 @@ use App\Models\OmrTemplate;
 use App\Models\Question;
 use App\Models\User;
 use App\Services\AnswerSheetGeneratorService;
+use App\Services\CanonicalPrintDocumentService;
 use App\Services\ConfigPrecedenceResolver;
 use App\Services\ExamApplicationModeService;
 use App\Services\ExamAudienceService;
@@ -769,7 +770,7 @@ class ExamController extends Controller
         return redirect()->route('exams.show', $exam->id)->with('status', 'Correção salva com sucesso!');
     }
 
-    public function exportPdf(string $id)
+    public function exportPdf(string $id, CanonicalPrintDocumentService $documents)
     {
         if (! auth()->user()->hasFeature('export_pdf')) {
             return back()->withErrors(['O plano atual da sua instituição não permite exportação de PDFs.']);
@@ -784,13 +785,18 @@ class ExamController extends Controller
             ])
             ->findOrFail($id);
 
-        $pdf = Pdf::loadView('exams.pdf', compact('exam'));
+        $document = $documents->preview($exam, $this->getPrintSettings(auth()->user()));
+        $pdf = $this->securePdf('exams.print.canonical-pdf', compact('document'));
 
         return $pdf->download('avaliacao_'.str_replace(' ', '_', strtolower($exam->title)).'.pdf');
     }
 
-    public function printAdvanced(Request $request, string $id, ExamAudienceService $audiences)
-    {
+    public function printAdvanced(
+        Request $request,
+        string $id,
+        ExamAudienceService $audiences,
+        CanonicalPrintDocumentService $documents,
+    ) {
         if (! auth()->user()->hasFeature('export_pdf')) {
             return back()->withErrors(['O plano atual da sua instituição não permite exportação de PDFs.']);
         }
@@ -965,17 +971,49 @@ class ExamController extends Controller
             ]);
         }
 
-        $copies->load('student:id,name');
-        $pdf = Pdf::loadView('exams.pdf_advanced', compact(
+        $copies->load(['student:id,name', 'schoolClass:id,name']);
+        $printDocuments = $copies->mapWithKeys(fn ($copy): array => [
+            $copy->id => $documents->copy($exam, $copy),
+        ]);
+        $pdf = $this->securePdf('exams.pdf_advanced', compact(
             'exam',
             'copies',
             'calibration',
             'options',
             'cardPagesByCopy',
             'outputType',
+            'printDocuments',
         ));
 
         return $pdf->stream('lote_'.str_replace(' ', '_', strtolower($exam->title)).'.pdf');
+    }
+
+    private function securePdf(string $view, array $data)
+    {
+        return Pdf::setOptions([
+            'isRemoteEnabled' => false,
+            'isJavascriptEnabled' => false,
+            'isPhpEnabled' => false,
+            'allowedRemoteHosts' => [],
+            'chroot' => [public_path(), storage_path('app')],
+        ])->loadView($view, $data);
+    }
+
+    public function previewPrint(string $id, CanonicalPrintDocumentService $documents)
+    {
+        $exam = Exam::where('organization_id', auth()->user()->organization_id)
+            ->where('author_id', auth()->id())
+            ->with([
+                'author', 'organization', 'discipline', 'questions.discipline',
+                'questions.resourceLinks.resource', 'questions.resourceLinks.version',
+            ])
+            ->findOrFail($id);
+
+        $document = $documents->preview($exam, $this->getPrintSettings(auth()->user()));
+
+        return response()->view('exams.print.canonical-preview', compact('document'))
+            ->header('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'self'")
+            ->header('X-Content-Type-Options', 'nosniff');
     }
 
     private function getPrintSettings(User $user)

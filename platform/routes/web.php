@@ -313,6 +313,7 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
         Route::get('exams/{exam}/submissions/{submission}/grade', [ExamController::class, 'gradeSubmission'])->name('exams.gradeSubmission');
         Route::post('exams/{exam}/submissions/{submission}/grade', [ExamController::class, 'storeGrade'])->name('exams.storeGrade');
         Route::get('exams/{exam}/export', [ExamController::class, 'exportPdf'])->name('exams.exportPdf');
+        Route::get('exams/{exam}/print-preview', [ExamController::class, 'previewPrint'])->name('exams.previewPrint');
         Route::post('exams/{exam}/print-advanced', [ExamController::class, 'printAdvanced'])->name('exams.printAdvanced');
         Route::post('exams/{exam}/export-answer-sheet', [ExamController::class, 'exportAnswerSheet'])->name('exams.exportAnswerSheet');
         Route::post('exams/{exam}/duplicate', [ExamController::class, 'duplicate'])->name('exams.duplicate');

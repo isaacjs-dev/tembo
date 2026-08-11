@@ -1,10 +1,21 @@
+@php
+    $outputType = $outputType ?? 'legacy_all';
+    $includeExam = in_array($outputType, ['exam', 'both', 'legacy_all'], true);
+    $includeAnswerSheet = in_array($outputType, ['answer_sheet', 'both', 'legacy_all'], true);
+    $includeAnswerKey = in_array($outputType, ['answer_key', 'legacy_all'], true);
+    $printDocuments ??= $copies->mapWithKeys(fn ($copy) => [
+        $copy->id => app(App\Services\CanonicalPrintDocumentService::class)->copy($exam, $copy),
+    ]);
+@endphp
 <!DOCTYPE html>
 <html>
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <title>Lote: {{ $exam->title }}</title>
     <style>
-        @page { size: A4; margin: 10mm; }
+        @if($outputType !== 'exam')
+        @page { size: A4 portrait; margin: 10mm; }
+        @endif
         body { font-family: Arial, sans-serif; font-size: 13px; color: #111; line-height: 1.4; margin: 0; padding: 0; }
         .page-break { page-break-after: always; }
         .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 20px; }
@@ -59,15 +70,17 @@
         .omr-essay { position: absolute; font-size: 8px; color: #888; }
         .omr-bubble { position: absolute; border: 1.2px solid #000; border-radius: 50%; text-align: center; font-size: 7px; font-weight: bold; color: #c7ccd1; box-sizing: border-box; }
     </style>
+    @if(isset($printDocuments) && $printDocuments->isNotEmpty())
+        @include('exams.print.canonical-styles', [
+            'canonicalPageLayout' => $printDocuments->first()['layout'],
+            'canonicalEmitPageRule' => $outputType === 'exam',
+        ])
+    @endif
 </head>
 <body>
 
 @php
     $letters = ['A', 'B', 'C', 'D', 'E'];
-    $outputType = $outputType ?? 'legacy_all';
-    $includeExam = in_array($outputType, ['exam', 'both', 'legacy_all'], true);
-    $includeAnswerSheet = in_array($outputType, ['answer_sheet', 'both', 'legacy_all'], true);
-    $includeAnswerKey = in_array($outputType, ['answer_key', 'legacy_all'], true);
 @endphp
 
 @foreach($copies as $copyIndex => $copy)
@@ -80,58 +93,7 @@
 
     {{-- 1. Student Exam Pages --}}
     @if($includeExam)
-    <div class="watermark">Versão #{{ $copy->copy_number }} - {{ $copy->validation_hash }}</div>
-
-    <div class="header">
-        <h1>{{ $exam->title }}</h1>
-        @if($exam->organization) <p style="margin:0;">{{ $exam->organization->name }}</p> @endif
-        <p style="margin:5px 0 0 0; font-size: 12px; color: #555;">Caderno de Prova - Versão {{ $copy->copy_number }}</p>
-        @if($copy->student)<p style="margin:4px 0 0; font-size: 12px;"><strong>Aluno:</strong> {{ $copy->student->name }}</p>@endif
-    </div>
-
-    @foreach($orderedQuestions as $index => $question)
-        @php
-            $optMap = $copy->options_map[$question->id] ?? null;
-        @endphp
-        <div class="question">
-            <div class="question-statement">
-                @if(!($options['hide_question_term'] ?? false))
-                    Questão 
-                @endif
-                {{ $index + 1 }}{{ $options['question_separator'] ?? '.' }} {!! strip_tags($question->content['statement']) !!}
-                
-                @if($options['show_question_value'] ?? true)
-                    <span style="font-size: 10px; color: #666; font-weight: normal;">(Valor: {{ number_format($question->pivot->points, 1) }})</span>
-                @endif
-            </div>
-
-            @include('questions.partials.resource-list', ['context' => 'pdf'])
-
-            @if($question->type === 'multiple_choice' && $optMap)
-                <ul class="options">
-                    @foreach($optMap as $i => $originalOptIndex)
-                        <li style="page-break-inside: avoid;">
-                            <span class="option-letter">{{ $letters[$i] }})</span>
-                            @if($options['show_option_brackets'] ?? false) ( &nbsp;&nbsp; ) @endif
-                            {{ $question->content['options'][$originalOptIndex] ?? '' }}
-                        </li>
-                    @endforeach
-                </ul>
-            @elseif($question->type === 'true_false' && $optMap)
-                <ul class="options">
-                    @foreach($optMap as $i => $originalOptIndex)
-                        <li style="page-break-inside: avoid;">
-                            <span class="option-letter">{{ $letters[$i] }})</span>
-                            @if($options['show_option_brackets'] ?? false) ( &nbsp;&nbsp; ) @endif
-                            {{ $originalOptIndex == 0 ? 'Verdadeiro' : 'Falso' }}
-                        </li>
-                    @endforeach
-                </ul>
-            @else
-                <div class="essay-space"></div>
-            @endif
-        </div>
-    @endforeach
+    @include('exams.print.canonical-document', ['document' => $printDocuments[$copy->id]])
 
     @if($includeAnswerSheet || $includeAnswerKey)<div class="page-break"></div>@endif
     @endif

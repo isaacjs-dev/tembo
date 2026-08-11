@@ -67,7 +67,12 @@ class AppearanceTemplateVersioningTest extends TestCase
             'Layout da escola',
             'org_public',
         );
-        $organizationVersionOne = $this->appearanceVersion($organizationTemplate, $admin, 1, ['marker' => 'org-v1']);
+        $organizationVersionOne = $this->appearanceVersion(
+            $organizationTemplate,
+            $admin,
+            1,
+            $this->layoutDefinition('portrait'),
+        );
         $service->setDefault($organizationTemplate, $admin, 'organization', $organization);
 
         $system = AppearanceTemplate::query()->where('kind', 'assessment_layout')->where('is_system', true)->sole();
@@ -87,7 +92,7 @@ class AppearanceTemplateVersioningTest extends TestCase
         $service->archive($personal, $admin);
         $organizationSnapshot = $service->snapshotForExam($exam);
         $this->assertSame($organizationTemplate->id, data_get($organizationSnapshot, 'assessment_layout.template_id'));
-        $this->assertSame('org-v1', data_get($organizationSnapshot, 'assessment_layout.definition.marker'));
+        $this->assertSame('portrait', data_get($organizationSnapshot, 'assessment_layout.definition.page.orientation'));
         $historicalCopy = ExamCopy::query()->create([
             'exam_id' => $exam->id,
             'copy_number' => 1,
@@ -100,7 +105,7 @@ class AppearanceTemplateVersioningTest extends TestCase
         $organizationVersionTwo = $service->createVersion(
             $organizationTemplate,
             $admin,
-            ['marker' => 'org-v2'],
+            $this->layoutDefinition('landscape'),
         );
         $this->assertSame(2, $organizationVersionTwo->version);
         $this->assertSame(2, TemplateDefault::query()
@@ -109,9 +114,9 @@ class AppearanceTemplateVersioningTest extends TestCase
 
         $exam->update(['assessment_layout_version_id' => $organizationVersionOne->id]);
         $pinned = $service->snapshotForExam($exam->fresh());
-        $this->assertSame('org-v1', data_get($pinned, 'assessment_layout.definition.marker'));
-        $this->assertSame('org-v1', data_get($organizationSnapshot, 'assessment_layout.definition.marker'));
-        $this->assertSame('org-v1', data_get($historicalCopy->fresh()->template_snapshot, 'assessment_layout.definition.marker'));
+        $this->assertSame('portrait', data_get($pinned, 'assessment_layout.definition.page.orientation'));
+        $this->assertSame('portrait', data_get($organizationSnapshot, 'assessment_layout.definition.page.orientation'));
+        $this->assertSame('portrait', data_get($historicalCopy->fresh()->template_snapshot, 'assessment_layout.definition.page.orientation'));
         $this->assertNotSame($organizationVersionOne->content_hash, $organizationVersionTwo->content_hash);
     }
 
@@ -353,5 +358,22 @@ class AppearanceTemplateVersioningTest extends TestCase
             'content_hash' => hash('sha256', json_encode(['definition' => $definition, 'assets' => []], JSON_THROW_ON_ERROR)),
             'created_by' => $creator->id,
         ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function layoutDefinition(string $orientation): array
+    {
+        return [
+            'page' => [
+                'size' => 'A4',
+                'orientation' => $orientation,
+                'margins_mm' => [15, 15, 15, 15],
+            ],
+            'questions' => [
+                'columns' => 1,
+                'separator' => 'line',
+                'avoid_break_inside' => true,
+            ],
+        ];
     }
 }

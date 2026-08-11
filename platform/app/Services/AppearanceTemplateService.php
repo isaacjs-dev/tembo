@@ -14,6 +14,13 @@ use Illuminate\Support\Str;
 
 class AppearanceTemplateService
 {
+    private readonly AppearanceDefinitionSchema $schema;
+
+    public function __construct(?AppearanceDefinitionSchema $schema = null)
+    {
+        $this->schema = $schema ?? new AppearanceDefinitionSchema;
+    }
+
     public function duplicate(
         AppearanceTemplate $source,
         User $actor,
@@ -28,6 +35,7 @@ class AppearanceTemplateService
         return DB::transaction(function () use ($source, $actor, $organization): AppearanceTemplate {
             $sourceVersion = AppearanceTemplateVersion::query()
                 ->where('appearance_template_id', $source->id)->where('version', $source->current_version)->firstOrFail();
+            $definition = $this->schema->normalize($source->kind, $sourceVersion->definition);
             $copy = AppearanceTemplate::query()->create([
                 'organization_id' => $organization?->id,
                 'created_by' => $actor->id,
@@ -41,7 +49,7 @@ class AppearanceTemplateService
                 'current_version' => 1,
             ]);
             $this->createVersionRecord(
-                $copy, 1, $sourceVersion->definition, $sourceVersion->assets ?? [], $actor,
+                $copy, 1, $definition, $sourceVersion->assets ?? [], $actor,
                 'Duplicado do template '.$source->id.' versão '.$sourceVersion->version.'.',
             );
 
@@ -61,6 +69,7 @@ class AppearanceTemplateService
         return DB::transaction(function () use ($template, $actor, $definition, $assets, $summary): AppearanceTemplateVersion {
             $locked = AppearanceTemplate::query()->lockForUpdate()->findOrFail($template->id);
             $this->authorizeMutation($locked, $actor);
+            $definition = $this->schema->normalize($locked->kind, $definition);
             $next = max((int) $locked->current_version, (int) $locked->versions()->max('version')) + 1;
             $version = $this->createVersionRecord($locked, $next, $definition, $assets, $actor, $summary);
             $locked->update(['current_version' => $next]);
@@ -208,6 +217,7 @@ class AppearanceTemplateService
         User $actor,
         ?string $summary,
     ): AppearanceTemplateVersion {
+        $assets = $this->schema->normalizeAssets($assets);
         $payload = ['definition' => $this->canonical($definition), 'assets' => $this->canonical($assets)];
         $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
