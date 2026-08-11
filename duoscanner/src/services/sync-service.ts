@@ -35,6 +35,9 @@ async function buildFormData(scan: ScanResult): Promise<FormData> {
   }
 
   formData.append('overall_confidence', String(scan.confidenceScore || 0));
+  if (scan.omrEvidence) {
+    formData.append('processing_evidence', JSON.stringify(scan.omrEvidence));
+  }
 
   return formData;
 }

@@ -19,7 +19,11 @@ export class OmrBrowserEngine {
     private messageIdCounter: number = 0;
     
     // Map of id -> { resolve, reject }
-    private pendingRequests: Map<number, { resolve: Function, reject: Function }> = new Map();
+    private pendingRequests: Map<number, {
+        resolve: Function,
+        reject: Function,
+        timeout: ReturnType<typeof setTimeout>,
+    }> = new Map();
 
     constructor(options: ProcessOptions = {}) {
         this.worker = new OmrWorker();
@@ -31,7 +35,7 @@ export class OmrBrowserEngine {
         // Auto initialize
         this.initPromise = new Promise((resolve, reject) => {
             const id = ++this.messageIdCounter;
-            this.pendingRequests.set(id, { resolve, reject });
+            this.registerRequest(id, resolve, reject, 30_000);
             
             this.worker.postMessage({
                 type: 'INIT',
@@ -50,6 +54,7 @@ export class OmrBrowserEngine {
         
         const req = this.pendingRequests.get(id);
         if (!req) return;
+        clearTimeout(req.timeout);
 
         if (type === 'ERROR') {
             req.reject(new Error(error));
@@ -66,8 +71,21 @@ export class OmrBrowserEngine {
     private handleWorkerError(e: ErrorEvent) {
         console.error("OMR Worker Error:", e.message);
         // Reject all pending requests
-        this.pendingRequests.forEach(req => req.reject(new Error(e.message)));
+        this.pendingRequests.forEach(req => {
+            clearTimeout(req.timeout);
+            req.reject(new Error(e.message));
+        });
         this.pendingRequests.clear();
+    }
+
+    private registerRequest(id: number, resolve: Function, reject: Function, timeoutMs: number) {
+        const timeout = setTimeout(() => {
+            const pending = this.pendingRequests.get(id);
+            if (!pending) return;
+            this.pendingRequests.delete(id);
+            pending.reject(new Error('OMR processing timed out'));
+        }, timeoutMs);
+        this.pendingRequests.set(id, { resolve, reject, timeout });
     }
 
     /**
@@ -87,7 +105,7 @@ export class OmrBrowserEngine {
 
         return new Promise((resolve, reject) => {
             const id = ++this.messageIdCounter;
-            this.pendingRequests.set(id, { resolve, reject });
+            this.registerRequest(id, resolve, reject, 45_000);
 
             this.worker.postMessage({
                 type: 'PROCESS',
@@ -101,5 +119,10 @@ export class OmrBrowserEngine {
         if (this.worker) {
             this.worker.terminate();
         }
+        this.pendingRequests.forEach((request) => {
+            clearTimeout(request.timeout);
+            request.reject(new Error('OMR worker terminated'));
+        });
+        this.pendingRequests.clear();
     }
 }

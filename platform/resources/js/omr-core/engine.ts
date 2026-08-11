@@ -117,14 +117,61 @@ export class OmrEngine {
         hierarchy.delete();
 
         // Ordenar candidatos por área decrescente
-        candidates.sort((a, b) => b.area - a.area);
+        return this.selectCornerMarkers(candidates, threshMat.cols, threshMat.rows);
+    }
 
-        if (candidates.length >= 4) {
-            // Pegar os 4 maiores que parecem com as caixas predefinidas
-            return this.orderCorners(candidates.slice(0, 4));
+    public selectCornerMarkers(candidates: Array<Point & { area?: number }>, width: number, height: number): Point[] {
+        const zones = [
+            (point: Point) => point.x < width * 0.45 && point.y < height * 0.45,
+            (point: Point) => point.x > width * 0.55 && point.y < height * 0.45,
+            (point: Point) => point.x > width * 0.55 && point.y > height * 0.55,
+            (point: Point) => point.x < width * 0.45 && point.y > height * 0.55,
+        ];
+        const selected = zones.map((matches) => candidates
+            .filter(matches)
+            .sort((left, right) => (right.area ?? 0) - (left.area ?? 0))[0]);
+        if (selected.some((point) => !point)) return [];
+        const points = selected as Point[];
+        let doubleArea = 0;
+        for (let index = 0; index < points.length; index++) {
+            const current = points[index];
+            const next = points[(index + 1) % points.length];
+            doubleArea += current.x * next.y - next.x * current.y;
         }
+        return Math.abs(doubleArea) / 2 >= width * height * 0.20 ? points : [];
+    }
 
-        return [];
+    public measureGeometry(corners: Point[], imageWidth: number): { orientationDegrees: number, scaleRatio: number } {
+        const topWidth = Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y);
+        const bottomWidth = Math.hypot(corners[2].x - corners[3].x, corners[2].y - corners[3].y);
+        return {
+            orientationDegrees: Math.atan2(corners[1].y - corners[0].y, corners[1].x - corners[0].x) * 180 / Math.PI,
+            scaleRatio: ((topWidth + bottomWidth) / 2) / imageWidth,
+        };
+    }
+
+    public reprojectionError(sourceCorners: Point[], targetWidth: number, targetHeight: number): number {
+        const src = cv.matFromArray(4, 1, cv.CV_32FC2, sourceCorners.flatMap((point) => [point.x, point.y]));
+        const destinations = [
+            { x: 0, y: 0 }, { x: targetWidth - 1, y: 0 },
+            { x: targetWidth - 1, y: targetHeight - 1 }, { x: 0, y: targetHeight - 1 },
+        ];
+        const dst = cv.matFromArray(4, 1, cv.CV_32FC2, destinations.flatMap((point) => [point.x, point.y]));
+        const matrix = cv.getPerspectiveTransform(src, dst);
+        const values = matrix.data64F?.length >= 9 ? matrix.data64F : matrix.data32F;
+        let error = Number.POSITIVE_INFINITY;
+        if (values?.length >= 9) {
+            error = Math.max(...sourceCorners.map((point, index) => {
+                const denominator = values[6] * point.x + values[7] * point.y + values[8];
+                const x = (values[0] * point.x + values[1] * point.y + values[2]) / denominator;
+                const y = (values[3] * point.x + values[4] * point.y + values[5]) / denominator;
+                return Math.hypot(x - destinations[index].x, y - destinations[index].y);
+            }));
+        }
+        src.delete();
+        dst.delete();
+        matrix.delete();
+        return error;
     }
 
     /**
@@ -233,8 +280,6 @@ export class OmrEngine {
         let results: AnswerResult[] = [];
         let tMark = thresholds?.mark ?? 0.45;
         let tBlank = thresholds?.blank ?? 0.15;
-        let tUncLow = thresholds?.uncertain_low ?? 0.25;
-        let tUncHigh = thresholds?.uncertain_high ?? 0.40;
 
         // Dynamic proportions mapped entirely to the internal 700px Marker bounding box
         let W = thresh.cols;
@@ -337,12 +382,12 @@ export class OmrEngine {
                     selected = bestOpt ?? null;
                     status = 'OK';
                 }
-            } else if (bestScore >= tUncLow) {
+            } else if (bestScore > tBlank) {
                 // Marcação muito fraca / Rasurada
-                if (bestScore <= tUncHigh) {
+                if (secondScore <= tBlank) {
                     status = 'UNCERTAIN';
                     selected = bestOpt ?? null; // Retorna com ressalva
-                } else if (secondScore >= tUncLow) {
+                } else if (secondScore > tBlank) {
                     status = 'DOUBLE'; // Rasura borradas em 2
                 } else {
                     status = 'OK'; // Aceita como fraca mas única
@@ -370,12 +415,16 @@ export class OmrEngine {
     /**
      * Calcula métricas de qualidade globais e define se precisa de revisão manual
      */
-    public assessQuality(cornersFound: number, answersStatus: AnswerResult[]): OmrQualityInfo {
+    public assessQuality(cornersFound: number, answersStatus: AnswerResult[], reprojectionError: number): OmrQualityInfo {
         let issues: string[] = [];
         let needsReview = false;
 
         if (cornersFound < 4) {
             issues.push(`Cantos incompletos: ${cornersFound}`);
+            needsReview = true;
+        }
+        if (!Number.isFinite(reprojectionError) || reprojectionError > 2) {
+            issues.push('Homografia fora da tolerância');
             needsReview = true;
         }
 
@@ -389,6 +438,7 @@ export class OmrEngine {
 
         if (numDouble > 0) {
             issues.push(`${numDouble} dupla(s) marcação`);
+            needsReview = true;
         }
         if (numUncertain > 0) {
             issues.push(`${numUncertain} resposta(s) duvidosas/fracas`);
@@ -397,7 +447,7 @@ export class OmrEngine {
 
         return {
             corners_found: cornersFound,
-            reprojection_error: 0.0, // Simplificação geométrica direta
+            reprojection_error: reprojectionError,
             issues: issues,
             needs_review: needsReview
         };

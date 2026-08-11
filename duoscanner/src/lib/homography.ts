@@ -21,8 +21,11 @@ export function computeHomography(src: Point2D[], dst: Point2D[]): number[] {
     throw new Error('Homography requires exactly 4 point pairs');
   }
 
-  // Montar sistema Ah = 0 (8x9)
+  // Fix h33=1 and solve the resulting 8x8 system directly. Solving A^T*A
+  // as a homogeneous system is singular by construction and was numerically
+  // unstable even for a simple translated rectangle.
   const A: number[][] = [];
+  const b: number[] = [];
 
   for (let i = 0; i < 4; i++) {
     const sx = src[i].x,
@@ -30,14 +33,67 @@ export function computeHomography(src: Point2D[], dst: Point2D[]): number[] {
     const dx = dst[i].x,
       dy = dst[i].y;
 
-    A.push([-sx, -sy, -1, 0, 0, 0, dx * sx, dx * sy, dx]);
-    A.push([0, 0, 0, -sx, -sy, -1, dy * sx, dy * sy, dy]);
+    A.push([sx, sy, 1, 0, 0, 0, -dx * sx, -dx * sy]);
+    b.push(dx);
+    A.push([0, 0, 0, sx, sy, 1, -dy * sx, -dy * sy]);
+    b.push(dy);
   }
 
-  // Resolver usando SVD simplificada (para 8x9 podemos usar eliminação gaussiana)
-  const h = solveHomogeneous(A);
+  const h = solveLinearSystem(A, b);
+  if (!h) throw new Error('Homography point configuration is singular');
+  return [...h, 1];
+}
 
-  return h;
+export function reprojectionError(H: number[], src: Point2D[], dst: Point2D[]): { rms: number; max: number } {
+  if (src.length !== dst.length || src.length === 0) throw new Error('Reprojection needs matching points');
+  const errors = src.map((point, index) => {
+    const projected = transformPoint(H, point);
+    return Math.hypot(projected.x - dst[index].x, projected.y - dst[index].y);
+  });
+  return {
+    rms: Math.sqrt(errors.reduce((sum, value) => sum + value * value, 0) / errors.length),
+    max: Math.max(...errors),
+  };
+}
+
+export function validateFiducialQuadrilateral(
+  ordered: Point2D[],
+  imageWidth: number,
+  imageHeight: number,
+): { valid: boolean; reason?: string; areaRatio: number } {
+  if (ordered.length !== 4 || imageWidth <= 0 || imageHeight <= 0) {
+    return { valid: false, reason: 'fiducial_count', areaRatio: 0 };
+  }
+
+  const expectedRegions = [
+    (point: Point2D) => point.x < imageWidth * 0.45 && point.y < imageHeight * 0.45,
+    (point: Point2D) => point.x > imageWidth * 0.55 && point.y < imageHeight * 0.45,
+    (point: Point2D) => point.x > imageWidth * 0.55 && point.y > imageHeight * 0.55,
+    (point: Point2D) => point.x < imageWidth * 0.45 && point.y > imageHeight * 0.55,
+  ];
+  if (!ordered.every((point, index) => expectedRegions[index](point))) {
+    return { valid: false, reason: 'fiducial_position', areaRatio: 0 };
+  }
+
+  const signedCrossProducts = ordered.map((point, index) => {
+    const next = ordered[(index + 1) % ordered.length];
+    const after = ordered[(index + 2) % ordered.length];
+    return (next.x - point.x) * (after.y - next.y) - (next.y - point.y) * (after.x - next.x);
+  });
+  const isConvex = signedCrossProducts.every((value) => value > 0)
+    || signedCrossProducts.every((value) => value < 0);
+  if (!isConvex) return { valid: false, reason: 'fiducial_quad_not_convex', areaRatio: 0 };
+
+  const twiceArea = ordered.reduce((sum, point, index) => {
+    const next = ordered[(index + 1) % ordered.length];
+    return sum + point.x * next.y - next.x * point.y;
+  }, 0);
+  const areaRatio = Math.abs(twiceArea) / 2 / (imageWidth * imageHeight);
+  if (areaRatio < 0.20 || areaRatio > 0.98) {
+    return { valid: false, reason: 'fiducial_quad_area', areaRatio };
+  }
+
+  return { valid: true, areaRatio };
 }
 
 /**
@@ -171,45 +227,9 @@ function sortCornersByDistance(points: Point2D[]): Point2D[] {
 // Resolvedor de sistema homogêneo (SVD simplificado para 8x9)
 // =============================================================================
 
-function solveHomogeneous(A: number[][]): number[] {
-  const rows = A.length;
-  const cols = A[0].length;
-
-  // Calcular A^T * A (9x9)
-  const ATA: number[][] = [];
-  for (let i = 0; i < cols; i++) {
-    ATA[i] = [];
-    for (let j = 0; j < cols; j++) {
-      let sum = 0;
-      for (let k = 0; k < rows; k++) {
-        sum += A[k][i] * A[k][j];
-      }
-      ATA[i][j] = sum;
-    }
-  }
-
-  // Encontrar autovetor com menor autovalor usando iteração inversa
-  // Começar com iteração de potência no inverso de ATA
-  const n = cols;
-  let v = new Array(n).fill(1 / Math.sqrt(n));
-
-  // Usar Gauss-Jordan para resolver (ATA)x = v iterativamente
-  for (let iter = 0; iter < 30; iter++) {
-    const augmented = ATA.map((row, i) => [...row, v[i]]);
-    const sol = gaussianElimination(augmented, n);
-    if (!sol) break;
-
-    // Normalizar
-    const norm = Math.sqrt(sol.reduce((s, x) => s + x * x, 0));
-    if (norm < 1e-10) break;
-    v = sol.map((x) => x / norm);
-  }
-
-  return v;
-}
-
-function gaussianElimination(augmented: number[][], n: number): number[] | null {
-  const m = augmented.map((row) => [...row]);
+function solveLinearSystem(matrix: number[][], values: number[]): number[] | null {
+  const n = matrix.length;
+  const m = matrix.map((row, index) => [...row, values[index]]);
 
   // Forward elimination com pivoteamento parcial
   for (let col = 0; col < n; col++) {
@@ -223,7 +243,7 @@ function gaussianElimination(augmented: number[][], n: number): number[] | null 
       }
     }
 
-    if (maxVal < 1e-12) continue;
+    if (maxVal < 1e-10) return null;
 
     // Trocar linhas
     if (maxRow !== col) {
@@ -242,10 +262,7 @@ function gaussianElimination(augmented: number[][], n: number): number[] | null 
   // Back substitution
   const x = new Array(n).fill(0);
   for (let i = n - 1; i >= 0; i--) {
-    if (Math.abs(m[i][i]) < 1e-12) {
-      x[i] = 0;
-      continue;
-    }
+    if (Math.abs(m[i][i]) < 1e-10) return null;
     x[i] = m[i][n];
     for (let j = i + 1; j < n; j++) {
       x[i] -= m[i][j] * x[j];

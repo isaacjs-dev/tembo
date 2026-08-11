@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import { View, Text, ScrollView, Pressable, Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Header } from '@/components/ui/Header';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useExamStore } from '@/store/exam-store';
 import { useScanStore } from '@/store/scan-store';
+import { createManualOMRResult } from '@/lib/omr-processor';
 import { colors } from '@/theme/colors';
 import { fonts } from '@/theme/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,6 +40,12 @@ export default function ManualEditScreen() {
     currentScan?.detectedAnswers || {}
   );
   const [changes, setChanges] = useState<Set<string>>(new Set());
+  const objectiveQuestionIds = orderedQuestionIds.filter((questionId) => getOptionCount(questionId) > 0);
+  const requiredReviewIds = currentScan?.omrEvidence?.action === 'rescan'
+    ? objectiveQuestionIds.map(String)
+    : Object.entries(currentScan?.omrEvidence?.questions ?? {})
+        .filter(([, evidence]) => evidence.action === 'review')
+        .map(([questionId]) => questionId);
 
   const handleSelect = (qId: string, option: number) => {
     const current = answers[qId];
@@ -48,9 +55,57 @@ export default function ManualEditScreen() {
   };
 
   const handleSave = () => {
+    const unresolved = requiredReviewIds.filter((questionId) => !changes.has(questionId));
+    if (unresolved.length > 0) {
+      Alert.alert(
+        'Revisão incompleta',
+        `Confirme manualmente as questões indicadas. Ainda faltam ${unresolved.length}.`,
+      );
+      return;
+    }
+    const manual = createManualOMRResult(answers, objectiveQuestionIds);
+    const isFullManualReview = currentScan?.omrEvidence?.action === 'rescan';
+    const questionConfidences = Object.fromEntries(objectiveQuestionIds.map((questionId) => {
+      const key = String(questionId);
+      return [key, changes.has(key)
+        ? manual.confidences[key] ?? 0
+        : currentScan?.questionConfidences?.[key] ?? 0];
+    }));
+    const confidenceValues = Object.values(questionConfidences);
+    const overallConfidence = confidenceValues.length
+      ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length
+      : 0;
     updateCurrentScan({
       detectedAnswers: answers,
       confirmedAnswers: answers,
+      questionConfidences,
+      confidenceScore: overallConfidence,
+      omrEvidence: {
+        pipelineVersion: 'mobile-v2',
+        processingPath: isFullManualReview ? 'manual' : 'hybrid',
+        action: 'accept',
+        reasons: ['manual_confirmation'],
+        imageQuality: currentScan?.omrEvidence?.imageQuality ?? null,
+        geometry: currentScan?.omrEvidence?.geometry ?? {
+          fiducialCount: 0,
+          fiducialConfidence: 0,
+          reprojectionError: null,
+          orientationDegrees: null,
+          scaleRatio: null,
+        },
+        questions: Object.fromEntries(objectiveQuestionIds.map((questionId) => {
+          const key = String(questionId);
+          const original = currentScan?.omrEvidence?.questions?.[key];
+          const manuallyResolved = changes.has(key);
+          return [key, {
+            action: 'accept',
+            reasons: manuallyResolved ? ['manual_confirmation'] : original?.reasons ?? [],
+            fillRatios: original?.fillRatios ?? [],
+            confidence: questionConfidences[key] ?? 0,
+            roi: original?.roi ?? { x: 0, y: 0, w: 0, h: 0 },
+          }];
+        })),
+      },
     });
     // Go to student selection before showing result
     router.push({

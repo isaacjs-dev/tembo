@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, Pressable, Alert, StyleSheet, ActivityIndicator } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, Pressable, Alert, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { CameraView, scanFromURLAsync, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,12 +13,11 @@ import { explainExamDownloadError } from '@/services/exam-download-error';
 import { parseQRCode, validateQRAgainstExam, canCaptureOffline } from '@/lib/qr-parser';
 import { validateQRPayload } from '@/lib/qr-validator';
 import { getResolvedConfig, getDataStrategy } from '@/lib/config-resolver';
-import { evaluatePreCapture, shouldAutoCapture, type PreCaptureValidation } from '@/lib/capture-engine';
 import { saveScanImage, generateLocalId } from '@/lib/image-utils';
 import { individualizedStudent } from '@/lib/exam-copy';
+import { orientationFromQrLocation } from '@/lib/qr-orientation';
 import { CaptureOverlay } from '@/components/scan/CaptureOverlay';
 import { ScanModeIndicator } from '@/components/scan/ScanModeIndicator';
-import { GuidanceOverlay } from '@/components/scan/GuidanceOverlay';
 import { Button } from '@/components/ui/Button';
 import { colors } from '@/theme/colors';
 import { fonts } from '@/theme/typography';
@@ -32,13 +31,13 @@ type CameraState =
   | 'qr_error'
   | 'version_conflict'
   | 'ready_to_capture'
-  | 'auto_capturing'
   | 'capturing'
   | 'processing';
 
 export default function CameraScreen() {
   const { examId: paramExamId } = useLocalSearchParams<{ examId?: string }>();
   const insets = useSafeAreaInsets();
+  const viewport = useWindowDimensions();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -47,9 +46,7 @@ export default function CameraScreen() {
   const [flash, setFlash] = useState(false);
   const [qrData, setQrData] = useState<QRPayload | null>(null);
   const [examTitle, setExamTitle] = useState('');
-  const [validation, setValidation] = useState<PreCaptureValidation | null>(null);
   const [versionWarning, setVersionWarning] = useState<string | null>(null);
-  const autoCaptureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Stores
   const { getCachedExam, cacheExam, isExamCached } = useExamStore();
@@ -80,46 +77,6 @@ export default function CameraScreen() {
       setCameraState('scanning_qr');
     }
   }, [permission]);
-
-  // Cleanup auto-capture timer
-  useEffect(() => {
-    return () => {
-      if (autoCaptureTimer.current) clearTimeout(autoCaptureTimer.current);
-    };
-  }, []);
-
-  // Simulate frame analysis for quality (in production, this comes from native module)
-  const updateQualitySimulation = useCallback(() => {
-    // This would normally come from the native OMR frame analysis
-    // For now, simulate with reasonable defaults when exam is ready
-    if (cameraState === 'ready_to_capture' || cameraState === 'auto_capturing') {
-      const simulated = evaluatePreCapture({
-        edgeCount: 4,
-        markerPositions: [
-          { x: 0, y: 0 },
-          { x: 1, y: 0 },
-          { x: 0, y: 1 },
-          { x: 1, y: 1 },
-        ],
-        laplacianVariance: 180,
-        tiltAngle: 2,
-        meanBrightness: 155,
-      });
-      setValidation(simulated);
-
-      if (shouldAutoCapture(simulated) && cameraState === 'ready_to_capture') {
-        setCameraState('auto_capturing');
-        autoCaptureTimer.current = setTimeout(() => {
-          capturePhoto();
-        }, 1500);
-      }
-    }
-  }, [cameraState]);
-
-  useEffect(() => {
-    const interval = setInterval(updateQualitySimulation, 800);
-    return () => clearInterval(interval);
-  }, [updateQualitySimulation]);
 
   const loadExamData = async (qr: QRPayload) => {
     const eid = qr.e;
@@ -218,7 +175,7 @@ export default function CameraScreen() {
     setCameraState('qr_error');
   };
 
-  const handleBarCodeScanned = ({ data }: { data: string }) => {
+  const handleBarCodeScanned = ({ data, cornerPoints, bounds }: BarcodeScanningResult) => {
     if (cameraState !== 'scanning_qr') return;
 
     const parsed = parseQRCode(data);
@@ -246,6 +203,12 @@ export default function CameraScreen() {
       qEnd: parsed.qe,
       qrGeometry: parsed.g,
       qrOptionCounts: parsed.oc,
+      orientationQuarterTurns: orientationFromQrLocation(
+        cornerPoints,
+        bounds,
+        viewport.width,
+        viewport.height,
+      ) ?? undefined,
     });
 
     loadExamData(parsed);
@@ -255,7 +218,6 @@ export default function CameraScreen() {
     if (!cameraRef.current || cameraState === 'capturing' || !resolvedExamId) return;
 
     setCameraState('capturing');
-    if (autoCaptureTimer.current) clearTimeout(autoCaptureTimer.current);
 
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
@@ -263,11 +225,33 @@ export default function CameraScreen() {
       if (photo?.uri) {
         const localId = generateLocalId();
         const savedUri = await saveScanImage(photo.uri, localId);
+        const capturedCodes = await scanFromURLAsync(savedUri, ['qr']);
+        const capturedCode = capturedCodes.find((candidate) => {
+          const payload = parseQRCode(candidate.data);
+          return payload && qrData
+            && payload.e === qrData.e && payload.c === qrData.c && payload.h === qrData.h
+            && (payload.p ?? 1) === (qrData.p ?? 1);
+        });
+        const capturedOrientation = capturedCode && photo.width && photo.height
+          ? orientationFromQrLocation(capturedCode.cornerPoints, capturedCode.bounds, photo.width, photo.height)
+          : null;
+        if (!capturedCode || capturedOrientation === null) {
+          Alert.alert(
+            'QR não confirmado na foto',
+            'Mantenha o cartão inteiro, com o QR visível, e capture novamente. Nenhuma resposta foi inferida.',
+          );
+          setCameraState('ready_to_capture');
+          return;
+        }
 
-        updateCurrentScan({ localId, imageUri: savedUri });
+        updateCurrentScan({
+          localId,
+          imageUri: savedUri,
+          orientationQuarterTurns: capturedOrientation,
+        });
 
         router.push({
-          pathname: '/scan/adjust',
+          pathname: '/scan/review-marks',
           params: { examId: String(resolvedExamId), localId, imageUri: savedUri },
         });
       }
@@ -280,7 +264,6 @@ export default function CameraScreen() {
   const resetScan = () => {
     setQrData(null);
     setExamTitle('');
-    setValidation(null);
     setVersionWarning(null);
     setCameraState('scanning_qr');
   };
@@ -398,20 +381,14 @@ export default function CameraScreen() {
         </View>
       )}
 
-      {/* ── State: Ready / Auto-capturing ── */}
-      {(cameraState === 'ready_to_capture' || cameraState === 'auto_capturing') && (
+      {/* Capture remains manual until real frame-quality analysis is available. */}
+      {cameraState === 'ready_to_capture' && (
         <>
           {/* Capture overlay with corner guides and quality */}
           <CaptureOverlay
-            validation={validation}
-            isAutoCapturing={cameraState === 'auto_capturing'}
+            validation={null}
+            isAutoCapturing={false}
             showGuides={true}
-          />
-
-          {/* Guidance messages */}
-          <GuidanceOverlay
-            validation={validation}
-            visible={cameraState === 'ready_to_capture'}
           />
 
           {/* Bottom section */}
@@ -442,26 +419,19 @@ export default function CameraScreen() {
             {/* Instruction */}
             <View style={styles.instructionBadge}>
               <Text style={styles.instructionText}>
-                {cameraState === 'auto_capturing'
-                  ? 'Captura automática em progresso...'
-                  : 'Enquadre o cartão resposta e toque para capturar'}
+                Enquadre todo o cartão-resposta e toque para capturar
               </Text>
             </View>
 
             {/* Capture Button */}
             <Pressable
               onPress={capturePhoto}
-              disabled={cameraState === 'auto_capturing'}
-              style={[
-                styles.captureButton,
-                cameraState === 'auto_capturing' && { borderColor: colors.primary, backgroundColor: colors.primary + '30' },
-              ]}
+              style={styles.captureButton}
               accessibilityRole="button"
               accessibilityLabel="Capturar folha de respostas"
-              accessibilityState={{ disabled: cameraState === 'auto_capturing' }}
             >
               <MaterialIcons
-                name={cameraState === 'auto_capturing' ? 'autorenew' : 'camera'}
+                name="camera"
                 size={32}
                 color={colors.white}
               />

@@ -536,7 +536,9 @@ class BackendSecurityHardeningTest extends TestCase
         $teacher = $this->user($organization, 'teacher');
         $exam = $this->exam($organization, $teacher);
         $question = $this->question($organization, $teacher, 'private');
-        $exam->questions()->attach($question->id, ['points' => 2, 'order' => 1]);
+        $secondQuestion = $this->question($organization, $teacher, 'private');
+        $exam->questions()->attach($question->id, ['points' => 1, 'order' => 1]);
+        $exam->questions()->attach($secondQuestion->id, ['points' => 1, 'order' => 2]);
         $copy = ExamCopy::create([
             'exam_id' => $exam->id,
             'copy_number' => 1,
@@ -547,19 +549,30 @@ class BackendSecurityHardeningTest extends TestCase
                     'layout_config' => ['columns' => 1, 'rows_per_column' => 20],
                 ],
             ],
-            'questions_map' => [$question->id],
-            'options_map' => [$question->id => [0, 1]],
+            'questions_map' => [$question->id, $secondQuestion->id],
+            'options_map' => [$question->id => [0, 1], $secondQuestion->id => [0, 1]],
             'question_snapshot' => [[
                 'id' => $question->id,
                 'type' => 'multiple_choice',
                 'content' => $question->content,
-                'points' => 2,
+                'points' => 1,
                 'order' => 1,
+            ], [
+                'id' => $secondQuestion->id,
+                'type' => 'multiple_choice',
+                'content' => $secondQuestion->content,
+                'points' => 1,
+                'order' => 2,
             ]],
             'validation_hash' => str_repeat('a', 40),
         ]);
-        $payload = $this->offlineQrPayload($exam, $copy, $organization->id, [0]);
+        $payload = $this->offlineQrPayload($exam, $copy, $organization->id, [0, 0]);
         $sessionId = (string) Str::uuid();
+        $hybridEvidence = $this->processingEvidence('accept');
+        $hybridEvidence['processingPath'] = 'hybrid';
+        $hybridEvidence['reasons'] = ['manual_confirmation'];
+        $hybridEvidence['questions']['2'] = $hybridEvidence['questions']['1'];
+        $hybridEvidence['questions']['2']['reasons'] = ['manual_confirmation'];
 
         Sanctum::actingAs($teacher);
         $this->withoutMiddleware(CheckOmrApiAccess::class)
@@ -573,21 +586,149 @@ class BackendSecurityHardeningTest extends TestCase
                 'qr_payload' => json_encode($payload),
                 'image' => UploadedFile::fake()->image('offline-page.jpg'),
                 // Position 1 is intentionally not a database question id.
-                'detected_answers' => json_encode(['1' => 0]),
-                'confidences' => json_encode(['1' => 0.91]),
+                'detected_answers' => json_encode(['1' => 0, '2' => 0]),
+                'confidences' => json_encode(['1' => 0.91, '2' => 1]),
+                'processing_evidence' => json_encode($hybridEvidence),
             ], ['Accept' => 'application/json'])
             ->assertCreated()
             ->assertJsonPath('progress.is_complete', true);
 
         $scan = OmrScan::where('session_id', $sessionId)->firstOrFail();
         $this->assertSame('processed', $scan->status);
-        $this->assertSame([$question->id => 0], $scan->raw_answers);
+        $this->assertSame([$question->id => 0, $secondQuestion->id => 0], $scan->raw_answers);
         $this->assertSame('2.00', number_format((float) $scan->score, 2));
         $this->assertTrue((bool) data_get($scan->quality_json, 'offline_qr'));
+        $this->assertSame('accept', data_get($scan->quality_json, 'processing_evidence.0.action'));
+        $this->assertSame('hybrid', data_get($scan->quality_json, 'processing_evidence.0.processing_path'));
         $this->assertDatabaseHas('omr_scan_pages', [
             'session_id' => $sessionId,
             'status' => 'consolidated',
         ]);
+    }
+
+    public function test_mobile_omr_rejects_rescan_evidence_before_persisting_capture(): void
+    {
+        Storage::fake('local');
+        $organization = $this->organization();
+        $this->enableOmr($organization);
+        $teacher = $this->user($organization, 'teacher');
+        $exam = $this->exam($organization, $teacher);
+
+        Sanctum::actingAs($teacher);
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', [
+                'session_id' => (string) Str::uuid(),
+                'exam_id' => $exam->id,
+                'page_index' => 1,
+                'total_pages' => 1,
+                'image' => UploadedFile::fake()->image('must-rescan.jpg'),
+                'detected_answers' => json_encode([]),
+                'processing_evidence' => json_encode($this->processingEvidence('rescan')),
+            ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('processing_evidence');
+
+        $this->assertDatabaseCount('omr_scan_pages', 0);
+    }
+
+    public function test_mobile_omr_rejects_contradictory_machine_and_manual_acceptance_evidence(): void
+    {
+        Storage::fake('local');
+        $organization = $this->organization();
+        $this->enableOmr($organization);
+        $teacher = $this->user($organization, 'teacher');
+        $exam = $this->exam($organization, $teacher);
+
+        Sanctum::actingAs($teacher);
+        $invalidMachine = $this->processingEvidence('accept');
+        $invalidMachine['imageQuality']['acceptable'] = false;
+        $invalidMachine['geometry']['fiducialCount'] = 0;
+        $invalidMachine['questions']['1']['action'] = 'review';
+
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', [
+                'session_id' => (string) Str::uuid(),
+                'exam_id' => $exam->id,
+                'page_index' => 1,
+                'total_pages' => 1,
+                'image' => UploadedFile::fake()->image('contradictory-machine.jpg'),
+                'detected_answers' => json_encode([]),
+                'processing_evidence' => json_encode($invalidMachine),
+            ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('processing_evidence');
+
+        $invalidManual = $this->processingEvidence('accept');
+        $invalidManual['processingPath'] = 'manual';
+
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', [
+                'session_id' => (string) Str::uuid(),
+                'exam_id' => $exam->id,
+                'page_index' => 1,
+                'total_pages' => 1,
+                'image' => UploadedFile::fake()->image('contradictory-manual.jpg'),
+                'detected_answers' => json_encode([]),
+                'processing_evidence' => json_encode($invalidManual),
+            ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('processing_evidence');
+
+        $this->assertDatabaseCount('omr_scan_pages', 0);
+    }
+
+    public function test_mobile_omr_review_evidence_prevents_automatic_grading(): void
+    {
+        Storage::fake('local');
+        $organization = $this->organization();
+        $this->enableOmr($organization);
+        $teacher = $this->user($organization, 'teacher');
+        $exam = $this->exam($organization, $teacher);
+        $question = $this->question($organization, $teacher, 'private');
+        $exam->questions()->attach($question->id, ['points' => 1, 'order' => 1]);
+        $copy = ExamCopy::create([
+            'exam_id' => $exam->id,
+            'copy_number' => 1,
+            'template_snapshot' => ['answer_sheet_card' => [
+                'id' => 1,
+                'version' => 1,
+                'layout_config' => ['columns' => 1, 'rows_per_column' => 20],
+            ]],
+            'questions_map' => [$question->id],
+            'options_map' => [$question->id => [0, 1]],
+            'question_snapshot' => [[
+                'id' => $question->id,
+                'type' => 'multiple_choice',
+                'content' => $question->content,
+                'points' => 1,
+                'order' => 1,
+            ]],
+            'validation_hash' => str_repeat('f', 40),
+        ]);
+        $sessionId = (string) Str::uuid();
+
+        Sanctum::actingAs($teacher);
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', [
+                'session_id' => $sessionId,
+                'exam_id' => $exam->id,
+                'copy_id' => $copy->id,
+                'page_index' => 1,
+                'total_pages' => 1,
+                'question_start' => 1,
+                'qr_payload' => json_encode($this->offlineQrPayload($exam, $copy, $organization->id, [0])),
+                'image' => UploadedFile::fake()->image('review-required.jpg'),
+                'detected_answers' => json_encode(['1' => 0]),
+                'confidences' => json_encode(['1' => 0.3]),
+                'processing_evidence' => json_encode($this->processingEvidence('review')),
+            ], ['Accept' => 'application/json'])
+            ->assertCreated();
+
+        $scan = OmrScan::where('session_id', $sessionId)->firstOrFail();
+        $this->assertSame('reviewing', $scan->status);
+        $this->assertNull($scan->score);
+        $this->assertTrue((bool) data_get($scan->quality_json, 'machine_review_required'));
+        $this->assertSame('review', data_get($scan->quality_json, 'processing_evidence.0.action'));
     }
 
     public function test_offline_omr_partial_legacy_copy_without_canonical_evidence_requires_human_review(): void
@@ -920,14 +1061,49 @@ class BackendSecurityHardeningTest extends TestCase
             'p' => 1,
             'pt' => 1,
             'qs' => 1,
-            'qe' => 1,
+            'qe' => count($key),
             'v' => 5,
             'rpp' => 20,
             'tpl_id' => 1,
             'tpl_v' => 1,
             'g' => [1000, 1000, 5000, 500, 200, 300],
-            'oc' => '2',
+            'oc' => str_repeat('2', count($key)),
             'gab' => $key,
         ], 'hybrid', $organizationId);
+    }
+
+    private function processingEvidence(string $action): array
+    {
+        $geometryValid = $action !== 'rescan';
+
+        return [
+            'pipelineVersion' => 'mobile-v2',
+            'processingPath' => 'homography',
+            'action' => $action,
+            'reasons' => $action === 'accept' ? [] : [$action === 'review' ? 'question_review_required' : 'fiducial_count'],
+            'imageQuality' => [
+                'brightness' => 150,
+                'contrast' => 40,
+                'laplacianVariance' => 120,
+                'acceptable' => $geometryValid,
+                'reasons' => [],
+            ],
+            'geometry' => [
+                'fiducialCount' => $geometryValid ? 4 : 0,
+                'fiducialConfidence' => $geometryValid ? 0.98 : 0,
+                'reprojectionError' => $geometryValid ? ['rms' => 0.2, 'max' => 0.4] : null,
+                'orientationDegrees' => $geometryValid ? 1.5 : null,
+                'scaleRatio' => $geometryValid ? 0.9 : null,
+            ],
+            'questions' => [
+                '1' => [
+                    'action' => $action === 'review' ? 'review' : 'accept',
+                    'reasons' => $action === 'review' ? ['ambiguous_mark'] : [],
+                    'fillRatios' => [0.8, 0.05],
+                    'confidence' => $action === 'review' ? 0.3 : 0.8,
+                    'roi' => ['x' => 10, 'y' => 20, 'w' => 30, 'h' => 20],
+                ],
+            ],
+        ];
     }
 }

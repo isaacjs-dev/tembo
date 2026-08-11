@@ -40,11 +40,35 @@ export interface ScanResult {
   qrGeometry?: number[];
   /** v4 QR option counts, one digit per printed question (0 means essay). */
   qrOptionCounts?: string;
+  /** Clockwise rotation needed to restore QR to the card's canonical top-right. */
+  orientationQuarterTurns?: 0 | 1 | 2 | 3;
   /** Signed QR metadata retained for deferred, server-side grading. */
   qrPayload?: Record<string, unknown>;
   /** Position-keyed values for a signed offline QR (never answer-key data). */
   printedAnswers?: Record<string, number | null>;
   printedConfidences?: Record<string, number>;
+  /** Reproducible local evidence; the backend still revalidates QR and identity. */
+  omrEvidence?: {
+    pipelineVersion: 'mobile-v2';
+    processingPath: 'homography' | 'hybrid' | 'manual' | 'unavailable';
+    action: 'accept' | 'review' | 'rescan';
+    reasons: string[];
+    imageQuality: Record<string, unknown> | null;
+    geometry: {
+      fiducialCount: number;
+      fiducialConfidence: number;
+      reprojectionError: { rms: number; max: number } | null;
+      orientationDegrees: number | null;
+      scaleRatio: number | null;
+    };
+    questions: Record<string, {
+      action: 'accept' | 'review';
+      reasons: string[];
+      fillRatios: number[];
+      confidence: number;
+      roi: { x: number; y: number; w: number; h: number };
+    }>;
+  };
 }
 
 
