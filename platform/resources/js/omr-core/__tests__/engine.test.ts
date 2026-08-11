@@ -171,14 +171,14 @@ describe('OmrEngine Unit Tests', () => {
 
         it('should classify as UNCERTAIN if non-zero count is within uncertainty threshold', () => {
              const template = {
-                questions: [{ question_number: 1, option_labels_json: ['A'] }],
+                questions: [{ question_number: 1, option_labels_json: ['A', 'B'] }],
                 layout_meta: {
                     v: 5,
                     g: [1000, 1000, 2000, 500, 200, 280],
                     rpp: 15,
                     qs: 1,
                     qe: 1,
-                    oc: '1',
+                    oc: '2',
                     tpl_id: 1,
                     tpl_v: 1,
                 }
@@ -198,7 +198,7 @@ describe('OmrEngine Unit Tests', () => {
             const template = {
                 questions: Array.from({ length: 48 }, (_, index) => ({
                     question_number: index + 1,
-                    option_labels_json: ['A'],
+                    option_labels_json: ['A', 'B'],
                 })),
                 layout_meta: {
                     v: 5,
@@ -206,7 +206,7 @@ describe('OmrEngine Unit Tests', () => {
                     rpp: 15,
                     qs: 31,
                     qe: 48,
-                    oc: '111111111111111111',
+                    oc: '222222222222222222',
                     tpl_id: 20,
                     tpl_v: 7,
                 },

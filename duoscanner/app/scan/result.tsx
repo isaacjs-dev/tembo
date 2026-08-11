@@ -15,11 +15,9 @@ import { useConfigStore } from '@/store/config-store';
 import {
   applyCorrection,
   buildCorrectionFromCache,
-  buildCorrectionFromQR,
   type CorrectionResult,
   type CorrectionInput,
 } from '@/lib/correction-engine';
-import { parseQRCode, hasEmbeddedData } from '@/lib/qr-parser';
 import {
   mapQuestionValuesToPrintedPositions,
   mapVisualAnswersToOriginalOptions,
@@ -75,26 +73,6 @@ export default function ResultScreen() {
         originalOptionAnswers as Record<number, number | null>,
         confidences as Record<number, number>
       );
-    }
-
-    // Fallback to QR-embedded data if no cache
-    if (!input && currentScan.validationHash) {
-      // Reconstruct QR payload from scan data
-      const qrStr = JSON.stringify({
-        e: currentScan.examId,
-        c: currentScan.copyId,
-        h: currentScan.validationHash,
-        qs: currentScan.qStart,
-        qe: currentScan.qEnd,
-      });
-      const qr = parseQRCode(qrStr);
-      if (qr && hasEmbeddedData(qr as any)) {
-        input = buildCorrectionFromQR(
-          qr as any,
-          answers as Record<number, number | null>,
-          confidences as Record<number, number>
-        );
-      }
     }
 
     if (input) {

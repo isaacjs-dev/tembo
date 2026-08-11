@@ -28,7 +28,7 @@ export function parseCardPageGeometry(value: unknown): CardPageGeometryContract 
   if (!positiveInteger(raw.rpp) || !positiveInteger(raw.qs) || !positiveInteger(raw.qe)) return null;
   if (!positiveInteger(raw.tpl_id) || !positiveInteger(raw.tpl_v)) return null;
   if (raw.qe < raw.qs) return null;
-  if (typeof raw.oc !== 'string' || !/^[0-9]+$/.test(raw.oc)) return null;
+  if (typeof raw.oc !== 'string' || !/^(?:0|[2-9])+$/.test(raw.oc)) return null;
   if (raw.oc.length !== raw.qe - raw.qs + 1) return null;
 
   const g = raw.g as number[];

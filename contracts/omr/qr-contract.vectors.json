@@ -1,0 +1,90 @@
+{
+  "contract_version": 1,
+  "description": "Cross-runtime golden vectors signed with a public test-only context. Never use this secret in production.",
+  "signing_context": {
+    "organization_id": 1,
+    "application_key": "fixture-secret"
+  },
+  "vectors": [
+    {
+      "name": "legacy-v3",
+      "offline_capture": false,
+      "payload": {
+        "e": 101,
+        "c": 201,
+        "h": "legacy-copy-token-1234567890",
+        "p": 1,
+        "v": 3,
+        "tpl_id": 1,
+        "tpl_v": 1,
+        "chk": "0563a8a432861d08"
+      }
+    },
+    {
+      "name": "early-v4",
+      "offline_capture": false,
+      "payload": {
+        "e": 101,
+        "c": 202,
+        "h": "early-v4-copy-token-123456",
+        "p": 1,
+        "v": 4,
+        "tpl": "legacy-professional",
+        "tpl_id": 2,
+        "tpl_v": 1,
+        "g": [800, 900, 5000, 500, 220, 300],
+        "chk": "e4204945b8276fbbd99e2bda7ee1e15e"
+      }
+    },
+    {
+      "name": "full-v4",
+      "offline_capture": true,
+      "payload": {
+        "e": 101,
+        "c": 203,
+        "h": "full-v4-copy-token-1234567",
+        "p": 2,
+        "pt": 2,
+        "qs": 31,
+        "qe": 48,
+        "v": 4,
+        "rpp": 15,
+        "tpl_id": 2,
+        "tpl_v": 1,
+        "g": [800, 900, 5000, 500, 220, 300],
+        "oc": "555555555555555555",
+        "chk": "1edbf18ababeea0754ce668b3c506632"
+      }
+    },
+    {
+      "name": "current-v5",
+      "offline_capture": true,
+      "payload": {
+        "e": 101,
+        "c": 204,
+        "h": "current-v5-copy-token-12345",
+        "p": 1,
+        "pt": 1,
+        "qs": 1,
+        "qe": 5,
+        "v": 5,
+        "rpp": 20,
+        "tpl_id": 1,
+        "tpl_v": 1,
+        "g": [753, 430, 5000, 484, 296, 403],
+        "oc": "55220",
+        "chk": "xyXSmBMinS_iJjOv7UauNg"
+      }
+    }
+  ],
+  "invalid_vectors": [
+    { "name": "unknown-version", "patch": { "v": 6 } },
+    { "name": "unknown-field", "patch": { "student_name": "PII is forbidden" } },
+    { "name": "geometry-outside-frame", "patch": { "g": [9500, 430, 5000, 484, 900, 403] } },
+    { "name": "option-count-length", "patch": { "oc": "55" } },
+    { "name": "template-version-zero", "patch": { "tpl_v": 0 } },
+    { "name": "columns-as-string", "patch": { "cols": "2" } },
+    { "name": "encrypted-key-as-array", "patch": { "gab_enc": [] } },
+    { "name": "points-as-number", "patch": { "pts": 10 } }
+  ]
+}

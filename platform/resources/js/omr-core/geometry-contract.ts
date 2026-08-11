@@ -22,20 +22,31 @@ export interface ResolvedGeometry {
 const positiveInteger = (value: unknown): value is number =>
     typeof value === 'number' && Number.isInteger(value) && value > 0;
 
+export function isValidGeometryVector(value: unknown): value is CardPageGeometryContract['g'] {
+    if (!Array.isArray(value) || value.length !== 6) return false;
+    if (!value.every((item) => Number.isInteger(item) && item >= 0 && item <= 10000)) return false;
+
+    const [startX, startY, columnSpacing, rowSpacing, bubbleSize, optionSpacing] = value;
+
+    return columnSpacing > 0
+        && rowSpacing > 0
+        && bubbleSize > 0
+        && optionSpacing > 0
+        && startX + bubbleSize <= 10000
+        && startY + bubbleSize <= 10000;
+}
+
 export function parseCardPageGeometry(value: unknown): CardPageGeometryContract | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const raw = value as Record<string, unknown>;
-    if (!Array.isArray(raw.g) || raw.g.length !== 6) return null;
-    if (!raw.g.every((item) => Number.isInteger(item) && item >= 0 && item <= 10000)) return null;
+    if (!isValidGeometryVector(raw.g)) return null;
     if (!positiveInteger(raw.rpp) || !positiveInteger(raw.qs) || !positiveInteger(raw.qe)) return null;
     if (!positiveInteger(raw.tpl_id) || !positiveInteger(raw.tpl_v)) return null;
     if (raw.qe < raw.qs) return null;
-    if (typeof raw.oc !== 'string' || !/^[0-9]+$/.test(raw.oc)) return null;
+    if (typeof raw.oc !== 'string' || !/^(?:0|[2-9])+$/.test(raw.oc)) return null;
     if (raw.oc.length !== raw.qe - raw.qs + 1) return null;
 
-    const g = raw.g as number[];
-    if (g[2] <= 0 || g[3] <= 0 || g[4] <= 0 || g[5] <= 0) return null;
-    if (g[0] + g[4] > 10000 || g[1] + g[4] > 10000) return null;
+    const g = raw.g;
     const questionCount = raw.qe - raw.qs + 1;
     const columns = Math.ceil(questionCount / raw.rpp);
     const rows = Math.min(questionCount, raw.rpp);

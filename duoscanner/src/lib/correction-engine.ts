@@ -7,8 +7,6 @@
  */
 import type { AnswerSheetTypeSlug } from './config-resolver';
 import { getResolvedConfig } from './config-resolver';
-import type { QRPayloadV2 } from './qr-parser';
-import { extractAnswerKeyFromQR, extractPointsFromQR } from './qr-parser';
 
 export interface CorrectionInput {
   detectedAnswers: Record<number, number | null>; // questionNumber → optionIndex (0-4) or null
@@ -102,29 +100,6 @@ export function applyCorrection(input: CorrectionInput): CorrectionResult {
     reviewCount,
     details: details.sort((a, b) => a.questionNumber - b.questionNumber),
     answerSheetType: config.answerSheetType,
-  };
-}
-
-/**
- * Builds a CorrectionInput from QR-embedded data (for qr_embedded and hybrid fallback modes).
- */
-export function buildCorrectionFromQR(
-  qr: QRPayloadV2,
-  detectedAnswers: Record<number, number | null>,
-  confidences: Record<number, number>
-): CorrectionInput | null {
-  const answerKey = extractAnswerKeyFromQR(qr);
-  if (!answerKey || Object.keys(answerKey).length === 0) {
-    return null;
-  }
-
-  const points = extractPointsFromQR(qr);
-
-  return {
-    detectedAnswers,
-    confidences,
-    answerKey,
-    points: points ?? undefined,
   };
 }
 

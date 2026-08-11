@@ -145,8 +145,8 @@ class QrCodeSigningService
      */
     public function hasSupportedContract(array $payload): bool
     {
-        $version = filter_var($payload['v'] ?? null, FILTER_VALIDATE_INT);
-        if ($version === false || ! in_array($version, self::SUPPORTED_VERSIONS, true)) {
+        $version = $payload['v'] ?? null;
+        if (! is_int($version) || ! in_array($version, self::SUPPORTED_VERSIONS, true)) {
             return false;
         }
 
@@ -168,12 +168,12 @@ class QrCodeSigningService
         }
 
         foreach (['e', 'c', 'p', 'tpl_id', 'tpl_v'] as $field) {
-            if (filter_var($payload[$field], FILTER_VALIDATE_INT) === false || (int) $payload[$field] < 1) {
+            if (! is_int($payload[$field]) || $payload[$field] < 1) {
                 return false;
             }
         }
 
-        if (! is_string($payload['h']) || $payload['h'] === '') {
+        if (! is_string($payload['h']) || $payload['h'] === '' || strlen($payload['h']) > 128) {
             return false;
         }
 
@@ -184,7 +184,7 @@ class QrCodeSigningService
                 return false;
             }
             foreach ($presentPageFields as $field) {
-                if (filter_var($payload[$field], FILTER_VALIDATE_INT) === false || (int) $payload[$field] < 1) {
+                if (! is_int($payload[$field]) || $payload[$field] < 1) {
                     return false;
                 }
             }
@@ -193,17 +193,12 @@ class QrCodeSigningService
                 return false;
             }
 
-            if (! is_array($payload['g']) || count($payload['g']) !== 6) {
+            if (! $this->validGeometryVector($payload['g'])) {
                 return false;
-            }
-            foreach ($payload['g'] as $coordinate) {
-                if (! is_int($coordinate) || $coordinate < 0) {
-                    return false;
-                }
             }
 
             if (array_key_exists('oc', $payload)) {
-                if (! is_string($payload['oc']) || ! preg_match('/^[0-9]+$/', $payload['oc'])) {
+                if (! is_string($payload['oc']) || ! preg_match('/^(?:0|[2-9])+$/', $payload['oc'])) {
                     return false;
                 }
                 if ($presentPageFields !== []) {
@@ -213,9 +208,69 @@ class QrCodeSigningService
                     }
                 }
             }
+
+            if ($presentPageFields !== [] && isset($payload['oc']) && ! $this->geometryFitsPage($payload)) {
+                return false;
+            }
+        }
+
+        if (isset($payload['cols']) && (! is_int($payload['cols']) || $payload['cols'] < 1)) {
+            return false;
+        }
+        if (isset($payload['tpl']) && (! is_string($payload['tpl']) || $payload['tpl'] === '' || strlen($payload['tpl']) > 100)) {
+            return false;
+        }
+        if (isset($payload['gab_enc']) && (! is_string($payload['gab_enc']) || $payload['gab_enc'] === '')) {
+            return false;
+        }
+        if (isset($payload['pts']) && ! is_array($payload['pts']) && ! is_string($payload['pts'])) {
+            return false;
+        }
+        if (! $this->validSignatureShape($version, (string) $payload['chk'])) {
+            return false;
         }
 
         return true;
+    }
+
+    private function validGeometryVector(mixed $geometry): bool
+    {
+        if (! is_array($geometry) || count($geometry) !== 6) {
+            return false;
+        }
+        foreach ($geometry as $coordinate) {
+            if (! is_int($coordinate) || $coordinate < 0 || $coordinate > 10000) {
+                return false;
+            }
+        }
+
+        return $geometry[2] > 0
+            && $geometry[3] > 0
+            && $geometry[4] > 0
+            && $geometry[5] > 0
+            && $geometry[0] + $geometry[4] <= 10000
+            && $geometry[1] + $geometry[4] <= 10000;
+    }
+
+    private function geometryFitsPage(array $payload): bool
+    {
+        $geometry = $payload['g'];
+        $questionCount = (int) $payload['qe'] - (int) $payload['qs'] + 1;
+        $rows = min($questionCount, (int) $payload['rpp']);
+        $columns = (int) ceil($questionCount / (int) $payload['rpp']);
+        $maxOptions = max(array_map('intval', str_split((string) $payload['oc'])));
+
+        return $geometry[0] + (($columns - 1) * $geometry[2]) + (max(0, $maxOptions - 1) * $geometry[5]) + $geometry[4] <= 10000
+            && $geometry[1] + (($rows - 1) * $geometry[3]) + $geometry[4] <= 10000;
+    }
+
+    private function validSignatureShape(int $version, string $signature): bool
+    {
+        return match ($version) {
+            3 => preg_match('/^(?:[a-f0-9]{16}|[a-f0-9]{32})$/', $signature) === 1,
+            4 => preg_match('/^[a-f0-9]{32}$/', $signature) === 1,
+            5 => preg_match('/^(?:[A-Za-z0-9_-]{22}|[a-f0-9]{32})$/', $signature) === 1,
+        };
     }
 
     /** Cifra um vetor de índices em base64(iv|tag|ciphertext). */

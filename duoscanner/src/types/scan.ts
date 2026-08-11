@@ -74,10 +74,7 @@ export interface QRPayload {
   tpl_v?: number;
   cols?: number; // number of bubble columns
   rpp?: number;  // rows per page (per column)
-  chk?: string;  // HMAC checksum (12-char hex)
-  // v1+ embedded data fields (for qr_embedded and hybrid modes)
-  gab?: string;  // compact answer key: each digit = correct option index (0-4)
-  pts?: string;  // compact points: each char = weight (1-9)
+  chk?: string;  // HMAC authenticator (legacy hex or current base64url)
   /** v4 geometry, relative to the fiducial frame and scaled by 10000. */
   g?: number[];
   /** v4 number of options for each question on this page. */

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tembo.app/contracts/omr/qr-payload.schema.json",
+  "title": "Tembo OMR QR payload",
+  "description": "Wire contract accepted by Tembo readers. v3 and v4 are historical; v5 is the current emitter.",
+  "oneOf": [
+    { "$ref": "#/$defs/v3" },
+    { "$ref": "#/$defs/v4" },
+    { "$ref": "#/$defs/v5" }
+  ],
+  "$defs": {
+    "positiveInteger": { "type": "integer", "minimum": 1 },
+    "geometry": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": { "type": "integer", "minimum": 0, "maximum": 10000 }
+    },
+    "baseProperties": {
+      "type": "object",
+      "properties": {
+        "e": { "$ref": "#/$defs/positiveInteger", "description": "Assessment identifier" },
+        "c": { "$ref": "#/$defs/positiveInteger", "description": "Immutable printed-copy identifier" },
+        "h": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Opaque copy validation token" },
+        "p": { "$ref": "#/$defs/positiveInteger", "description": "One-based page number" },
+        "v": { "type": "integer", "enum": [3, 4, 5], "description": "QR wire version; not a template version" },
+        "tpl_id": { "$ref": "#/$defs/positiveInteger", "description": "OMR template identifier" },
+        "tpl_v": { "$ref": "#/$defs/positiveInteger", "description": "Immutable OMR template version" }
+      },
+      "required": ["e", "c", "h", "p", "v", "tpl_id", "tpl_v"]
+    },
+    "v3": {
+      "allOf": [
+        { "$ref": "#/$defs/baseProperties" },
+        {
+          "type": "object",
+          "properties": {
+            "v": { "const": 3 },
+            "gab_enc": { "type": "string", "minLength": 1 },
+            "chk": { "type": "string", "pattern": "^(?:[a-f0-9]{16}|[a-f0-9]{32})$" }
+          },
+          "required": ["chk"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "v4": {
+      "allOf": [
+        { "$ref": "#/$defs/baseProperties" },
+        {
+          "type": "object",
+          "properties": {
+            "v": { "const": 4 },
+            "pt": { "$ref": "#/$defs/positiveInteger" },
+            "qs": { "$ref": "#/$defs/positiveInteger" },
+            "qe": { "$ref": "#/$defs/positiveInteger" },
+            "rpp": { "$ref": "#/$defs/positiveInteger" },
+            "cols": { "$ref": "#/$defs/positiveInteger" },
+            "tpl": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "g": { "$ref": "#/$defs/geometry" },
+            "oc": { "type": "string", "pattern": "^(?:0|[2-9])+$" },
+            "gab_enc": { "type": "string", "minLength": 1 },
+            "pts": { "type": ["array", "string"] },
+            "chk": { "type": "string", "pattern": "^[a-f0-9]{32}$" }
+          },
+          "required": ["g", "chk"],
+          "dependentRequired": {
+            "pt": ["qs", "qe", "rpp"],
+            "qs": ["pt", "qe", "rpp"],
+            "qe": ["pt", "qs", "rpp"],
+            "rpp": ["pt", "qs", "qe"]
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "v5": {
+      "allOf": [
+        { "$ref": "#/$defs/baseProperties" },
+        {
+          "type": "object",
+          "properties": {
+            "v": { "const": 5 },
+            "pt": { "$ref": "#/$defs/positiveInteger" },
+            "qs": { "$ref": "#/$defs/positiveInteger" },
+            "qe": { "$ref": "#/$defs/positiveInteger" },
+            "rpp": { "$ref": "#/$defs/positiveInteger" },
+            "cols": { "$ref": "#/$defs/positiveInteger" },
+            "g": { "$ref": "#/$defs/geometry" },
+            "oc": { "type": "string", "pattern": "^(?:0|[2-9])+$" },
+            "gab_enc": { "type": "string", "minLength": 1 },
+            "pts": { "type": ["array", "string"] },
+            "chk": { "type": "string", "pattern": "^(?:[A-Za-z0-9_-]{22}|[a-f0-9]{32})$" }
+          },
+          "required": ["pt", "qs", "qe", "rpp", "g", "oc", "chk"]
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}
