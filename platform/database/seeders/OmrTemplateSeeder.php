@@ -37,7 +37,7 @@ class OmrTemplateSeeder extends Seeder
             'grid_top_offset_mm' => 20.0,
         ];
 
-        $template = OmrTemplate::updateOrCreate(
+        $template = OmrTemplate::firstOrCreate(
             ['slug' => 'sistema-padrao'],
             [
                 'name' => 'Cartão Padrão (Sistema)',
@@ -77,13 +77,9 @@ class OmrTemplateSeeder extends Seeder
         );
 
         // Snapshot da versão 1
-        OmrTemplateVersion::updateOrCreate(
+        OmrTemplateVersion::firstOrCreate(
             ['omr_template_id' => $template->id, 'version' => 1],
-            [
-                'layout_config' => $layout,
-                'header_config' => $template->header_config,
-                'logo_path' => $template->logo_path,
-            ]
+            $this->versionPayload($template, $layout),
         );
 
         $this->seedDetailed();
@@ -115,7 +111,7 @@ class OmrTemplateSeeder extends Seeder
             'qr_position' => 'top_right',
         ];
 
-        $template = OmrTemplate::updateOrCreate(
+        $template = OmrTemplate::firstOrCreate(
             ['slug' => 'sistema-detalhado'],
             [
                 'name' => 'Cartão Detalhado (Sistema)',
@@ -147,9 +143,43 @@ class OmrTemplateSeeder extends Seeder
             ]
         );
 
-        OmrTemplateVersion::updateOrCreate(
+        OmrTemplateVersion::firstOrCreate(
             ['omr_template_id' => $template->id, 'version' => 1],
-            ['layout_config' => $layout, 'header_config' => $template->header_config, 'logo_path' => null]
+            $this->versionPayload($template, $layout),
         );
+    }
+
+    /** @return array<string, mixed> */
+    private function versionPayload(OmrTemplate $template, array $layout): array
+    {
+        $definition = [
+            'schema_version' => 2,
+            'paper' => [
+                'width' => (int) $template->width,
+                'height' => (int) $template->height,
+                'paper_size' => $template->paper_size,
+                'orientation' => $template->orientation,
+            ],
+            'layout_config' => $layout,
+            'header_config' => $template->header_config ?? [],
+            'logo_path' => $template->logo_path,
+            'corner_points' => $template->corner_points_json ?? [],
+            'thresholds' => $template->thresholds_json ?? [],
+            'calibration' => $template->calibration_json ?? [],
+            'qr_region' => $template->qr_region_json ?? [],
+            'questions' => [],
+            'legacy_questions_source' => null,
+        ];
+        $encoded = json_encode($definition, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+
+        return [
+            'schema_version' => 2,
+            'layout_config' => $layout,
+            'header_config' => $template->header_config,
+            'logo_path' => $template->logo_path,
+            'definition' => $definition,
+            'content_hash' => hash('sha256', $encoded),
+            'created_by' => $template->created_by,
+        ];
     }
 }

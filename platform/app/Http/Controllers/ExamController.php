@@ -908,19 +908,21 @@ class ExamController extends Controller
                 : $template->current_version);
             $options['card_template_id'] = $template->id;
             $options['card_template_version'] = $templateVersion;
-            $printLayout = array_merge($template->layoutForVersion($templateVersion), [
+            $printOverrides = [
                 'frame_left_mm' => 8.0,
                 'frame_top_mm' => 54.0,
                 'frame_width_mm' => 174.0,
-            ]);
-            $options['template_snapshot'] = [
-                'id' => (int) $template->id,
-                'version' => $templateVersion,
-                'name' => $template->name,
-                'layout_config' => $printLayout,
-                'header_config' => $template->header_config,
-                'logo_path' => $template->logo_path,
             ];
+            $printLayout = array_merge($template->layoutForVersion($templateVersion), $printOverrides);
+            $options['template_snapshot'] = $template->snapshotForVersion($templateVersion);
+            $options['template_snapshot']['layout_config'] = $printLayout;
+            $options['template_snapshot']['print_overrides'] = $printOverrides;
+            $options['template_snapshot']['effective_content_hash'] = hash('sha256', json_encode([
+                'source_content_hash' => $options['template_snapshot']['content_hash'],
+                'layout_config' => $printLayout,
+                'header_config' => $options['template_snapshot']['header_config'],
+                'logo_path' => $options['template_snapshot']['logo_path'],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
         }
 
         try {
@@ -1158,14 +1160,7 @@ class ExamController extends Controller
         $templateVersion = (int) $exam->card_template_version;
         $options['card_template_id'] = $template->id;
         $options['card_template_version'] = $templateVersion;
-        $options['template_snapshot'] = [
-            'id' => (int) $template->id,
-            'version' => $templateVersion,
-            'name' => $template->name,
-            'layout_config' => $template->layoutForVersion($templateVersion),
-            'header_config' => $template->header_config,
-            'logo_path' => $template->logo_path,
-        ];
+        $options['template_snapshot'] = $template->snapshotForVersion($templateVersion);
 
         // Gera as cópias (embaralhamento) e inclui todas elas no mesmo PDF.
         $copies = $printService->generateCopies($exam, $quantity, $options, $schoolClassId, $studentIds);

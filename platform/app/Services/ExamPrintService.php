@@ -14,9 +14,14 @@ class ExamPrintService
 
     private readonly QuestionResourceSnapshotService $resourceSnapshots;
 
-    public function __construct(?QuestionResourceSnapshotService $resourceSnapshots = null)
-    {
+    private readonly AppearanceTemplateService $appearanceTemplates;
+
+    public function __construct(
+        ?QuestionResourceSnapshotService $resourceSnapshots = null,
+        ?AppearanceTemplateService $appearanceTemplates = null,
+    ) {
         $this->resourceSnapshots = $resourceSnapshots ?? new QuestionResourceSnapshotService;
+        $this->appearanceTemplates = $appearanceTemplates ?? new AppearanceTemplateService;
     }
 
     /**
@@ -95,6 +100,11 @@ class ExamPrintService
             }
 
             $snapshot = $this->questionSnapshot($questions);
+            $appearanceSnapshot = $this->appearanceTemplates->snapshotForExam(
+                $lockedExam,
+                is_array($options['template_snapshot'] ?? null) ? $options['template_snapshot'] : null,
+                $options,
+            );
             $latestSnapshot = $lockedExam->copies()
                 ->whereNotNull('question_snapshot')
                 ->latest('id')
@@ -172,7 +182,7 @@ class ExamPrintService
                     'card_template_id' => $options['card_template_id'] ?? null,
                     'card_template_version' => $options['card_template_version'] ?? null,
                     'output_type' => $outputType,
-                    'template_snapshot' => $options['template_snapshot'] ?? null,
+                    'template_snapshot' => $appearanceSnapshot,
                     'questions_map' => $questionIds,
                     'options_map' => $optionsMap,
                     'question_snapshot' => $snapshot,

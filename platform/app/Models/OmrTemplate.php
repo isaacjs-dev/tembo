@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use LogicException;
+use OutOfBoundsException;
 
 class OmrTemplate extends Model
 {
@@ -41,6 +43,7 @@ class OmrTemplate extends Model
         'max_options',
         'current_version',
         'is_active',
+        'archived_at',
     ];
 
     protected function casts(): array
@@ -55,7 +58,22 @@ class OmrTemplate extends Model
             'is_active' => 'boolean',
             'is_default' => 'boolean',
             'is_system' => 'boolean',
+            'archived_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::updating(function (self $template): void {
+            if ((bool) $template->getOriginal('is_system') || $template->is_system) {
+                throw new LogicException('Templates OMR do sistema são imutáveis.');
+            }
+        });
+        static::deleting(function (self $template): void {
+            if ($template->is_system) {
+                throw new LogicException('Templates OMR do sistema não podem ser excluídos.');
+            }
+        });
     }
 
     public function organization()
@@ -101,6 +119,10 @@ class OmrTemplate extends Model
             return $snapshot->layout_config;
         }
 
+        if ((int) $version !== (int) $this->current_version || $this->versions()->exists()) {
+            throw new OutOfBoundsException("A versão OMR {$version} não existe para o template {$this->id}.");
+        }
+
         return is_array($this->layout_config) ? $this->layout_config : [];
     }
 
@@ -118,7 +140,7 @@ class OmrTemplate extends Model
         $user = $user ?? auth()->user();
         $organizationId = $user?->organization_id ? (int) $user->organization_id : null;
 
-        return $query->where(function ($q) use ($organizationId, $user) {
+        return $query->whereNull('archived_at')->where(function ($q) use ($organizationId, $user) {
             $q->where('visibility_scope', 'system')
                 ->orWhere('is_system', true)
                 ->orWhere(function ($systemDefault) {
@@ -174,6 +196,30 @@ class OmrTemplate extends Model
                     'weight' => $q->weight,
                 ];
             })->toArray(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function snapshotForVersion(?int $version = null): array
+    {
+        $version ??= (int) $this->current_version;
+        $record = $this->versions()->where('version', $version)->first();
+        if (! $record && ((int) $version !== (int) $this->current_version || $this->versions()->exists())) {
+            throw new OutOfBoundsException("A versão OMR {$version} não existe para o template {$this->id}.");
+        }
+
+        return [
+            'id' => (int) $this->id,
+            'version' => $version,
+            'name' => $this->name,
+            'schema_version' => (int) ($record?->schema_version ?? 1),
+            'content_hash' => $record?->content_hash,
+            'definition' => $record?->definition,
+            'legacy_fallback' => $record === null,
+            'version_source' => $record ? 'immutable_record' : 'live_legacy_current',
+            'layout_config' => $record ? ($record->layout_config ?? []) : ($this->layout_config ?? []),
+            'header_config' => $record ? ($record->header_config ?? []) : ($this->header_config ?? []),
+            'logo_path' => $record ? $record->logo_path : $this->logo_path,
         ];
     }
 }
