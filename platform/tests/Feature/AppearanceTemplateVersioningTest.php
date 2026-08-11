@@ -26,15 +26,18 @@ class AppearanceTemplateVersioningTest extends TestCase
 
     public function test_system_contexts_are_distinct_and_versions_are_immutable(): void
     {
-        $templates = AppearanceTemplate::query()->where('is_system', true)->get()->keyBy('kind');
+        $templates = AppearanceTemplate::query()->where('is_system', true)->get()->groupBy('kind');
 
         $this->assertSame(
             collect(AppearanceTemplate::KINDS)->sort()->values()->all(),
             $templates->keys()->sort()->values()->all(),
         );
+        $this->assertCount(10, $templates['assessment_layout']);
+        $this->assertCount(10, $templates['assessment_header']);
+        $this->assertCount(1, $templates['answer_sheet_header']);
         $this->assertSame(3, TemplateDefault::query()->where('scope_key', 'system')->count());
 
-        $system = $templates['assessment_layout'];
+        $system = $templates['assessment_layout']->firstWhere('slug', 'system-assessment_layout-essential');
         $version = $system->currentVersion;
         $original = $version->definition;
 
@@ -75,7 +78,7 @@ class AppearanceTemplateVersioningTest extends TestCase
         );
         $service->setDefault($organizationTemplate, $admin, 'organization', $organization);
 
-        $system = AppearanceTemplate::query()->where('kind', 'assessment_layout')->where('is_system', true)->sole();
+        $system = AppearanceTemplate::query()->where('slug', 'system-assessment_layout-essential')->sole();
         $personal = $service->duplicate($system, $admin, $organization);
         $service->setDefault($personal, $admin, 'user', $organization);
 
