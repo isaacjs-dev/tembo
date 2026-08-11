@@ -10,7 +10,7 @@ import { useConfigStore } from '@/store/config-store';
 import { useSyncStore } from '@/store/sync-store';
 import { examService } from '@/services/exams';
 import { explainExamDownloadError } from '@/services/exam-download-error';
-import { parseQRCode, validateQRAgainstExam, hasEmbeddedData, canCaptureOffline } from '@/lib/qr-parser';
+import { parseQRCode, validateQRAgainstExam, canCaptureOffline } from '@/lib/qr-parser';
 import { validateQRPayload } from '@/lib/qr-validator';
 import { getResolvedConfig, getDataStrategy } from '@/lib/config-resolver';
 import { evaluatePreCapture, shouldAutoCapture, type PreCaptureValidation } from '@/lib/capture-engine';
@@ -189,7 +189,7 @@ export default function CameraScreen() {
         const info = explainExamDownloadError(error);
         const msg = error.response?.data?.error || 'Não foi possível carregar a prova.';
         // If hybrid mode, fallback to QR data
-        if (config.scanMode === 'hybrid' && (hasEmbeddedData(qr as any) || canCaptureOffline(qr as any))) {
+        if (config.scanMode === 'hybrid' && canCaptureOffline(qr)) {
           setExamTitle(`Prova #${eid} (captura offline)`);
           setVersionWarning('Cartão aceito offline. A correção será concluída ao sincronizar.');
           setCameraState('ready_to_capture');
@@ -202,15 +202,13 @@ export default function CameraScreen() {
     }
 
     if (strategy === 'use_qr_fallback') {
-      if (hasEmbeddedData(qr as any) || canCaptureOffline(qr as any)) {
+      if (canCaptureOffline(qr)) {
         setExamTitle(`Prova #${eid} (via QR)`);
-        if (canCaptureOffline(qr as any) && !hasEmbeddedData(qr as any)) {
-          setVersionWarning('Cartão aceito offline. A correção será concluída ao sincronizar.');
-        }
+        setVersionWarning('Cartão aceito offline. A autenticidade e a correção serão concluídas ao sincronizar.');
         setCameraState('ready_to_capture');
         return;
       }
-      Alert.alert('Sem dados', 'QR Code não contém dados de gabarito e não há cache local.');
+      Alert.alert('Sem dados', 'O QR Code não contém um contrato de captura offline e não há cache local.');
       setCameraState('qr_error');
       return;
     }

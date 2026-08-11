@@ -540,8 +540,22 @@ class BackendSecurityHardeningTest extends TestCase
         $copy = ExamCopy::create([
             'exam_id' => $exam->id,
             'copy_number' => 1,
+            'template_snapshot' => [
+                'answer_sheet_card' => [
+                    'id' => 1,
+                    'version' => 1,
+                    'layout_config' => ['columns' => 1, 'rows_per_column' => 20],
+                ],
+            ],
             'questions_map' => [$question->id],
             'options_map' => [$question->id => [0, 1]],
+            'question_snapshot' => [[
+                'id' => $question->id,
+                'type' => 'multiple_choice',
+                'content' => $question->content,
+                'points' => 2,
+                'order' => 1,
+            ]],
             'validation_hash' => str_repeat('a', 40),
         ]);
         $payload = $this->offlineQrPayload($exam, $copy, $organization->id, [0]);
@@ -574,6 +588,53 @@ class BackendSecurityHardeningTest extends TestCase
             'session_id' => $sessionId,
             'status' => 'consolidated',
         ]);
+    }
+
+    public function test_offline_omr_partial_legacy_copy_without_canonical_evidence_requires_human_review(): void
+    {
+        Storage::fake('local');
+        $organization = $this->organization();
+        $this->enableOmr($organization);
+        $teacher = $this->user($organization, 'teacher');
+        $exam = $this->exam($organization, $teacher);
+        $question = $this->question($organization, $teacher, 'private');
+        $exam->questions()->attach($question->id, ['points' => 1, 'order' => 1]);
+        $copy = ExamCopy::create([
+            'exam_id' => $exam->id,
+            'copy_number' => 1,
+            'template_snapshot' => [
+                'answer_sheet_card' => [
+                    'id' => 1,
+                    'version' => 1,
+                ],
+            ],
+            'questions_map' => [$question->id],
+            'options_map' => [$question->id => [0, 1]],
+            'validation_hash' => str_repeat('e', 40),
+        ]);
+        $sessionId = (string) Str::uuid();
+
+        Sanctum::actingAs($teacher);
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', [
+                'session_id' => $sessionId,
+                'exam_id' => $exam->id,
+                'copy_id' => $copy->id,
+                'page_index' => 1,
+                'total_pages' => 1,
+                'question_start' => 1,
+                'qr_payload' => json_encode($this->offlineQrPayload($exam, $copy, $organization->id, [0])),
+                'image' => UploadedFile::fake()->image('legacy-template.jpg'),
+                'detected_answers' => json_encode(['1' => 0]),
+                'confidences' => json_encode(['1' => 0.95]),
+            ], ['Accept' => 'application/json'])
+            ->assertCreated();
+
+        $scan = OmrScan::where('session_id', $sessionId)->firstOrFail();
+        $this->assertSame('reviewing', $scan->status);
+        $this->assertNull($scan->score);
+        $this->assertTrue((bool) data_get($scan->quality_json, 'legacy_template_binding'));
+        $this->assertTrue((bool) data_get($scan->quality_json, 'requires_review'));
     }
 
     public function test_offline_omr_rejects_tampered_qr_before_persisting_capture(): void
@@ -612,6 +673,51 @@ class BackendSecurityHardeningTest extends TestCase
             ->assertJsonValidationErrors('qr_payload');
 
         $this->assertDatabaseCount('omr_scan_pages', 0);
+    }
+
+    public function test_offline_omr_rejects_a_valid_signature_for_the_wrong_printed_template_before_persisting(): void
+    {
+        Storage::fake('local');
+        $organization = $this->organization();
+        $this->enableOmr($organization);
+        $teacher = $this->user($organization, 'teacher');
+        $exam = $this->exam($organization, $teacher);
+        $question = $this->question($organization, $teacher, 'private');
+        $exam->questions()->attach($question->id, ['points' => 1, 'order' => 1]);
+        $copy = ExamCopy::create([
+            'exam_id' => $exam->id,
+            'copy_number' => 1,
+            'questions_map' => [$question->id],
+            'options_map' => [$question->id => [0, 1]],
+            'template_snapshot' => [
+                'answer_sheet_card' => [
+                    'id' => 1,
+                    'version' => 2,
+                    'layout_config' => ['columns' => 1, 'rows_per_column' => 20],
+                ],
+            ],
+            'validation_hash' => str_repeat('d', 40),
+        ]);
+        $payload = $this->offlineQrPayload($exam, $copy, $organization->id, [0]);
+
+        Sanctum::actingAs($teacher);
+        $this->withoutMiddleware(CheckOmrApiAccess::class)
+            ->post('/api/v1/omr/scans', [
+                'session_id' => (string) Str::uuid(),
+                'exam_id' => $exam->id,
+                'copy_id' => $copy->id,
+                'page_index' => 1,
+                'total_pages' => 1,
+                'question_start' => 1,
+                'qr_payload' => json_encode($payload),
+                'image' => UploadedFile::fake()->image('wrong-template.jpg'),
+                'detected_answers' => json_encode(['1' => 0]),
+            ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('qr_payload');
+
+        $this->assertDatabaseCount('omr_scan_pages', 0);
+        $this->assertDatabaseCount('omr_scans', 0);
     }
 
     public function test_offline_omr_holds_card_for_review_when_decrypted_key_diverges(): void

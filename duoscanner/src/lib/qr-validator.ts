@@ -1,9 +1,9 @@
 /**
  * QR Validator — validates HMAC and structural integrity of QR payloads.
  *
- * NOTE: Full HMAC validation requires the server-side secret key and is
- * performed at sync time. On the device, we do structural validation only.
- * The `hmac_verified` flag in the scan record tracks this.
+ * NOTE: Full HMAC validation requires the server-side tenant key and is
+ * performed at sync time. On the device, we do structural validation only and
+ * preserve the exact signed payload for deferred verification.
  */
 import type { QRPayloadV2 } from './qr-parser';
 
@@ -56,28 +56,6 @@ export function validateQRPayload(qr: QRPayloadV2): QRValidationResult {
     }
     if (!qr.rpp || qr.rpp < 1 || !qr.qs || !qr.qe || !qr.pt) {
       errors.push('Metadados de página (pt/qs/qe/rpp) ausentes ou inválidos.');
-    }
-  }
-
-  // Gabarito embedded data validation (for qr_embedded/hybrid modes)
-  if (qr.gab) {
-    if (!/^[0-4]+$/.test(qr.gab)) {
-      errors.push('Gabarito compacto (gab) contém caracteres inválidos. Esperado: dígitos 0-4.');
-    }
-
-    const expectedLength = (qr.qe ?? 0) - (qr.qs ?? 1) + 1;
-    if (expectedLength > 0 && qr.gab.length !== expectedLength) {
-      warnings.push(`Tamanho do gabarito (${qr.gab.length}) difere do esperado (${expectedLength}).`);
-    }
-  }
-
-  // Points validation
-  if (qr.pts) {
-    if (!/^[1-9]+$/.test(qr.pts)) {
-      errors.push('Pontos (pts) contém caracteres inválidos. Esperado: dígitos 1-9.');
-    }
-    if (qr.gab && qr.pts.length !== qr.gab.length) {
-      warnings.push(`Tamanho dos pontos (${qr.pts.length}) difere do gabarito (${qr.gab.length}).`);
     }
   }
 

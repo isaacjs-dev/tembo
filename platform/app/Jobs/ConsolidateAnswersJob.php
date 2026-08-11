@@ -109,6 +109,7 @@ class ConsolidateAnswersJob implements ShouldQueue
             $totalConfidenceSum = 0;
             $totalQuestionsProcessed = 0;
             $embeddedKeyMismatches = [];
+            $legacyTemplateBinding = false;
             $layoutMetadata = null;
 
             foreach ($pages as $page) {
@@ -146,11 +147,13 @@ class ConsolidateAnswersJob implements ShouldQueue
                         $exam,
                         $copy,
                     );
+                    $legacyTemplateBinding = $legacyTemplateBinding || $metadata['legacy_binding'];
                     $layoutMetadata ??= [
                         'qr_schema' => (int) $payload['v'],
                         'template_id' => $metadata['template_id'],
                         'template_version' => $metadata['template_version'],
                         'offline_capture' => true,
+                        'legacy_template_binding' => $metadata['legacy_binding'],
                     ];
                 }
 
@@ -175,12 +178,15 @@ class ConsolidateAnswersJob implements ShouldQueue
             // The encrypted answer key is only decrypted and compared here. A card
             // whose printed key diverges from the official copy is held for review,
             // never silently auto-corrected.
-            $requiresReview = $embeddedKeyMismatches !== [];
+            $requiresReview = $legacyTemplateBinding || $embeddedKeyMismatches !== [];
             $scoreResult = $requiresReview
                 ? [
                     'score' => null,
                     'total_points' => $exam->questions->sum(fn ($question) => $question->pivot->points ?? 1),
-                    'details' => ['offline_qr_key_mismatch' => $embeddedKeyMismatches],
+                    'details' => [
+                        'offline_qr_key_mismatch' => $embeddedKeyMismatches,
+                        'legacy_template_binding' => $legacyTemplateBinding,
+                    ],
                 ]
                 : $gradingService->gradeAnswers($exam->id, $copy?->id, $mergedAnswers);
 
@@ -205,6 +211,7 @@ class ConsolidateAnswersJob implements ShouldQueue
                 'quality_json' => [
                     'offline_qr' => $offlineCapture,
                     'embedded_key_mismatches' => $embeddedKeyMismatches,
+                    'legacy_template_binding' => $legacyTemplateBinding,
                     'requires_review' => $requiresReview,
                 ],
                 'layout_meta' => $layoutMetadata,

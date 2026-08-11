@@ -13,6 +13,7 @@ use App\Models\OmrScanPage;
 use App\Models\OmrTemplate;
 use App\Models\User;
 use App\Services\OmrGradingService;
+use App\Services\PrintedQrBindingService;
 use App\Services\QrCodeSigningService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -25,7 +26,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class OmrController extends Controller
 {
     public function __construct(
-        private OmrGradingService $gradingService
+        private OmrGradingService $gradingService,
+        private PrintedQrBindingService $qrBinding,
     ) {}
 
     /**
@@ -143,17 +145,16 @@ class OmrController extends Controller
 
                     // Missing version/signature never enters a permissive legacy fallback.
                     if (is_array($qr)) {
-                        // 1) Assinatura HMAC (anti-adulteração).
-                        $signer = app(QrCodeSigningService::class);
-                        if (! $signer->hasSupportedContract($qr) || ! $signer->verifyPayload($qr, $orgId)) {
-                            return $this->rejectScan($path ?? null, 'Cartão inválido: a assinatura do QR Code não confere (possível adulteração ou organização incorreta).');
+                        if (! $copy) {
+                            return $this->rejectScan($path ?? null, 'A cópia assinada pelo QR Code não foi informada.');
                         }
-                        // 2) Integridade: o cartão pertence a ESTA prova e cópia?
-                        if ((int) $qr['e'] !== (int) $exam->id) {
-                            return $this->rejectScan($path ?? null, 'Este cartão pertence a outra avaliação (o QR não confere com a prova selecionada).');
-                        }
-                        if (! $copy || (int) $qr['c'] !== (int) $copy->id || ! hash_equals((string) $copy->validation_hash, (string) $qr['h'])) {
-                            return $this->rejectScan($path ?? null, 'Este cartão não pertence à cópia identificada (hash de validação não confere).');
+                        try {
+                            $this->qrBinding->bind($qr, (int) $orgId, $exam, $copy);
+                        } catch (ValidationException $exception) {
+                            return $this->rejectScan(
+                                $path ?? null,
+                                (string) collect($exception->errors())->flatten()->first(),
+                            );
                         }
                     }
 
@@ -190,6 +191,15 @@ class OmrController extends Controller
                     $statusConfidence = ['OK' => 0.95, 'UNCERTAIN' => 0.50, 'DOUBLE' => 0.40, 'BLANK' => 0.55];
                     $confidences = [];
                     $counts = ['ok' => 0, 'uncertain' => 0, 'double' => 0, 'blank' => 0];
+
+                    if (is_array($qr) && isset($qr['qs'], $qr['qe'])) {
+                        foreach (($payload['answers'] ?? []) as $answer) {
+                            $position = (int) ($answer['q'] ?? 0);
+                            if ($position < (int) $qr['qs'] || $position > (int) $qr['qe']) {
+                                return $this->rejectScan($path ?? null, 'Uma resposta detectada está fora da página assinada pelo QR Code.');
+                            }
+                        }
+                    }
 
                     foreach (($payload['answers'] ?? []) as $res) {
                         $pos = (int) ($res['q'] ?? 0); // posição impressa, 1-based

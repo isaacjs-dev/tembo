@@ -7,18 +7,22 @@
 import type { QRPayload } from '@/types/scan';
 import { parseCardPageGeometry } from './geometry-contract.ts';
 
-export interface QRPayloadV2 extends QRPayload {
-  // v1+ fields for qr_embedded and hybrid modes
-  gab?: string;    // compact answer key: each digit = correct option index (0-4)
-  pts?: string;    // compact points: each char = weight (1-9)
-}
+export interface QRPayloadV2 extends QRPayload {}
 
 function parseGeometry(value: unknown): number[] | undefined {
   if (!Array.isArray(value) || value.length !== 6) return undefined;
-  if (!value.every((item) => typeof item === 'number' && Number.isFinite(item) && item >= 0)) {
+  if (!value.every((item) => Number.isInteger(item) && (item as number) >= 0 && (item as number) <= 10000)) {
     return undefined;
   }
-  return value.map((item) => Math.round(item));
+  const geometry = value.map((item) => Math.round(item));
+  if (
+    geometry[2] <= 0 || geometry[3] <= 0 || geometry[4] <= 0 || geometry[5] <= 0 ||
+    geometry[0] + geometry[4] > 10000 || geometry[1] + geometry[4] > 10000
+  ) {
+    return undefined;
+  }
+
+  return geometry;
 }
 
 const ALLOWED_FIELDS: Record<number, readonly string[]> = {
@@ -44,12 +48,19 @@ export function parseQRCode(data: string): QRPayloadV2 | null {
     const allowedFields = ALLOWED_FIELDS[version];
     if (!Number.isInteger(version) || !allowedFields) return null;
     if (Object.keys(parsed).some((field) => !allowedFields.includes(field))) return null;
+    const signaturePattern = version === 3
+      ? /^(?:[a-f0-9]{16}|[a-f0-9]{32})$/
+      : (version === 4 ? /^[a-f0-9]{32}$/ : /^(?:[A-Za-z0-9_-]{22}|[a-f0-9]{32})$/);
+    if (typeof parsed.chk !== 'string' || !signaturePattern.test(parsed.chk)) return null;
 
     // Validate required fields (present in ALL modes)
     if (
-      typeof parsed.e !== 'number' ||
-      typeof parsed.c !== 'number' ||
-      typeof parsed.h !== 'string'
+      !Number.isInteger(parsed.e) || parsed.e < 1 ||
+      !Number.isInteger(parsed.c) || parsed.c < 1 ||
+      !Number.isInteger(parsed.p) || parsed.p < 1 ||
+      !Number.isInteger(parsed.tpl_id) || parsed.tpl_id < 1 ||
+      !Number.isInteger(parsed.tpl_v) || parsed.tpl_v < 1 ||
+      typeof parsed.h !== 'string' || parsed.h.length < 1 || parsed.h.length > 128
     ) {
       return null;
     }
@@ -61,8 +72,13 @@ export function parseQRCode(data: string): QRPayloadV2 | null {
       if (!rawGeometry) return null;
       const pageFields = ['pt', 'qs', 'qe', 'rpp'].filter((field) => parsed[field] !== undefined);
       if (pageFields.length !== 0 && pageFields.length !== 4) return null;
+      if (parsed.oc !== undefined && (typeof parsed.oc !== 'string' || !/^(?:0|[2-9])+$/.test(parsed.oc))) return null;
       if (parsed.oc !== undefined && pageFields.length === 4 && !modernGeometry) return null;
     }
+    if (parsed.cols !== undefined && (!Number.isInteger(parsed.cols) || parsed.cols < 1)) return null;
+    if (parsed.tpl !== undefined && (typeof parsed.tpl !== 'string' || parsed.tpl.length < 1 || parsed.tpl.length > 100)) return null;
+    if (parsed.gab_enc !== undefined && (typeof parsed.gab_enc !== 'string' || parsed.gab_enc.length < 1)) return null;
+    if (parsed.pts !== undefined && !Array.isArray(parsed.pts) && typeof parsed.pts !== 'string') return null;
 
     const payload: QRPayloadV2 = {
       e: parsed.e,
@@ -80,13 +96,10 @@ export function parseQRCode(data: string): QRPayloadV2 | null {
       cols: typeof parsed.cols === 'number' ? parsed.cols : undefined,
       rpp: typeof parsed.rpp === 'number' ? parsed.rpp : undefined,
       chk: typeof parsed.chk === 'string' ? parsed.chk : undefined,
-      // v1+ embedded data fields
-      gab: typeof parsed.gab === 'string' ? parsed.gab : undefined,
-      pts: typeof parsed.pts === 'string' ? parsed.pts : undefined,
       // v4 fields. Geometry is public layout data; the encrypted answer key is
       // intentionally opaque to the device and can only be graded by the API.
       g: modernGeometry?.g ?? rawGeometry,
-      oc: modernGeometry?.oc ?? (typeof parsed.oc === 'string' && /^[0-9]+$/.test(parsed.oc) ? parsed.oc : undefined),
+      oc: modernGeometry?.oc ?? (typeof parsed.oc === 'string' && /^(?:0|[2-9])+$/.test(parsed.oc) ? parsed.oc : undefined),
       gab_enc: typeof parsed.gab_enc === 'string' ? parsed.gab_enc : undefined,
       // Do not rebuild this object before sync: v4 HMAC covers every field,
       // including template identifiers that the scanner does not otherwise use.
@@ -125,57 +138,7 @@ export function validateQRAgainstExam(
 }
 
 /**
- * Extracts a compact answer key from QR payload.
- * Each digit in `gab` represents the correct option index (0-4) for that question.
- *
- * @example gab="24013" → Q1=C, Q2=E, Q3=A, Q4=B, Q5=D
- */
-export function extractAnswerKeyFromQR(qr: QRPayloadV2): Record<number, number> | null {
-  if (!qr.gab) return null;
-
-  const startQ = qr.qs ?? 1;
-  const answers: Record<number, number> = {};
-
-  for (let i = 0; i < qr.gab.length; i++) {
-    const digit = parseInt(qr.gab[i], 10);
-    if (isNaN(digit) || digit < 0 || digit > 4) continue;
-    answers[startQ + i] = digit;
-  }
-
-  return answers;
-}
-
-/**
- * Extracts point weights from QR payload.
- * Each char in `pts` represents the weight (1-9) for that question.
- */
-export function extractPointsFromQR(qr: QRPayloadV2): Record<number, number> | null {
-  if (!qr.pts) return null;
-
-  const startQ = qr.qs ?? 1;
-  const points: Record<number, number> = {};
-
-  for (let i = 0; i < qr.pts.length; i++) {
-    const digit = parseInt(qr.pts[i], 10);
-    if (isNaN(digit) || digit < 1 || digit > 9) {
-      points[startQ + i] = 1; // Default weight
-    } else {
-      points[startQ + i] = digit;
-    }
-  }
-
-  return points;
-}
-
-/**
- * Checks if a QR payload has embedded data sufficient for offline correction.
- */
-export function hasEmbeddedData(qr: QRPayloadV2): boolean {
-  return !!qr.gab && qr.gab.length > 0;
-}
-
-/**
- * v4 cards have no plaintext answer key. Their signed geometry is enough to
+ * Full v4/v5 cards have no plaintext answer key. Their signed geometry is enough to
  * capture answers offline; final grading remains exclusively on the server.
  */
 export function canCaptureOffline(qr: QRPayloadV2): boolean {

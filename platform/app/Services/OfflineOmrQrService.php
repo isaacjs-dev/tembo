@@ -16,13 +16,16 @@ use Illuminate\Validation\ValidationException;
  */
 class OfflineOmrQrService
 {
-    public function __construct(private QrCodeSigningService $signer) {}
+    public function __construct(
+        private QrCodeSigningService $signer,
+        private PrintedQrBindingService $binding,
+    ) {}
 
     /**
      * Validate the QR against the tenant, exam, copy and page supplied by the client.
      * Returns normalized numeric metadata only after the HMAC has been verified.
      *
-     * @return array{question_start:int,question_end:int,page:int,total_pages:int,template_id:?int,template_version:?int}
+     * @return array{question_start:int,question_end:int,page:int,total_pages:int,template_id:int,template_version:int,exam_version:int,legacy_binding:bool}
      */
     public function validatePage(
         array $payload,
@@ -40,45 +43,15 @@ class OfflineOmrQrService
             }
         }
 
-        if (
-            ! in_array((int) $payload['v'], [4, 5], true)
-            || ! $this->signer->hasSupportedContract($payload)
-            || ! $this->signer->verifyPayload($payload, $organizationId)
-        ) {
-            $this->fail('qr_payload', 'A assinatura do QR Code não confere. Leia novamente o cartão original.');
+        if (! in_array((int) $payload['v'], [4, 5], true)) {
+            $this->fail('qr_payload', 'Este contrato QR histórico não possui dados suficientes para captura offline.');
         }
 
-        if (
-            (int) $payload['e'] !== (int) $exam->id
-            || (int) $payload['c'] !== (int) $copy->id
-            || ! hash_equals((string) $copy->validation_hash, (string) $payload['h'])
-        ) {
-            $this->fail('qr_payload', 'O QR Code pertence a outra prova ou a outra versão impressa.');
-        }
-
-        $qrPage = (int) $payload['p'];
-        $qrTotal = (int) $payload['pt'];
-        $qs = (int) $payload['qs'];
-        $qe = (int) $payload['qe'];
-        if (
-            $qrPage !== $pageIndex
-            || $qrTotal !== $totalPages
-            || $qs !== $questionStart
-            || $qs < 1
-            || $qe < $qs
-            || $qe > count($copy->questions_map ?? [])
-        ) {
-            $this->fail('qr_payload', 'Os dados da página não correspondem ao QR Code lido.');
-        }
-
-        return [
-            'question_start' => $qs,
-            'question_end' => $qe,
-            'page' => $qrPage,
-            'total_pages' => $qrTotal,
-            'template_id' => isset($payload['tpl_id']) ? (int) $payload['tpl_id'] : null,
-            'template_version' => isset($payload['tpl_v']) ? (int) $payload['tpl_v'] : null,
-        ];
+        return $this->binding->bind($payload, $organizationId, $exam, $copy, [
+            'page' => $pageIndex,
+            'total_pages' => $totalPages,
+            'question_start' => $questionStart,
+        ]);
     }
 
     /** @return array<int, mixed> question id => visual answer */

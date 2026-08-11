@@ -20,6 +20,28 @@ const geometryFixture = JSON.parse(readFileSync(
   new URL('../../contracts/omr/card-page-geometry.v1.json', import.meta.url),
   'utf8'
 ));
+const qrFixture = JSON.parse(readFileSync(
+  new URL('../../contracts/omr/qr-contract.vectors.json', import.meta.url),
+  'utf8'
+));
+
+test('matches every published QR structural vector', () => {
+  for (const vector of qrFixture.vectors) {
+    const parsed = parseQRCode(JSON.stringify(vector.payload));
+    assert.ok(parsed, vector.name);
+    assert.equal(parsed.v, vector.payload.v, vector.name);
+    assert.equal(canCaptureOffline(parsed), vector.offline_capture, vector.name);
+    assert.deepEqual(parsed.signedPayload, vector.payload, vector.name);
+  }
+});
+
+test('rejects every published invalid QR vector before capture', () => {
+  const current = qrFixture.vectors.find((vector) => vector.name === 'current-v5').payload;
+  for (const vector of qrFixture.invalid_vectors) {
+    assert.equal(parseQRCode(JSON.stringify({ ...current, ...vector.patch })), null, vector.name);
+  }
+  assert.equal(parseQRCode(JSON.stringify({ ...current, e: String(current.e) })), null);
+});
 
 test('matches all PHP card-page geometry golden vectors', () => {
   for (const fixture of geometryFixture.cases) {
@@ -76,7 +98,7 @@ test('keeps the historical signed v4 template slug compatible', () => {
     tpl_v: 2,
     g: [100, 200, 300, 400, 500, 600],
     oc: '22',
-    chk: 'signed-value',
+    chk: '00000000000000000000000000000000',
   }));
 
   assert.equal(qr?.v, 4);
@@ -94,7 +116,7 @@ test('keeps an early v4 QR readable but not eligible for offline capture', () =>
     tpl_id: 5,
     tpl_v: 2,
     g: [1, 2, 3, 4, 5, 6],
-    chk: 'signed-value',
+    chk: '00000000000000000000000000000000',
   }));
 
   assert.equal(qr?.v, 4);

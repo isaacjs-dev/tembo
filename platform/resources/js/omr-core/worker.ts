@@ -1,6 +1,7 @@
 import { OmrEngine } from './engine';
 import { openCvUnavailableMessage, resolveOpenCvUrls } from './opencv-loader';
 import { QrReader } from './qr_reader';
+import { parseOmrQrPayload } from './qr-contract';
 import type { OmrTemplate } from './types';
 import { parseCardPageGeometry, questionsForCardPage } from './geometry-contract';
 
@@ -99,7 +100,7 @@ self.onmessage = async (e: MessageEvent) => {
             const { imageData, templateData } = payload;
             
             // 1. Read QR Code first to get template config and geometry
-            const qrPayload = QrReader.read(imageData);
+            const qrPayload = parseOmrQrPayload(QrReader.read(imageData));
             if (!qrPayload) {
                 throw new Error("QR Code not found or unreadable");
             }

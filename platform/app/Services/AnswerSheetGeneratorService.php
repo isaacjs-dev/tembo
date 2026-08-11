@@ -203,7 +203,6 @@ class AnswerSheetGeneratorService
             // Gabarito (índices visuais) — será CIFRADO em buildPayload (nunca texto puro).
             if (in_array($scanMode, ['qr_embedded', 'hybrid'], true)) {
                 $gabarito = [];
-                $pontos = [];
                 foreach ($chunk->values() as $q) {
                     $optMap = $copy->options_map[$q->id] ?? null;
                     $correctOriginal = $q->content['correct_option'] ?? null;
@@ -217,12 +216,8 @@ class AnswerSheetGeneratorService
                     } else {
                         $gabarito[] = -1; // dissertativa/inválida
                     }
-                    $pontos[] = $q->pivot->points ?? 1;
                 }
                 $qrPayload['gab'] = $gabarito;
-                if ($scanMode === 'qr_embedded') {
-                    $qrPayload['pts'] = $pontos;
-                }
             }
 
             // Cifra o gabarito (AES) + assina (HMAC) com a chave da organização.

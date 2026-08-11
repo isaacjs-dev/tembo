@@ -19,9 +19,10 @@ class ScanModeSeeder extends Seeder
                 'requires_qr_data' => true,
                 'offline_capable' => true,
                 'qr_payload_schema' => [
-                    'required' => ['e', 'c', 'h', 'v', 'chk'],
-                    'optional' => ['p', 'pt', 'qs', 'qe', 'cols', 'rpp', 'gab'],
-                    'description' => 'QR contém identificação + gabarito compacto como fallback. Dados completos preferidos do cache.',
+                    'schema' => 'contracts/omr/qr-payload.schema.json',
+                    'required' => ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'rpp', 'tpl_id', 'tpl_v', 'g', 'oc', 'chk'],
+                    'optional' => ['gab_enc'],
+                    'description' => 'QR v5 fornece identidade e geometria assinadas. O cache é preferido; autenticidade e nota final são confirmadas no servidor.',
                 ],
                 'is_active' => true,
             ]
@@ -37,9 +38,10 @@ class ScanModeSeeder extends Seeder
                 'requires_qr_data' => false,
                 'offline_capable' => true,
                 'qr_payload_schema' => [
-                    'required' => ['e', 'c', 'h', 'v', 'chk'],
-                    'optional' => ['p', 'pt'],
-                    'description' => 'QR contém apenas identificação. Todos os dados vêm do cache local.',
+                    'schema' => 'contracts/omr/qr-payload.schema.json',
+                    'required' => ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'rpp', 'tpl_id', 'tpl_v', 'g', 'oc', 'chk'],
+                    'optional' => [],
+                    'description' => 'QR v5 identifica a cópia e a página; gabarito e pontos autorizados vêm do cache local.',
                 ],
                 'is_active' => true,
             ]
@@ -49,15 +51,16 @@ class ScanModeSeeder extends Seeder
             ['slug' => 'qr_embedded'],
             [
                 'name' => 'Dados no QR Code',
-                'description' => 'O QR Code da folha contém dados estruturados suficientes para identificação e correção, sem necessidade de download prévio.',
+                'description' => 'O QR Code contém identidade e geometria suficientes para capturar sem download prévio; a autenticidade e a correção oficial são concluídas pelo servidor.',
                 'is_default' => false,
                 'requires_predownload' => false,
                 'requires_qr_data' => true,
                 'offline_capable' => true,
                 'qr_payload_schema' => [
-                    'required' => ['e', 'c', 'h', 'v', 'qs', 'qe', 'cols', 'rpp', 'gab', 'pts', 'chk'],
-                    'optional' => ['p', 'pt'],
-                    'description' => 'QR contém gabarito completo embutido para correção autônoma.',
+                    'schema' => 'contracts/omr/qr-payload.schema.json',
+                    'required' => ['e', 'c', 'h', 'p', 'pt', 'qs', 'qe', 'v', 'rpp', 'tpl_id', 'tpl_v', 'g', 'oc', 'chk'],
+                    'optional' => ['gab_enc'],
+                    'description' => 'Nome histórico preservado: o QR permite captura offline, mas não expõe gabarito nem chave e não autoriza correção local autônoma.',
                 ],
                 'is_active' => true,
             ]
