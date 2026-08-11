@@ -8,8 +8,8 @@ import { BubbleGrid } from '@/components/ui/BubbleGrid';
 import { Badge } from '@/components/ui/Badge';
 import { useExamStore } from '@/store/exam-store';
 import { useScanStore } from '@/store/scan-store';
-import { processOMR, createManualOMRResult, CONFIDENCE_AUTO_ACCEPT, CONFIDENCE_QUESTION_REVIEW } from '@/lib/omr-processor';
-import type { BubbleMarkType } from '@/types/scan';
+import { processOMR, CONFIDENCE_QUESTION_REVIEW } from '@/lib/omr-processor';
+import type { OMRAction, QuestionEvidence } from '@/lib/omr-pixel-pipeline';
 import { colors } from '@/theme/colors';
 import { fonts } from '@/theme/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,10 +28,16 @@ export default function ReviewMarksScreen() {
   const [processingStep, setProcessingStep] = useState('Detectando marcadores...');
   const [detectedAnswers, setDetectedAnswers] = useState<Record<string, number | null>>({});
   const [confidences, setConfidences] = useState<Record<string, number>>({});
-  const [markTypes, setMarkTypes] = useState<Record<string, BubbleMarkType>>({});
   const [multipleMarks, setMultipleMarks] = useState<Record<string, number[]>>({});
   const [fiducialCorners, setFiducialCorners] = useState<{ x: number; y: number }[]>([]);
-  const [omrMeta, setOmrMeta] = useState<{ usedHomography: boolean; fiducialCount: number; flagged: string[]; needsRescan: boolean } | null>(null);
+  const [questionEvidence, setQuestionEvidence] = useState<Record<string, QuestionEvidence>>({});
+  const [sourceSize, setSourceSize] = useState<{ width: number; height: number } | null>(null);
+  const [omrMeta, setOmrMeta] = useState<{
+    usedHomography: boolean;
+    fiducialCount: number;
+    needsRescan: boolean;
+    action: OMRAction;
+  } | null>(null);
 
   // States to keep track of image layout box for scaling SVGs
   const [imgLayout, setImgLayout] = useState({ width: 0, height: 0 });
@@ -88,25 +94,48 @@ export default function ReviewMarksScreen() {
         rowsPerPage: currentScan?.rowsPerPage,
         qrGeometry: currentScan?.qrGeometry,
         qrVersion: currentScan?.qrVersion,
+        orientationQuarterTurns: currentScan?.orientationQuarterTurns,
       });
 
       setDetectedAnswers(result.answers);
       setConfidences(result.confidences);
-      setMarkTypes(result.markTypes);
       setMultipleMarks(result.multipleMarks);
+      setQuestionEvidence(result.questionEvidence);
+      setSourceSize(result.sourceSize);
       if (result.fiducialCorners) {
         setFiducialCorners(result.fiducialCorners);
       }
       setOmrMeta({
         usedHomography: result.usedHomography,
         fiducialCount: result.fiducialCount,
-        flagged: result.flaggedForReview,
         needsRescan: result.needsRescan,
+        action: result.action,
       });
       updateCurrentScan({
         detectedAnswers: result.answers,
         questionConfidences: result.confidences,
         confidenceScore: result.overallConfidence,
+        omrEvidence: {
+          pipelineVersion: 'mobile-v2',
+          processingPath: result.processingPath,
+          action: result.action,
+          reasons: result.reasons,
+          imageQuality: result.imageQuality ? { ...result.imageQuality } : null,
+          geometry: {
+            fiducialCount: result.fiducialCount,
+            fiducialConfidence: result.fiducialConfidence,
+            reprojectionError: result.reprojectionError,
+            orientationDegrees: result.orientationDegrees,
+            scaleRatio: result.scaleRatio,
+          },
+          questions: Object.fromEntries(Object.entries(result.questionEvidence).map(([key, evidence]) => [key, {
+            action: evidence.action,
+            reasons: evidence.reasons,
+            fillRatios: result.fillRatios[key] ?? [],
+            confidence: result.confidences[key] ?? 0,
+            roi: evidence.roi,
+          }])),
+        },
       });
 
       if (result.needsRescan) {
@@ -115,7 +144,7 @@ export default function ReviewMarksScreen() {
           'A confiança geral da leitura está abaixo do mínimo. Recomendamos repetir a captura com mais luz e câmera paralela ao cartão.',
           [
             { text: 'Repetir captura', style: 'destructive', onPress: handleRetake },
-            { text: 'Continuar assim', style: 'cancel' },
+            { text: 'Revisar manualmente', onPress: handleManualEdit },
           ]
         );
       }
@@ -143,9 +172,24 @@ export default function ReviewMarksScreen() {
     .map(([qId]) => qId);
 
   const multipleMarkQuestions = Object.keys(multipleMarks);
+  const reasonLabels: Record<string, string> = {
+    low_mark_confidence: 'marcação fraca',
+    multiple_marks: 'duas ou mais alternativas marcadas',
+    ambiguous_mark: 'marcação ambígua',
+    roi_invalid: 'região da questão fora da área legível',
+  };
 
 
   const handleConfirm = () => {
+    if (omrMeta?.action !== 'accept') {
+      Alert.alert(
+        omrMeta?.action === 'rescan' ? 'Leitura não confiável' : 'Revisão necessária',
+        omrMeta?.action === 'rescan'
+          ? 'Esta captura não possui geometria e qualidade suficientes. Repita a foto ou revise todas as respostas manualmente.'
+          : 'Resolva manualmente as questões destacadas antes de confirmar.',
+      );
+      return;
+    }
     updateCurrentScan({ confirmedAnswers: detectedAnswers });
     // Go to student selection before showing result
     router.push({
@@ -217,12 +261,17 @@ export default function ReviewMarksScreen() {
             style={{ height: 150, borderRadius: 12, overflow: 'hidden', borderWidth: 2, borderColor: colors.border, position: 'relative' }}
             onLayout={onImageLayout}
           >
-            <Image source={{ uri: imageUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            <Image source={{ uri: imageUri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
 
             {/* SVG Overlay for markers */}
             {fiducialCorners.length === 4 && imgLayout.width > 0 && (
               <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none">
-                <Svg width="100%" height="100%" viewBox="0 0 1200 1600" preserveAspectRatio="none">
+                <Svg
+                  width="100%"
+                  height="100%"
+                  viewBox={`0 0 ${sourceSize?.width ?? 1200} ${sourceSize?.height ?? 1600}`}
+                  preserveAspectRatio="xMidYMid meet"
+                >
                   <Polygon
                     points={fiducialCorners.map(c => `${c.x},${c.y}`).join(' ')}
                     fill="rgba(34, 197, 94, 0.15)"
@@ -237,8 +286,17 @@ export default function ReviewMarksScreen() {
                       <Line x1={corn.x} y1={corn.y - 30} x2={corn.x} y2={corn.y + 30} stroke={colors.danger} strokeWidth="4" />
                     </React.Fragment>
                   ))}
-
-                  {/* For bubble bounding rects, we calculate based on multiple marks and confidence thresholds later, but for now we only need fiducials bounds to prove OpenCV.js integration was successful on RN. Full layout coordinates matching will be mapped by template. */}
+                  {Object.entries(questionEvidence).map(([questionId, evidence]) => (
+                    evidence.action === 'review' && evidence.originalPolygon?.length === 4
+                      ? <Polygon
+                          key={`question-${questionId}`}
+                          points={evidence.originalPolygon.map((point) => `${point.x},${point.y}`).join(' ')}
+                          fill="rgba(239, 68, 68, 0.18)"
+                          stroke={colors.danger}
+                          strokeWidth="5"
+                        />
+                      : null
+                  ))}
                 </Svg>
               </View>
             )}
@@ -269,18 +327,25 @@ export default function ReviewMarksScreen() {
 
         {/* Answer Grid */}
         <View style={{ gap: 8 }}>
-          {orderedQuestionIds.slice(0, 9).map((qId, index) => {
+          {orderedQuestionIds.map((qId, index) => {
             const optionCount = getOptionCount(qId);
             if (optionCount === 0) return null;
+            const evidence = questionEvidence[String(qId)];
 
             return (
-              <BubbleGrid
-                key={qId}
-                questionNumber={index + 1}
-                optionCount={optionCount}
-                selectedOption={detectedAnswers[String(qId)] ?? null}
-                confidence={confidences[String(qId)] || 0}
-              />
+              <View key={qId}>
+                <BubbleGrid
+                  questionNumber={index + 1}
+                  optionCount={optionCount}
+                  selectedOption={detectedAnswers[String(qId)] ?? null}
+                  confidence={confidences[String(qId)] || 0}
+                />
+                {evidence?.action === 'review' && (
+                  <Text style={{ marginTop: 4, color: colors.danger, fontSize: 11, fontFamily: fonts.medium }}>
+                    Questão {index + 1}: {evidence.reasons.map((reason) => reasonLabels[reason] ?? reason).join(', ')}. Confira a região destacada.
+                  </Text>
+                )}
+              </View>
             );
           })}
         </View>
@@ -290,7 +355,7 @@ export default function ReviewMarksScreen() {
           <View style={{ marginTop: 8, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: colors.amber + '60', borderRadius: 12, padding: 12, flexDirection: 'row', gap: 8 }}>
             <MaterialIcons name="error-outline" size={20} color={colors.amber} />
             <Text style={{ flex: 1, fontSize: 12, fontFamily: fonts.medium, color: '#92400e', lineHeight: 18 }}>
-              {multipleMarkQuestions.length} questão(ões) com múltiplas marcações — serão contadas como erradas.
+              {multipleMarkQuestions.length} questão(ões) com múltiplas marcações. Confirme manualmente antes de salvar.
             </Text>
           </View>
         )}
@@ -323,6 +388,7 @@ export default function ReviewMarksScreen() {
         <Button
           title="Confirmar e Enviar"
           onPress={handleConfirm}
+          disabled={omrMeta?.action !== 'accept'}
           size="lg"
           icon={<MaterialIcons name="send" size={18} color={colors.white} />}
         />

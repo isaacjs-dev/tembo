@@ -20,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -90,6 +91,7 @@ class OmrApiController extends Controller
             'detected_answers' => 'required|json|max:100000',
             'confidences' => 'nullable|json|max:100000',
             'overall_confidence' => 'nullable|numeric|min:0|max:1',
+            'processing_evidence' => 'nullable|json|max:100000',
             // Contingência offline: QR assinado, sem gabarito aberto. As chaves de
             // detected_answers são os números impressos (qs..qe), não IDs internos.
             'qr_payload' => 'nullable|json|max:100000',
@@ -100,11 +102,61 @@ class OmrApiController extends Controller
         $confidences = isset($validated['confidences'])
             ? json_decode($validated['confidences'], true)
             : null;
+        $processingEvidence = isset($validated['processing_evidence'])
+            ? json_decode($validated['processing_evidence'], true)
+            : null;
 
         if (! is_array($detectedAnswers) || ($confidences !== null && ! is_array($confidences))) {
             throw ValidationException::withMessages([
                 'detected_answers' => 'As respostas e confianças devem ser objetos JSON.',
             ]);
+        }
+        if ($processingEvidence !== null) {
+            if (! is_array($processingEvidence)) {
+                throw ValidationException::withMessages([
+                    'processing_evidence' => 'A evidência de processamento deve ser um objeto JSON.',
+                ]);
+            }
+            $processingEvidence = Validator::make($processingEvidence, [
+                'pipelineVersion' => ['required', Rule::in(['mobile-v2'])],
+                'processingPath' => ['required', Rule::in(['homography', 'hybrid', 'manual', 'unavailable'])],
+                'action' => ['required', Rule::in(['accept', 'review', 'rescan'])],
+                'reasons' => 'present|array|max:20',
+                'reasons.*' => 'string|max:80',
+                'imageQuality' => 'nullable|array',
+                'imageQuality.brightness' => 'nullable|numeric|min:0|max:255',
+                'imageQuality.contrast' => 'nullable|numeric|min:0|max:255',
+                'imageQuality.laplacianVariance' => 'nullable|numeric|min:0|max:10000000',
+                'imageQuality.acceptable' => 'nullable|boolean',
+                'imageQuality.reasons' => 'nullable|array|max:20',
+                'imageQuality.reasons.*' => 'string|max:80',
+                'geometry' => 'required|array',
+                'geometry.fiducialCount' => 'required|integer|min:0|max:4',
+                'geometry.fiducialConfidence' => 'required|numeric|min:0|max:1',
+                'geometry.reprojectionError' => 'nullable|array',
+                'geometry.reprojectionError.rms' => 'required_with:geometry.reprojectionError|numeric|min:0|max:10000',
+                'geometry.reprojectionError.max' => 'required_with:geometry.reprojectionError|numeric|min:0|max:10000',
+                'geometry.orientationDegrees' => 'nullable|numeric|min:-180|max:180',
+                'geometry.scaleRatio' => 'nullable|numeric|min:0|max:2',
+                'questions' => 'required|array|min:1|max:1000',
+                'questions.*.action' => ['required', Rule::in(['accept', 'review'])],
+                'questions.*.reasons' => 'present|array|max:20',
+                'questions.*.reasons.*' => 'string|max:80',
+                'questions.*.fillRatios' => 'required|array|max:9',
+                'questions.*.fillRatios.*' => 'numeric|min:0|max:1',
+                'questions.*.confidence' => 'required|numeric|min:0|max:1',
+                'questions.*.roi' => 'required|array',
+                'questions.*.roi.x' => 'required|integer|min:0|max:100000',
+                'questions.*.roi.y' => 'required|integer|min:0|max:100000',
+                'questions.*.roi.w' => 'required|integer|min:0|max:100000',
+                'questions.*.roi.h' => 'required|integer|min:0|max:100000',
+            ])->validate();
+            if (($processingEvidence['action'] ?? null) === 'rescan') {
+                throw ValidationException::withMessages([
+                    'processing_evidence' => 'Uma captura marcada para repetição não pode ser sincronizada.',
+                ]);
+            }
+            $this->assertProcessingEvidenceIsConsistent($processingEvidence);
         }
 
         $exam = Exam::withoutGlobalScopes()
@@ -228,6 +280,7 @@ class OmrApiController extends Controller
             'total_pages' => (int) $validated['total_pages'],
             'answers' => $detectedAnswers,
             'confidences' => $confidences,
+            'processing_evidence' => $processingEvidence,
             'qr_payload' => $qrPayload,
             'image_sha256' => hash_file('sha256', $request->file('image')->getRealPath()),
         ]), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
@@ -262,6 +315,7 @@ class OmrApiController extends Controller
                 'raw_answers' => $detectedAnswers,
                 'raw_confidences' => $confidences,
                 'overall_confidence' => $validated['overall_confidence'] ?? 0,
+                'processing_evidence' => $processingEvidence,
                 'status' => 'pending',
             ]));
         } catch (QueryException $exception) {
@@ -375,6 +429,83 @@ class OmrApiController extends Controller
         ksort($value, SORT_STRING);
 
         return array_map(fn (mixed $item): mixed => $this->canonicalizeFingerprintValue($item), $value);
+    }
+
+    /**
+     * Machine evidence may only auto-grade after every structural gate passed.
+     * Human evidence is a separate, explicit path and must resolve every item.
+     */
+    private function assertProcessingEvidenceIsConsistent(array $evidence): void
+    {
+        $action = $evidence['action'] ?? null;
+        $path = $evidence['processingPath'] ?? null;
+        $questions = $evidence['questions'] ?? [];
+        $questionActions = array_column($questions, 'action');
+        $allQuestionsAccepted = $questionActions !== []
+            && count(array_filter($questionActions, fn (mixed $value): bool => $value !== 'accept')) === 0;
+        $machineGatesPassed = data_get($evidence, 'imageQuality.acceptable') === true
+            && (int) data_get($evidence, 'geometry.fiducialCount', 0) === 4
+            && is_numeric(data_get($evidence, 'geometry.reprojectionError.max'))
+            && (float) data_get($evidence, 'geometry.reprojectionError.max') <= 2.0;
+        $machineGatesPassed = $machineGatesPassed
+            && is_numeric(data_get($evidence, 'geometry.orientationDegrees'))
+            && abs((float) data_get($evidence, 'geometry.orientationDegrees')) <= 20.0
+            && is_numeric(data_get($evidence, 'geometry.scaleRatio'))
+            && (float) data_get($evidence, 'geometry.scaleRatio') >= 0.5
+            && (float) data_get($evidence, 'geometry.scaleRatio') <= 1.05;
+
+        if ($action === 'accept' && $path === 'homography') {
+            if (! $machineGatesPassed || ! $allQuestionsAccepted) {
+                throw ValidationException::withMessages([
+                    'processing_evidence' => 'A captura automática não comprovou todos os requisitos de qualidade e geometria.',
+                ]);
+            }
+
+            return;
+        }
+
+        if ($action === 'accept' && $path === 'hybrid') {
+            $hasManualResolution = collect($questions)->contains(fn (array $question): bool => in_array(
+                'manual_confirmation',
+                $question['reasons'] ?? [],
+                true,
+            ));
+            if (! $machineGatesPassed || ! $allQuestionsAccepted || ! $hasManualResolution
+                || ! in_array('manual_confirmation', $evidence['reasons'] ?? [], true)) {
+                throw ValidationException::withMessages([
+                    'processing_evidence' => 'A revisão híbrida não preservou os gates da máquina e as confirmações humanas.',
+                ]);
+            }
+
+            return;
+        }
+
+        if ($action === 'accept' && $path === 'manual') {
+            $manualReason = in_array('manual_confirmation', $evidence['reasons'] ?? [], true);
+            $allQuestionsConfirmed = $allQuestionsAccepted
+                && collect($questions)->every(fn (array $question): bool => in_array(
+                    'manual_confirmation',
+                    $question['reasons'] ?? [],
+                    true,
+                ));
+
+            if (! $manualReason || ! $allQuestionsConfirmed) {
+                throw ValidationException::withMessages([
+                    'processing_evidence' => 'A confirmação manual deve resolver explicitamente todas as questões.',
+                ]);
+            }
+
+            return;
+        }
+
+        if ($action === 'review' && $path === 'homography'
+            && in_array('review', $questionActions, true)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'processing_evidence' => 'A ação informada contradiz a evidência de processamento.',
+        ]);
     }
 
     public function confirm(Request $request, OmrScan $scan)

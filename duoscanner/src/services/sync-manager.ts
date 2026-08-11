@@ -34,6 +34,7 @@ interface DeferredOfflinePayload {
   qStart?: number;
   printedAnswers?: Record<string, number | null>;
   printedConfidences?: Record<string, number>;
+  omrEvidence?: unknown;
 }
 
 /**
@@ -68,10 +69,12 @@ async function buildFormData(scan: LocalScanRow): Promise<FormData> {
   // it with deferred uploads so the server can validate the printed copy and
   // map offline answer positions to its authoritative question IDs.
   let offlinePayload: DeferredOfflinePayload | null = null;
+  let processingEvidence: unknown = null;
 
   if (scan.payload_json) {
     try {
       offlinePayload = JSON.parse(scan.payload_json) as DeferredOfflinePayload;
+      processingEvidence = offlinePayload?.omrEvidence ?? null;
       const qrVersion = Number((offlinePayload?.qrPayload as { v?: unknown } | undefined)?.v ?? 0);
       if (qrVersion >= 4 && offlinePayload?.qrPayload) {
         formData.append('qr_payload', JSON.stringify(offlinePayload.qrPayload));
@@ -108,6 +111,9 @@ async function buildFormData(scan: LocalScanRow): Promise<FormData> {
 
   if (scan.student_id) formData.append('student_id', String(scan.student_id));
   formData.append('overall_confidence', String(scan.confidence_score || 0));
+  if (processingEvidence) {
+    formData.append('processing_evidence', JSON.stringify(processingEvidence));
+  }
 
   return formData;
 }

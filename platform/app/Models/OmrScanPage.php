@@ -27,6 +27,7 @@ class OmrScanPage extends Model
         'raw_answers',
         'raw_confidences',
         'overall_confidence',
+        'processing_evidence',
         'status',
     ];
 
@@ -35,6 +36,7 @@ class OmrScanPage extends Model
         'qr_payload' => 'array',
         'raw_confidences' => 'array',
         'overall_confidence' => 'float',
+        'processing_evidence' => 'array',
         'page_index' => 'integer',
         'total_pages' => 'integer',
     ];

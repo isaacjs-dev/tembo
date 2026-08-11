@@ -133,7 +133,7 @@ export function classifyBubble(
   // Contar pixels escuros
   let darkCount = 0;
   for (let i = 0; i < totalPixels; i++) {
-    if (roiData[i] < localThreshold) {
+    if (roiData[i] <= localThreshold) {
       darkCount++;
     }
   }
@@ -180,10 +180,7 @@ export function selectAnswer(
   for (let i = 0; i < bubbles.length; i++) {
     if (bubbles[i].fillRatio >= thresholds.mark) {
       filledIndices.push(i);
-    } else if (
-      bubbles[i].fillRatio >= thresholds.uncertainLow &&
-      bubbles[i].fillRatio < thresholds.uncertainHigh
-    ) {
+    } else if (bubbles[i].fillRatio > thresholds.blank) {
       uncertainIndices.push(i);
     }
   }

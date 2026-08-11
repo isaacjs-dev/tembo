@@ -11,6 +11,8 @@ import process from 'node:process';
 import { isDeepStrictEqual } from 'node:util';
 
 import { classifyBubble, selectAnswer } from '../../duoscanner/src/lib/bubble-classifier.ts';
+import { computeHomography, invertHomography, transformPoint } from '../../duoscanner/src/lib/homography.ts';
+import { processOMRPixels } from '../../duoscanner/src/lib/omr-pixel-pipeline.ts';
 
 const root = path.resolve('..');
 const contractDirectory = path.join(root, 'contracts', 'omr');
@@ -27,7 +29,9 @@ const thresholds = JSON.parse(readFileSync(path.join(contractDirectory, 'dataset
 const thresholdBytes = readFileSync(path.join(contractDirectory, 'dataset-thresholds.v1.json'));
 const excludedAssets = JSON.parse(readFileSync(path.join(contractDirectory, 'excluded-assets.v1.json'), 'utf8'));
 const expectedBaseline = JSON.parse(readFileSync(path.join(contractDirectory, 'dataset-baseline.expected.json'), 'utf8'));
-const thresholdHash = sha256(thresholdBytes);
+// Git may materialize text as CRLF on Windows. The frozen profile identifies
+// contract content, not the workstation's line-ending convention.
+const thresholdHash = sha256(Buffer.from(thresholdBytes.toString('utf8').replace(/\r\n/g, '\n')));
 const qrContractHash = sha256(readFileSync(path.join(contractDirectory, 'qr-payload.schema.json')));
 const dependencyHash = sha256(Buffer.concat([
   readFileSync('package-lock.json'),
@@ -142,12 +146,13 @@ const results = [...mobileResults, ...webResults];
 for (const result of results) {
   if (!validateResult(result)) fail(`Resultado ${result.engine.adapter}/${result.sample_id} inválido`, validateResult.errors);
 }
+const mobilePipelineSmoke = runMobilePipelineSmoke();
 
 const report = {
   schema_version: 1,
   baseline_id: 'omr-synthetic-baseline-v1',
   evaluated_split: requestedSplit,
-  evidence_class: 'synthetic_classifier_only',
+  evidence_class: 'synthetic_components_plus_mobile_full_pipeline_smoke',
   git_sha: gitSha,
   threshold_profile_hash: thresholdHash,
   manifests: activeManifests.map((manifest) => ({
@@ -169,10 +174,10 @@ const report = {
       not_exercised: ['qr_decode', 'fiducial_detection', 'perspective_correction', 'student_association'],
     },
     mobile: {
-      status: 'classifier_component_only',
-      exercised: 'production bubble-classifier classifyBubble and selectAnswer',
-      not_exercised: ['expo_capture', 'image_decode', 'homography', 'qr_decode', 'student_association'],
-      known_blocker: 'RGBA buffers are indexed as one byte per pixel in the full production processor; tracked by OMR-002.',
+      status: 'full_synthetic_smoke_plus_classifier_metrics',
+      exercised: 'production RGBA conversion, fiducials, homography, signed geometry, ROI and classifier',
+      smoke: mobilePipelineSmoke,
+      not_exercised: ['expo_camera_hardware', 'qr_decode', 'student_association'],
     },
   },
   metrics: ['mobile-classifier', 'web-classifier'].flatMap((adapter) => activeManifests.map((manifest) => evaluate(
@@ -245,6 +250,113 @@ function loadSampleImage(sample) {
   });
 
   return { gray: Buffer.from(gray), width, height, rois };
+}
+
+function runMobilePipelineSmoke() {
+  const scenarios = [
+    { id: 'ideal', marks: [0], expected: 'accept' },
+    {
+      id: 'perspective',
+      marks: [0],
+      corners: [{ x: 26, y: 18 }, { x: 374, y: 32 }, { x: 358, y: 576 }, { x: 18, y: 558 }],
+      expected: 'accept',
+    },
+    { id: 'double_mark', marks: [0, 1], expected: 'review' },
+    { id: 'weak_mark', marks: [0], markSize: 5, expectedNot: 'accept' },
+    { id: 'missing_fiducial', marks: [0], missingCorner: 2, expected: 'rescan' },
+    { id: 'low_contrast', marks: [], textured: false, expected: 'rescan' },
+  ];
+  const outcomes = scenarios.map((scenario) => runMobilePipelineScenario(scenario));
+  return {
+    status: 'passed',
+    scenarios: outcomes,
+    not_exercised: ['physical_rotation_metadata', 'camera_motion_blur', 'cast_shadow', 'paper_curvature'],
+  };
+}
+
+function runMobilePipelineScenario({
+  id,
+  marks,
+  expected,
+  expectedNot,
+  corners = [{ x: 20, y: 20 }, { x: 380, y: 20 }, { x: 380, y: 580 }, { x: 20, y: 580 }],
+  missingCorner = null,
+  textured = true,
+  markSize = 12,
+}) {
+  const width = 400;
+  const height = 600;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const value = textured ? (y % 8 < 2 ? 155 : 215) : 205;
+      const offset = (y * width + x) * 4;
+      rgba[offset] = value;
+      rgba[offset + 1] = value;
+      rgba[offset + 2] = value;
+      rgba[offset + 3] = 255;
+    }
+  }
+  const fillRect = (left, top, rectWidth, rectHeight) => {
+    for (let y = top; y < top + rectHeight; y += 1) {
+      for (let x = left; x < left + rectWidth; x += 1) {
+        const offset = (y * width + x) * 4;
+        rgba[offset] = 0;
+        rgba[offset + 1] = 0;
+        rgba[offset + 2] = 0;
+      }
+    }
+  };
+  corners.forEach((corner, index) => {
+    if (index !== missingCorner) fillRect(Math.round(corner.x - 10), Math.round(corner.y - 10), 20, 20);
+  });
+
+  const topWidth = Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y);
+  const bottomWidth = Math.hypot(corners[2].x - corners[3].x, corners[2].y - corners[3].y);
+  const leftHeight = Math.hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y);
+  const rightHeight = Math.hypot(corners[2].x - corners[1].x, corners[2].y - corners[1].y);
+  const rectifiedHeight = Math.round(1000 * ((leftHeight + rightHeight) / (topWidth + bottomWidth)));
+  const destination = [{ x: 0, y: 0 }, { x: 999, y: 0 }, { x: 999, y: rectifiedHeight - 1 }, { x: 0, y: rectifiedHeight - 1 }];
+  const inverse = invertHomography(computeHomography(corners, destination));
+  for (const option of marks) {
+    const rectifiedCenter = {
+      x: (753 / 10_000) * 1000 + option * (403 / 10_000) * 1000 + (296 / 10_000) * 500,
+      y: (1404 / 10_000) * rectifiedHeight + (296 / 10_000) * 500,
+    };
+    const sourceCenter = transformPoint(inverse, rectifiedCenter);
+    fillRect(
+      Math.round(sourceCenter.x - markSize / 2),
+      Math.round(sourceCenter.y - markSize / 2),
+      markSize,
+      markSize,
+    );
+  }
+
+  const result = processOMRPixels({ data: rgba, width, height }, {
+    questionIds: [17],
+    optionCounts: { 17: 2 },
+    qrVersion: 5,
+    orientationVerified: true,
+    rowsPerPage: 20,
+    qrGeometry: [753, 1404, 10000, 1579, 296, 403],
+  });
+  if ((expected && result.action !== expected) || (expectedNot && result.action === expectedNot)) {
+    fail(`O cenário ${id} do pipeline Mobile completo falhou.`, result);
+  }
+  if (expected === 'accept' && (result.answers['17'] !== 0 || result.fiducialCount !== 4)) {
+    fail(`O cenário aceito ${id} não preservou resposta e geometria.`, result);
+  }
+  if (result.action === 'rescan' && result.answers['17'] !== null) {
+    fail(`O cenário estrutural ${id} inferiu uma resposta durante rescan.`, result);
+  }
+  return {
+    id,
+    image_sha256: sha256(rgba),
+    fiducials: result.fiducialCount,
+    reprojection_max: result.reprojectionError?.max ?? null,
+    answer: result.answers['17'],
+    action: result.action,
+  };
 }
 
 function drawRecipe(gray, width, height, roi, recipe, seed) {
@@ -400,8 +512,8 @@ function parity(results) {
 }
 
 function decisionAction(status, confidence) {
-  if (status === 'error' || confidence < thresholds.decision.rescan_below) return 'rescan';
   if (status === 'multiple_marks' || status === 'ambiguous') return 'review';
+  if (status === 'error') return 'rescan';
   return confidence >= thresholds.decision.auto_accept ? 'accept' : 'review';
 }
 

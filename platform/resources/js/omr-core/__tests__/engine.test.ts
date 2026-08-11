@@ -77,6 +77,16 @@ describe('OmrEngine Unit Tests', () => {
             expect(ordered[3]).toEqual({ x: 100, y: 900, area: 10 }); // BL
         });
 
+        it('selects one fiducial per corner and rejects central square candidates', () => {
+            const candidates = [
+                { x: 100, y: 100, area: 80 }, { x: 900, y: 100, area: 70 },
+                { x: 900, y: 900, area: 75 }, { x: 100, y: 900, area: 65 },
+                { x: 500, y: 500, area: 1000 },
+            ];
+            expect(engine.selectCornerMarkers(candidates, 1000, 1000)).toEqual(candidates.slice(0, 4));
+            expect(engine.selectCornerMarkers(candidates.slice(0, 3), 1000, 1000)).toEqual([]);
+        });
+
         it('should return original array if points length is not 4', () => {
             const points = [{ x: 10, y: 10 }];
             const ordered = engine.orderCorners(points as any);
@@ -86,7 +96,7 @@ describe('OmrEngine Unit Tests', () => {
 
     describe('assessQuality', () => {
         it('should require review if corners found are less than 4', () => {
-            const quality = engine.assessQuality(3, []);
+            const quality = engine.assessQuality(3, [], 0);
             expect(quality.needs_review).toBe(true);
             expect(quality.issues).toContain('Cantos incompletos: 3');
         });
@@ -96,17 +106,17 @@ describe('OmrEngine Unit Tests', () => {
                 { q: 1, selected: 'A', status: 'OK', scores: {}, boxes: {} },
                 { q: 2, selected: null, status: 'UNCERTAIN', scores: {}, boxes: {} }
             ] as any;
-            const quality = engine.assessQuality(4, answers);
+            const quality = engine.assessQuality(4, answers, 0);
             expect(quality.needs_review).toBe(true);
             expect(quality.issues).toContain('1 resposta(s) duvidosas/fracas');
         });
 
-        it('should detect double marked answers but not strictly require review if no uncertain marks exist', () => {
+        it('should require review for double marked answers', () => {
             const answers = [
                 { q: 1, selected: null, status: 'DOUBLE', scores: {}, boxes: {} }
             ] as any;
-            const quality = engine.assessQuality(4, answers);
-            expect(quality.needs_review).toBe(false); // Double marks are often just "student made a mistake", unless we configure strict review.
+            const quality = engine.assessQuality(4, answers, 0);
+            expect(quality.needs_review).toBe(true);
             expect(quality.issues).toContain('1 dupla(s) marcação');
         });
 
@@ -115,7 +125,7 @@ describe('OmrEngine Unit Tests', () => {
                 { q: 1, selected: 'A', status: 'OK', scores: {}, boxes: {} },
                 { q: 2, selected: 'B', status: 'OK', scores: {}, boxes: {} }
             ] as any;
-            const quality = engine.assessQuality(4, answers);
+            const quality = engine.assessQuality(4, answers, 0);
             expect(quality.needs_review).toBe(false);
             expect(quality.issues.length).toBe(0);
         });
@@ -185,7 +195,8 @@ describe('OmrEngine Unit Tests', () => {
             } as any;
 
             // 59 / 196 ~= 0.30 -> > 0.25 and < 0.40
-            global.cv.countNonZero = vi.fn().mockReturnValue(59);
+            let weakCall = 0;
+            global.cv.countNonZero = vi.fn().mockImplementation(() => (++weakCall === 1 ? 59 : 10));
 
             const mockWarped = new global.cv.Mat();
             const results = engine.readBubbles(mockWarped, template, null); // Using default thresholds

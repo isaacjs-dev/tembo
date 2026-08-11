@@ -111,11 +111,25 @@ class ConsolidateAnswersJob implements ShouldQueue
             $embeddedKeyMismatches = [];
             $legacyTemplateBinding = false;
             $layoutMetadata = null;
+            $processingEvidenceSummary = [];
+            $machineReviewRequired = false;
 
             foreach ($pages as $page) {
                 /** @var OmrScanPage $page */
                 $rawA = $page->raw_answers ?? [];
                 $rawC = $page->raw_confidences ?? [];
+                if (is_array($page->processing_evidence)) {
+                    $evidenceAction = (string) ($page->processing_evidence['action'] ?? 'review');
+                    $machineReviewRequired = $machineReviewRequired
+                        || $this->processingEvidenceRequiresReview($page->processing_evidence);
+                    $processingEvidenceSummary[] = [
+                        'page' => (int) $page->page_index,
+                        'pipeline_version' => $page->processing_evidence['pipelineVersion'] ?? null,
+                        'processing_path' => $page->processing_evidence['processingPath'] ?? null,
+                        'action' => $evidenceAction,
+                        'reasons' => $page->processing_evidence['reasons'] ?? [],
+                    ];
+                }
 
                 if ($offlineCapture) {
                     /** @var array<string, mixed> $payload */
@@ -178,7 +192,7 @@ class ConsolidateAnswersJob implements ShouldQueue
             // The encrypted answer key is only decrypted and compared here. A card
             // whose printed key diverges from the official copy is held for review,
             // never silently auto-corrected.
-            $requiresReview = $legacyTemplateBinding || $embeddedKeyMismatches !== [];
+            $requiresReview = $legacyTemplateBinding || $embeddedKeyMismatches !== [] || $machineReviewRequired;
             $scoreResult = $requiresReview
                 ? [
                     'score' => null,
@@ -213,6 +227,8 @@ class ConsolidateAnswersJob implements ShouldQueue
                     'embedded_key_mismatches' => $embeddedKeyMismatches,
                     'legacy_template_binding' => $legacyTemplateBinding,
                     'requires_review' => $requiresReview,
+                    'machine_review_required' => $machineReviewRequired,
+                    'processing_evidence' => $processingEvidenceSummary,
                 ],
                 'layout_meta' => $layoutMetadata,
                 'status' => $requiresReview ? 'reviewing' : 'processed',
@@ -253,5 +269,54 @@ class ConsolidateAnswersJob implements ShouldQueue
             Log::error("Failed to consolidate session: {$this->sessionId}. ".$e->getMessage());
             throw $e;
         }
+    }
+
+    /** Defense in depth for historical/imported rows that bypassed HTTP validation. */
+    private function processingEvidenceRequiresReview(array $evidence): bool
+    {
+        if (($evidence['action'] ?? null) !== 'accept') {
+            return true;
+        }
+
+        $questions = $evidence['questions'] ?? [];
+        $allQuestionsAccepted = is_array($questions) && $questions !== []
+            && collect($questions)->every(fn (mixed $question): bool => is_array($question)
+                && ($question['action'] ?? null) === 'accept');
+        if (! $allQuestionsAccepted) {
+            return true;
+        }
+
+        if (($evidence['processingPath'] ?? null) === 'manual') {
+            return ! in_array('manual_confirmation', $evidence['reasons'] ?? [], true)
+                || ! collect($questions)->every(fn (array $question): bool => in_array(
+                    'manual_confirmation',
+                    $question['reasons'] ?? [],
+                    true,
+                ));
+        }
+
+        if (($evidence['processingPath'] ?? null) === 'hybrid') {
+            $hasManualResolution = collect($questions)->contains(fn (array $question): bool => in_array(
+                'manual_confirmation',
+                $question['reasons'] ?? [],
+                true,
+            ));
+
+            if (! $hasManualResolution || ! in_array('manual_confirmation', $evidence['reasons'] ?? [], true)) {
+                return true;
+            }
+        } elseif (($evidence['processingPath'] ?? null) !== 'homography') {
+            return true;
+        }
+
+        return data_get($evidence, 'imageQuality.acceptable') !== true
+            || (int) data_get($evidence, 'geometry.fiducialCount', 0) !== 4
+            || ! is_numeric(data_get($evidence, 'geometry.reprojectionError.max'))
+            || (float) data_get($evidence, 'geometry.reprojectionError.max') > 2.0
+            || ! is_numeric(data_get($evidence, 'geometry.orientationDegrees'))
+            || abs((float) data_get($evidence, 'geometry.orientationDegrees')) > 20.0
+            || ! is_numeric(data_get($evidence, 'geometry.scaleRatio'))
+            || (float) data_get($evidence, 'geometry.scaleRatio') < 0.5
+            || (float) data_get($evidence, 'geometry.scaleRatio') > 1.05;
     }
 }

@@ -46,6 +46,34 @@ export interface OmrQualityInfo {
     reprojection_error: number;
     issues: string[];
     needs_review: boolean;
+    image_quality?: {
+        brightness: number;
+        contrast: number;
+        laplacianVariance: number;
+        acceptable: boolean;
+        reasons: string[];
+    };
+}
+
+export interface OmrProcessingEvidence {
+    pipelineVersion: 'web-v2';
+    processingPath: 'homography';
+    action: 'accept' | 'review' | 'rescan';
+    reasons: string[];
+    imageQuality: OmrQualityInfo['image_quality'];
+    geometry: {
+        fiducialCount: number;
+        reprojectionError: { rms: number; max: number };
+        orientationDegrees: number;
+        scaleRatio: number;
+    };
+    questions: Record<string, {
+        action: 'accept' | 'review';
+        reasons: string[];
+        fillRatios: number[];
+        confidence: number;
+        roi: { x: number; y: number; w: number; h: number };
+    }>;
 }
 
 export interface AnswerResult {
@@ -61,6 +89,7 @@ export interface OmrResult {
     quality: OmrQualityInfo;
     answers: AnswerResult[];
     processing_time_s: number;
+    processingEvidence?: OmrProcessingEvidence;
 }
 
 // Emits shapes required for drawing on Web or SVG Canvas overlays.
