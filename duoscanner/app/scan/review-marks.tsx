@@ -87,6 +87,7 @@ export default function ReviewMarksScreen() {
         templateVersion: currentScan?.templateVersion,
         rowsPerPage: currentScan?.rowsPerPage,
         qrGeometry: currentScan?.qrGeometry,
+        qrVersion: currentScan?.qrVersion,
       });
 
       setDetectedAnswers(result.answers);

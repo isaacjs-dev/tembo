@@ -1,4 +1,9 @@
 import type { AnswerResult, OmrTemplate, Point, Rect, OmrQualityInfo } from './types';
+import {
+    parseCardPageGeometry,
+    resolveCardPageGeometry,
+    resolvePageLocalGridPosition,
+} from './geometry-contract';
 
 // OMR Core Engine — Algoritmo Principal
 
@@ -244,29 +249,37 @@ export class OmrEngine {
 
         let rPC = 15; // DOMPDF physically groups in tr/td of 15 items always
 
-        let lmeta = (template as any).layout_meta;
-        if (lmeta && lmeta.g && lmeta.g.length >= 6) {
-            startX = W * (lmeta.g[0] / 10000);
-            startY = H * (lmeta.g[1] / 10000);
-            colSpacing = W * (lmeta.g[2] / 10000);
-            rowSpacing = H * (lmeta.g[3] / 10000);
-            bubbleSize = W * (lmeta.g[4] / 10000);
-            optionSpacing = W * (lmeta.g[5] / 10000);
-        }
-        if (lmeta && lmeta.rpp) {
-            rPC = parseInt(lmeta.rpp);
+        const lmeta = template.layout_meta as Record<string, unknown> | undefined;
+        const signedGeometry = parseCardPageGeometry(lmeta);
+        if (signedGeometry) {
+            const resolved = resolveCardPageGeometry(signedGeometry, W, H);
+            startX = resolved.startX;
+            startY = resolved.startY;
+            colSpacing = resolved.columnSpacing;
+            rowSpacing = resolved.rowSpacing;
+            bubbleSize = resolved.bubbleSize;
+            optionSpacing = resolved.optionSpacing;
+            rPC = resolved.rowsPerColumn;
+        } else if (lmeta && (lmeta.v === 4 || lmeta.v === 5)) {
+            throw new Error('QR moderno sem geometria de página válida.');
         }
 
         for (let q of template.questions) {
             let num = q.question_number;
+            if (signedGeometry && (num < signedGeometry.qs || num > signedGeometry.qe)) {
+                continue;
+            }
             let options = q.option_labels_json || [];
 
             let scores: Record<string, number> = {};
             let boxes: Record<string, Rect> = {};
 
             // Generate virtual ROIs
-            let col = Math.floor((num - 1) / rPC);
-            let row = (num - 1) % rPC;
+            const position = signedGeometry
+                ? resolvePageLocalGridPosition(num, signedGeometry.qs, rPC)
+                : { column: Math.floor((num - 1) / rPC), row: (num - 1) % rPC };
+            let col = position.column;
+            let row = position.row;
 
             let bX = startX + (col * colSpacing);
             let bY = startY + (row * rowSpacing);

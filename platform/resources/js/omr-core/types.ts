@@ -32,6 +32,7 @@ export interface OmrTemplate {
         uncertain_high?: number;
     };
     questions: OmrQuestionDef[];
+    layout_meta?: unknown;
 }
 
 export interface OmrQuestionDef {

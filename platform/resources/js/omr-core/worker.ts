@@ -2,6 +2,7 @@ import { OmrEngine } from './engine';
 import { openCvUnavailableMessage, resolveOpenCvUrls } from './opencv-loader';
 import { QrReader } from './qr_reader';
 import type { OmrTemplate } from './types';
+import { parseCardPageGeometry, questionsForCardPage } from './geometry-contract';
 
 // The global `cv` object will be populated by importScripts
 declare var cv: any;
@@ -104,7 +105,10 @@ self.onmessage = async (e: MessageEvent) => {
             }
 
             // The QR payload acts as the layout_meta
-            const template: OmrTemplate = templateData || {
+            const template: OmrTemplate = templateData ? {
+                ...templateData,
+                layout_meta: qrPayload,
+            } : {
                 template_id: qrPayload.tpl || 'auto',
                 width: imageData.width,
                 height: imageData.height,
@@ -113,10 +117,18 @@ self.onmessage = async (e: MessageEvent) => {
                 questions: [] // Engine will rely on grid logic
             };
             
+            const signedGeometry = parseCardPageGeometry(qrPayload);
+            if (qrPayload.v === 5 && !signedGeometry) {
+                throw new Error('QR moderno sem geometria de página válida');
+            }
+            if (signedGeometry) {
+                template.questions = questionsForCardPage(template.questions || [], signedGeometry);
+            }
+
             // Reconstruct questions array from qrPayload so the engine knows what to grade.
             // `oc` traz a contagem REAL de opções por questão (V/F=2, dissertativa=0); assim o
             // motor lê só as bolhas existentes (V/F = só A e B) e não confunde C/D/E com ruído.
-            if (!template.questions || template.questions.length === 0) {
+            if ((!template.questions || template.questions.length === 0) && qrPayload.qs && qrPayload.qe) {
                 const totalQ = qrPayload.qe - qrPayload.qs + 1;
                 const oc: string = typeof qrPayload.oc === 'string' ? qrPayload.oc : '';
                 const ALL = ['A', 'B', 'C', 'D', 'E'];

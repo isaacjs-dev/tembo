@@ -306,6 +306,16 @@
                     window.omrTemplateData = @json($templateData);
                 @endif
 
+                    function normalizedReviewTemplate() {
+                        const template = window.omrTemplateData || { questions: [] };
+                        const geometry = window.omrGeometry?.parse(template.layout_meta);
+                        if (geometry) {
+                            template.questions = window.omrGeometry.questions(template.questions || [], geometry);
+                        }
+
+                        return template;
+                    }
+
                     function initOverlayCanvas() {
                         const img = document.getElementById('warped-img');
                         const canvas = document.getElementById('overlay-canvas');
@@ -330,29 +340,36 @@
                         let rPC = 15;
 
                         // Support dynamic QR code overrides based on original PDF layout
-                        const layoutMeta = window.omrTemplateData?.layout_meta;
-                        if (layoutMeta && layoutMeta.g && layoutMeta.g.length >= 6) {
-                            startX = W * (layoutMeta.g[0] / 10000);
-                            startY = H * (layoutMeta.g[1] / 10000);
-                            colSpacing = W * (layoutMeta.g[2] / 10000);
-                            rowSpacing = H * (layoutMeta.g[3] / 10000);
-                            bubbleSize = W * (layoutMeta.g[4] / 10000);
-                            optionSpacing = W * (layoutMeta.g[5] / 10000);
+                        const reviewTemplate = normalizedReviewTemplate();
+                        const layoutMeta = reviewTemplate.layout_meta;
+                        const signedGeometry = window.omrGeometry?.parse(layoutMeta);
+                        if (signedGeometry) {
+                            const resolved = window.omrGeometry.resolve(signedGeometry, W, H);
+                            startX = resolved.startX;
+                            startY = resolved.startY;
+                            colSpacing = resolved.columnSpacing;
+                            rowSpacing = resolved.rowSpacing;
+                            bubbleSize = resolved.bubbleSize;
+                            optionSpacing = resolved.optionSpacing;
+                            rPC = resolved.rowsPerColumn;
                         }
-                        if (layoutMeta && layoutMeta.rpp) {
-                            rPC = parseInt(layoutMeta.rpp);
-                        }
-                        const templateQuestions = window.omrTemplateData?.questions || [];
+                        const templateQuestions = reviewTemplate.questions || [];
 
                         window.omrBoxes = [];
 
                         // Desenhar ROIs das bolhas dinamicamente
-                        templateQuestions.forEach((q) => {
+                        templateQuestions
+                            .filter((q) => !signedGeometry
+                                || (q.question_number >= signedGeometry.qs && q.question_number <= signedGeometry.qe))
+                            .forEach((q) => {
                             let options = q.option_labels_json || [];
                             let num = q.question_number;
 
-                            let col = Math.floor((num - 1) / rPC);
-                            let row = (num - 1) % rPC;
+                            const position = signedGeometry
+                                ? window.omrGeometry.position(num, signedGeometry.qs, rPC)
+                                : { column: Math.floor((num - 1) / rPC), row: (num - 1) % rPC };
+                            let col = position.column;
+                            let row = position.row;
 
                             let bX = startX + (col * colSpacing);
                             let bY = startY + (row * rowSpacing);
@@ -743,7 +760,7 @@
                                 cv.imshow(outCanvas, warped);
                                 const warpedDataUrl = outCanvas.toDataURL('image/jpeg', 0.8);
 
-                                let results = engine.readBubbles(warped, window.omrTemplateData || { questions: [] }, null);
+                                let results = engine.readBubbles(warped, normalizedReviewTemplate(), null);
                                 let quality = engine.assessQuality(4, results);
 
                                 warped.delete();
@@ -859,7 +876,7 @@
                                 const warpedDataUrlAuto = outCanvasAuto.toDataURL('image/jpeg', 0.8);
 
                                 // 4. Read Bubbles
-                                let results = engine.readBubbles(warped, window.omrTemplateData || { questions: [] }, null);
+                                let results = engine.readBubbles(warped, normalizedReviewTemplate(), null);
                                 let quality = engine.assessQuality(4, results);
                                 warped.delete();
 

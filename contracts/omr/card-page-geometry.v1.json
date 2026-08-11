@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "index_basis": "page-local-zero-based",
+  "cases": [
+    {
+      "name": "essential-page-1-mixed",
+      "layout": {
+        "columns": 1,
+        "rows_per_column": 20,
+        "bubble_diameter_mm": 5.5,
+        "frame_fiducial_mm": 8,
+        "frame_left_mm": 12,
+        "frame_top_mm": 56,
+        "frame_width_mm": 186,
+        "row_spacing_mm": 9,
+        "cell_indent_mm": 14,
+        "grid_pad_top_mm": 8,
+        "option_gap_mm": 2
+      },
+      "option_counts": "52043",
+      "q_start": 1,
+      "template_id": 10,
+      "template_version": 2,
+      "expected": {
+        "g": [753, 1404, 10000, 1579, 296, 403],
+        "rpp": 20,
+        "q_end": 5,
+        "geometry_hash": "de7a6cf0371f6be4013e5ed54d69d1cb6c63e1203eb709477f0e32f7f70c9e52",
+        "frame": [12, 56, 186, 57, 8],
+        "first_bubble": [26, 64],
+        "last_bubble": [41, 100]
+      }
+    },
+    {
+      "name": "detailed-page-2-local-index",
+      "layout": {
+        "columns": 2,
+        "rows_per_column": 15,
+        "bubble_diameter_mm": 4.2,
+        "frame_fiducial_mm": 8,
+        "frame_left_mm": 12,
+        "frame_top_mm": 56,
+        "frame_width_mm": 186,
+        "row_spacing_mm": 8,
+        "cell_indent_mm": 12,
+        "grid_pad_top_mm": 8,
+        "option_gap_mm": 1.5
+      },
+      "option_counts": "555555555555555555",
+      "q_start": 31,
+      "template_id": 20,
+      "template_version": 7,
+      "expected": {
+        "g": [645, 606, 5000, 606, 226, 306],
+        "rpp": 15,
+        "q_end": 48,
+        "geometry_hash": "28daefea2d913f606ebcb0a763597dc1a4d7312d40b354a1b1ded82d89f6198a",
+        "frame": [12, 56, 186, 132, 8],
+        "first_bubble": [24, 64],
+        "last_bubble": [139.8, 80]
+      }
+    },
+    {
+      "name": "placement-override-page-4",
+      "layout": {
+        "columns": 1,
+        "rows_per_column": 12,
+        "bubble_diameter_mm": 5,
+        "frame_fiducial_mm": 8,
+        "frame_left_mm": 18,
+        "frame_top_mm": 62,
+        "frame_width_mm": 174,
+        "row_spacing_mm": 9,
+        "cell_indent_mm": 14,
+        "grid_pad_top_mm": 8,
+        "option_gap_mm": 2
+      },
+      "option_counts": "55555",
+      "q_start": 61,
+      "template_id": 30,
+      "template_version": 4,
+      "expected": {
+        "g": [805, 1404, 10000, 1579, 287, 402],
+        "rpp": 12,
+        "q_end": 65,
+        "geometry_hash": "f92deefdbafbdb5ae465fce469b9bee0eb5a7561c95ab6612bcce89c28e8b48f",
+        "frame": [18, 62, 174, 57, 8],
+        "first_bubble": [32, 70],
+        "last_bubble": [60, 106]
+      }
+    }
+  ]
+}
