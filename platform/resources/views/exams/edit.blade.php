@@ -190,6 +190,62 @@
                         <div x-show="['appearance', 'publication'].includes(wizardStep)" class="grid grid-cols-1 gap-4 rounded-xl border-2 border-duo-border bg-gray-50 p-5" x-cloak>
                             <fieldset x-show="wizardStep === 'appearance'" class="space-y-3" x-cloak>
                                 <legend class="mb-2 font-extrabold text-duo-heading">Apresentação</legend>
+                                <details class="rounded-xl border border-duo-border bg-white p-4" open>
+                                    <summary class="cursor-pointer text-sm font-extrabold text-duo-heading">Layout da Avaliação</summary>
+                                    <p class="mt-1 text-xs text-gray-500">Escolha margens, orientação, colunas e separação das questões.</p>
+                                    <div class="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-2" role="radiogroup" aria-label="Layout da Avaliação">
+                                        @foreach($assessmentLayouts as $template)
+                                            @php
+                                                $version = $template->currentVersion;
+                                                $definition = $version->definition;
+                                                $orientation = data_get($definition, 'page.orientation') === 'landscape' ? 'Paisagem' : 'Retrato';
+                                                $columns = (int) data_get($definition, 'questions.columns', 1);
+                                                $separator = match(data_get($definition, 'questions.separator')) {
+                                                    'box' => 'boxes', 'none' => 'sem linhas', default => 'linhas',
+                                                };
+                                            @endphp
+                                            <label class="group min-h-16 cursor-pointer rounded-xl border-2 border-duo-border p-3 transition hover:border-primary/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                                                <span class="flex items-start gap-3">
+                                                    <input type="radio" name="assessment_layout_version_id" value="{{ $version->id }}"
+                                                        @checked((int) old('assessment_layout_version_id', $selectedLayoutVersionId) === (int) $version->id)
+                                                        @change="queueWizardAutosave('appearance')"
+                                                        class="mt-1 size-5 border-gray-300 text-primary focus:ring-primary" required>
+                                                    <span class="min-w-0">
+                                                        <span class="block text-sm font-extrabold text-gray-800">{{ $template->name }}</span>
+                                                        <span class="mt-1 block text-xs text-gray-500">{{ $orientation }} · {{ $columns }} {{ $columns === 1 ? 'coluna' : 'colunas' }} · {{ $separator }}</span>
+                                                    </span>
+                                                </span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </details>
+
+                                <details class="rounded-xl border border-duo-border bg-white p-4">
+                                    <summary class="cursor-pointer text-sm font-extrabold text-duo-heading">Cabeçalho da Avaliação</summary>
+                                    <p class="mt-1 text-xs text-gray-500">Os campos ausentes recebem linhas para preenchimento quando aplicável.</p>
+                                    <div class="mt-3 grid grid-cols-1 gap-2 xl:grid-cols-2" role="radiogroup" aria-label="Cabeçalho da Avaliação">
+                                        @foreach($assessmentHeaders as $template)
+                                            @php
+                                                $version = $template->currentVersion;
+                                                $definition = $version->definition;
+                                                $fieldCount = collect(data_get($definition, 'elements', []))->where('type', 'field')->count();
+                                            @endphp
+                                            <label class="group min-h-16 cursor-pointer rounded-xl border-2 border-duo-border p-3 transition hover:border-secondary/50 focus-within:ring-2 focus-within:ring-secondary focus-within:ring-offset-2 has-[:checked]:border-secondary has-[:checked]:bg-secondary/5">
+                                                <span class="flex items-start gap-3">
+                                                    <input type="radio" name="assessment_header_version_id" value="{{ $version->id }}"
+                                                        @checked((int) old('assessment_header_version_id', $selectedHeaderVersionId) === (int) $version->id)
+                                                        @change="queueWizardAutosave('appearance')"
+                                                        class="mt-1 size-5 border-gray-300 text-secondary focus:ring-secondary" required>
+                                                    <span class="min-w-0">
+                                                        <span class="block text-sm font-extrabold text-gray-800">{{ $template->name }}</span>
+                                                        <span class="mt-1 block text-xs text-gray-500">{{ number_format((float) data_get($definition, 'height_mm'), 0) }} mm · {{ $fieldCount }} {{ $fieldCount === 1 ? 'campo variável' : 'campos variáveis' }}</span>
+                                                    </span>
+                                                </span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </details>
+
                                 <label class="flex items-center gap-3 cursor-pointer">
                                     <input type="checkbox" name="shuffle_questions" value="1" @change="queueWizardAutosave('appearance')"
                                         @checked(old('shuffle_questions', $exam->settings['shuffle_questions'] ?? false))
@@ -1218,7 +1274,7 @@
                         const fields = {
                             information: ['title', 'instructions'],
                             application: ['application_mode', 'digital_presentation', 'questions_per_page', 'time_limit', 'attempts', 'available_from', 'available_until'],
-                            appearance: ['shuffle_questions', 'shuffle_options'],
+                            appearance: ['shuffle_questions', 'shuffle_options', 'assessment_layout_version_id', 'assessment_header_version_id'],
                             publication: ['show_score', 'show_answers', 'show_feedback', 'results_available_from'],
                         }[step] || [];
                         const form = document.getElementById('exam-settings-form');
@@ -1271,6 +1327,9 @@
                                 this.wizardStep = wizard.current_step;
                                 this.autosaveStatus = 'saved';
                                 this.syncWizardPreview();
+                                if (step === 'appearance' && this.$refs.canonicalPrintPreview) {
+                                    this.$refs.canonicalPrintPreview.src = this.$refs.canonicalPrintPreview.src;
+                                }
 
                                 return true;
                             } catch (error) {

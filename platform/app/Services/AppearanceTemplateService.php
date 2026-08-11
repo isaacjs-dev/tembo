@@ -4,11 +4,13 @@ namespace App\Services;
 
 use App\Models\AppearanceTemplate;
 use App\Models\AppearanceTemplateVersion;
+use App\Models\AuditLog;
 use App\Models\Exam;
 use App\Models\Organization;
 use App\Models\TemplateDefault;
 use App\Models\User;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -129,6 +131,67 @@ class AppearanceTemplateService
             TemplateDefault::query()
                 ->where('template_type', AppearanceTemplate::class)->where('template_id', $locked->id)->delete();
         }, 3);
+    }
+
+    /** @return array{assessment_layout:Collection,assessment_header:Collection} */
+    public function catalogFor(User $actor, Organization $organization): array
+    {
+        $templates = AppearanceTemplate::query()
+            ->visibleTo($actor, $organization)
+            ->whereIn('kind', ['assessment_layout', 'assessment_header'])
+            ->with('currentVersion')
+            ->orderByDesc('is_system')
+            ->orderBy('name')
+            ->get();
+
+        return [
+            'assessment_layout' => $templates->where('kind', 'assessment_layout')->values(),
+            'assessment_header' => $templates->where('kind', 'assessment_header')->values(),
+        ];
+    }
+
+    public function applySelection(
+        Exam $exam,
+        User $actor,
+        ?int $layoutVersionId,
+        ?int $headerVersionId,
+    ): void {
+        abort_unless((int) $exam->organization_id === (int) $actor->organization_id, 403);
+        abort_unless((int) $exam->author_id === (int) $actor->id, 404);
+        $layout = $this->selectableVersion($exam, $actor, 'assessment_layout', $layoutVersionId);
+        $header = $this->selectableVersion($exam, $actor, 'assessment_header', $headerVersionId);
+        $before = [
+            'assessment_layout_version_id' => $exam->assessment_layout_version_id,
+            'assessment_header_version_id' => $exam->assessment_header_version_id,
+        ];
+        $after = [
+            'assessment_layout_version_id' => $layout?->id,
+            'assessment_header_version_id' => $header?->id,
+        ];
+        if ($before !== $after) {
+            $exam->forceFill($after)->save();
+            AuditLog::log('exam_appearance_changed', Exam::class, $exam->id, [
+                'old' => $before,
+                'new' => $after,
+            ]);
+        }
+    }
+
+    private function selectableVersion(Exam $exam, User $actor, string $kind, ?int $versionId): ?AppearanceTemplateVersion
+    {
+        if (! $versionId) {
+            return null;
+        }
+        $version = AppearanceTemplateVersion::query()->with('template')->find($versionId);
+        abort_unless($version, 404);
+        abort_unless(
+            AppearanceTemplate::query()->visibleTo($actor, $exam->organization)
+                ->whereKey($version->appearance_template_id)->exists(),
+            404,
+        );
+        abort_unless($version->template->kind === $kind, 422, 'Template incompatível com o contexto visual.');
+
+        return $version;
     }
 
     /** @return array<string, mixed> */

@@ -121,6 +121,33 @@ test('professor navega pelo wizard recuperável de oito etapas', async ({ page }
     await expect(page.getByLabel('Apresentação digital')).toBeVisible();
     await expect(page.getByLabel('Questões por tela')).toBeVisible();
     await expect(page.getByText('Rascunho salvo')).toBeVisible();
+
+    await page.unroute('**/exams/*/draft');
+    await page.route('**/exams/*/draft', async route => {
+        const request = route.request().postDataJSON();
+        expect(request.target_step).toBe('appearance');
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                saved: true,
+                wizard: {
+                    version: 1,
+                    current_step: 'appearance',
+                    completed_steps: ['information'],
+                    revision: request.revision + 1,
+                    updated_at: new Date().toISOString(),
+                },
+            }),
+        });
+    });
+    await wizard.getByRole('button', { name: /Aparência/ }).click();
+    const layoutCatalog = page.getByRole('radiogroup', { name: 'Layout da Avaliação' });
+    await expect(layoutCatalog.getByRole('radio')).toHaveCount(10);
+    await page.getByText('Cabeçalho da Avaliação', { exact: true }).click();
+    const headerCatalog = page.getByRole('radiogroup', { name: 'Cabeçalho da Avaliação' });
+    await expect(headerCatalog.getByRole('radio')).toHaveCount(10);
+    await expect(page.getByText(/Embaralhamento e individualização/)).toBeVisible();
     await expectResponsive(page);
     expect(errors).toEqual([]);
 });

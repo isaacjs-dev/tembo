@@ -30,7 +30,7 @@ Fonte: `ai-docs/PRD.md`. Estados válidos: `pending`, `in_progress`, `done`, `bl
 | PLAN-003 | Recompensas configuráveis e idempotentes | PLAN-04 | LIB-003, PLAN-002 | done | Aprovação gera um único crédito com caps |
 | APP-001 | Modelo e versões de layout/cabeçalho/cartão | APP-01..03, APP-08 | ASM-001 | done | Versões imutáveis, defaults previsíveis, snapshots v2 e legado explícito |
 | APP-002 | Renderizador canônico HTML/CSS e tokens | APP-05..07 | APP-001 | done | Documento canônico, snapshot histórico, preview/PDF compartilhados e renderização segura |
-| APP-003 | Catálogo 10 layouts e 10 cabeçalhos | APP-01..03, APP-09 | APP-002 | pending | Opções distintas, acessíveis e testadas em A4 |
+| APP-003 | Catálogo 10 layouts e 10 cabeçalhos | APP-01..03, APP-09 | APP-002 | done | 10×10 opções únicas, selecionáveis, acessíveis e testadas em A4 |
 | APP-004 | Editor canvas, galeria, logo e padrões | APP-02, APP-04..06 | APP-003 | pending | Criar/salvar/reabrir/duplicar/versionar/arquivar |
 | CARD-001 | Fonte única de geometria e histórico | APP-08, OMR-01, OMR-08 | APP-001 | pending | PDF/Web/Mobile compartilham fixtures |
 | CARD-002 | Catálogo de 10 cartões parametrizados | APP-01, APP-09 | CARD-001 | pending | Um motor; 10 organizações funcionais distintas |

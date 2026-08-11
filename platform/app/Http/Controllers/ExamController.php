@@ -12,6 +12,7 @@ use App\Models\OmrTemplate;
 use App\Models\Question;
 use App\Models\User;
 use App\Services\AnswerSheetGeneratorService;
+use App\Services\AppearanceTemplateService;
 use App\Services\CanonicalPrintDocumentService;
 use App\Services\ConfigPrecedenceResolver;
 use App\Services\ExamApplicationModeService;
@@ -123,6 +124,7 @@ class ExamController extends Controller
         ExamAudienceService $audiences,
         ExamWizardService $wizard,
         ExamApplicationModeService $applicationModes,
+        AppearanceTemplateService $appearances,
     ) {
         $organization_id = auth()->user()->organization_id;
         $user_id = auth()->id();
@@ -143,6 +145,14 @@ class ExamController extends Controller
         $wizardState = $wizard->state($exam);
         $wizardSteps = ExamWizardService::STEPS;
         $applicationModes = $applicationModes->options();
+        $appearanceCatalog = $appearances->catalogFor(auth()->user(), $exam->organization);
+        $assessmentLayouts = $appearanceCatalog['assessment_layout'];
+        $assessmentHeaders = $appearanceCatalog['assessment_header'];
+        $appearanceSnapshot = $appearances->snapshotForExam($exam);
+        $selectedLayoutVersionId = $exam->assessment_layout_version_id
+            ?? data_get($appearanceSnapshot, 'assessment_layout.version_id');
+        $selectedHeaderVersionId = $exam->assessment_header_version_id
+            ?? data_get($appearanceSnapshot, 'assessment_header.version_id');
 
         return view('exams.edit', compact(
             'exam',
@@ -155,6 +165,10 @@ class ExamController extends Controller
             'wizardState',
             'wizardSteps',
             'applicationModes',
+            'assessmentLayouts',
+            'assessmentHeaders',
+            'selectedLayoutVersionId',
+            'selectedHeaderVersionId',
         ));
     }
 
@@ -195,6 +209,7 @@ class ExamController extends Controller
         MonthlyUsageService $usage,
         RevisionBuilderService $revisions,
         ExamWizardService $wizard,
+        AppearanceTemplateService $appearances,
     ) {
         $exam = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
@@ -214,6 +229,7 @@ class ExamController extends Controller
             $validated,
             $usage,
             $wizard,
+            $appearances,
         ): array {
             $locked = Exam::withoutGlobalScopes()
                 ->where('organization_id', $exam->organization_id)
@@ -240,6 +256,21 @@ class ExamController extends Controller
                 $validated['wizard_step'] ?? null,
                 $validated['status'] === 'published',
             );
+            if ($request->boolean('settings_form') && $request->hasAny([
+                'assessment_layout_version_id',
+                'assessment_header_version_id',
+            ])) {
+                $appearances->applySelection(
+                    $locked,
+                    $request->user(),
+                    $request->filled('assessment_layout_version_id')
+                        ? (int) $request->input('assessment_layout_version_id')
+                        : $locked->assessment_layout_version_id,
+                    $request->filled('assessment_header_version_id')
+                        ? (int) $request->input('assessment_header_version_id')
+                        : $locked->assessment_header_version_id,
+                );
+            }
             $updateData = [
                 'title' => $validated['title'],
                 'status' => $validated['status'],
@@ -1240,6 +1271,8 @@ class ExamController extends Controller
             'show_feedback' => ['nullable', 'boolean'],
             // Compatibilidade com clientes e provas criadas antes da liberação granular.
             'show_results' => ['nullable', 'boolean'],
+            'assessment_layout_version_id' => ['nullable', 'integer'],
+            'assessment_header_version_id' => ['nullable', 'integer'],
         ];
     }
 

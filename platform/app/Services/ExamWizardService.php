@@ -13,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 
 class ExamWizardService
 {
+    public function __construct(private readonly AppearanceTemplateService $appearances) {}
+
     public const VERSION = 1;
 
     public const STEPS = [
@@ -146,7 +148,7 @@ class ExamWizardService
             }
 
             $settings = is_array($locked->settings) ? $locked->settings : [];
-            $this->applyStep($locked, $settings, $step, $validated);
+            $this->applyStep($locked, $settings, $step, $validated, $actor);
 
             if ($complete) {
                 $this->validateCompletion($locked, $step, $settings);
@@ -202,6 +204,8 @@ class ExamWizardService
             'appearance' => [
                 'shuffle_questions' => ['required', 'boolean'],
                 'shuffle_options' => ['required', 'boolean'],
+                'assessment_layout_version_id' => ['nullable', 'integer'],
+                'assessment_header_version_id' => ['nullable', 'integer'],
             ],
             'publication' => [
                 'show_score' => ['required', 'boolean'],
@@ -217,7 +221,7 @@ class ExamWizardService
      * @param  array<string, mixed>  $settings
      * @param  array<string, mixed>  $validated
      */
-    private function applyStep(Exam $exam, array &$settings, string $step, array $validated): void
+    private function applyStep(Exam $exam, array &$settings, string $step, array $validated, User $actor): void
     {
         if ($step === 'information') {
             $exam->title = trim($validated['title']);
@@ -249,6 +253,19 @@ class ExamWizardService
         if ($step === 'appearance') {
             $settings['shuffle_questions'] = (bool) $validated['shuffle_questions'];
             $settings['shuffle_options'] = (bool) $validated['shuffle_options'];
+            if (array_key_exists('assessment_layout_version_id', $validated)
+                || array_key_exists('assessment_header_version_id', $validated)) {
+                $this->appearances->applySelection(
+                    $exam,
+                    $actor,
+                    array_key_exists('assessment_layout_version_id', $validated)
+                        ? ($validated['assessment_layout_version_id'] ? (int) $validated['assessment_layout_version_id'] : null)
+                        : $exam->assessment_layout_version_id,
+                    array_key_exists('assessment_header_version_id', $validated)
+                        ? ($validated['assessment_header_version_id'] ? (int) $validated['assessment_header_version_id'] : null)
+                        : $exam->assessment_header_version_id,
+                );
+            }
 
             return;
         }
