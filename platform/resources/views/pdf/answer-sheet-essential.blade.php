@@ -95,7 +95,7 @@
             <div class="title">Cartão Resposta</div>
 
             {{-- Cabeçalho (acima do frame da grade) --}}
-            <table class="header-box" style="left: 12mm; top: 13mm; width: 186mm;">
+            <table class="header-box" style="left: 12mm; top: 7mm; width: 186mm;">
                 <tr>
                     <td>
                         <div class="inst-name">{{ $exam->organization?->name ?? 'DADOS DA INSTITUIÇÃO' }}</div>
@@ -107,8 +107,8 @@
                             <strong style="margin-left:8px;">VERSÃO:</strong> <span class="version-badge">#{{ $copy->copy_number }}</span>
                         </div>
                     </td>
-                    <td class="qr-cell" style="width: 32mm;">
-                        <img src="data:image/svg+xml;base64,{!! $pageData['qrBase64'] !!}" alt="QR" style="width: 26mm; height: 26mm;">
+                    <td class="qr-cell" style="width: 34mm; padding: 2px;">
+                        <img src="data:image/svg+xml;base64,{!! $pageData['qrBase64'] !!}" alt="QR" style="width: {{ $pageData['qrPrint']['size_mm'] }}mm; height: {{ $pageData['qrPrint']['size_mm'] }}mm;">
                     </td>
                 </tr>
             </table>

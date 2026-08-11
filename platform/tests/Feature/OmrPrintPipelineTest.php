@@ -11,6 +11,7 @@ use App\Models\Question;
 use App\Models\User;
 use App\Services\AnswerSheetGeneratorService;
 use App\Services\ExamPrintService;
+use App\Services\OmrQrRendererService;
 use App\Services\QrCodeSigningService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -53,7 +54,7 @@ class OmrPrintPipelineTest extends TestCase
         }
     }
 
-    public function test_mixed_card_has_only_real_bubbles_and_a_signed_encrypted_answer_key(): void
+    public function test_mixed_card_has_only_real_bubbles_and_a_compact_signed_qr(): void
     {
         [$exam, $questions] = $this->makeExamWithMixedQuestions();
         $template = $this->makeTemplate($exam, 20, 2, 10);
@@ -74,16 +75,11 @@ class OmrPrintPipelineTest extends TestCase
         $this->assertSame('420', $pages[0]['qrPayload']['oc']);
         $this->assertSame(5, $pages[0]['qrPayload']['v']);
         $this->assertArrayNotHasKey('gab', $pages[0]['qrPayload']);
-        $this->assertArrayHasKey('gab_enc', $pages[0]['qrPayload']);
+        $this->assertArrayNotHasKey('gab_enc', $pages[0]['qrPayload']);
         $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{22}$/', $pages[0]['qrPayload']['chk']);
 
         $signer = app(QrCodeSigningService::class);
         $this->assertTrue($signer->verifyPayload($pages[0]['qrPayload'], $exam->organization_id));
-        $this->assertSame(
-            [0, 1, -1],
-            $signer->decryptGabarito($pages[0]['qrPayload']['gab_enc'], $exam->organization_id)
-        );
-
         $tampered = $pages[0]['qrPayload'];
         $tampered['g'][0]++;
         $this->assertFalse($signer->verifyPayload($tampered, $exam->organization_id));
@@ -123,6 +119,7 @@ class OmrPrintPipelineTest extends TestCase
 
         $this->assertTrue($signer->verifyPayload($payload, $exam->organization_id));
         $this->assertFalse($signer->verifyPayload($payload, $otherOrganization->id));
+        $this->assertSame([0, 1], $signer->decryptGabarito($payload['gab_enc'], $exam->organization_id));
 
         $legacy = [
             'e' => $exam->id,
@@ -378,6 +375,54 @@ class OmrPrintPipelineTest extends TestCase
         $this->assertSame(3, $pdf->getDomPDF()->getCanvas()->get_page_count());
         $this->assertCount(1, $cardPages);
         $this->assertSame($questions->pluck('id')->all(), $copy->questions_map);
+    }
+
+    public function test_every_multipage_card_page_has_its_own_readable_qr_profile(): void
+    {
+        [$exam] = $this->makeObjectiveExam(25);
+        $template = $this->makeTemplate($exam, 50, 2, 10);
+        $copy = app(ExamPrintService::class)->generateCopies($exam, 1)->first();
+        $cardPages = app(AnswerSheetGeneratorService::class)
+            ->buildCardPages($exam, $copy, $template, 'hybrid');
+
+        $this->assertCount(2, $cardPages);
+        $this->assertSame([1, 2], collect($cardPages)->pluck('qrPayload.p')->all());
+        $this->assertSame([1, 21], collect($cardPages)->pluck('qrPayload.qs')->all());
+        $this->assertCount(2, collect($cardPages)->pluck('qrPrint.payload_hash')->unique());
+        foreach ($cardPages as $page) {
+            $this->assertSame(4, $page['qrPrint']['quiet_zone_modules']);
+            $this->assertSame('M', $page['qrPrint']['error_correction']);
+            $this->assertSame(30.0, $page['qrPrint']['size_mm']);
+            $this->assertGreaterThanOrEqual(0.35, $page['qrPrint']['module_pitch_mm']);
+            $this->assertArrayNotHasKey('gab_enc', $page['qrPayload']);
+        }
+
+        $html = view('exams.pdf_advanced', [
+            'exam' => $exam,
+            'copies' => collect([$copy]),
+            'calibration' => ['offset_x' => 0, 'offset_y' => 0, 'scale' => 90],
+            'options' => [],
+            'outputType' => 'answer_sheet',
+            'cardPagesByCopy' => [$copy->id => $cardPages],
+        ])->render();
+
+        foreach ($cardPages as $page) {
+            $this->assertStringContainsString($page['qrBase64'], $html);
+        }
+    }
+
+    public function test_physical_qr_profile_fails_closed_when_payload_exceeds_print_area(): void
+    {
+        $renderer = app(OmrQrRendererService::class);
+        $profile = $renderer->renderWithProfile('{"e":1,"c":1,"h":"hash","p":1,"v":5,"chk":"AAAAAAAAAAAAAAAAAAAAAA"}')['profile'];
+
+        $this->assertSame(4, $profile['quiet_zone_modules']);
+        $this->assertSame(30.0, $profile['size_mm']);
+        $this->assertGreaterThanOrEqual(0.35, $profile['module_pitch_mm']);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('excede a área física suportada');
+        $renderer->renderWithProfile(str_repeat('payload-físico-', 80));
     }
 
     private function makeExamWithMixedQuestions(): array

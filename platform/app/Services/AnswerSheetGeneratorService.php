@@ -7,7 +7,6 @@ use App\Models\Exam;
 use App\Models\ExamCopy;
 use App\Models\OmrTemplate;
 use Barryvdh\DomPDF\Facade\Pdf;
-use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 /**
  * Generates printable OMR answer sheets (Cartão-Resposta) with
@@ -26,10 +25,16 @@ class AnswerSheetGeneratorService
 
     private OmrPageGeometryService $geometry;
 
-    public function __construct(?QrCodeSigningService $signer = null, ?OmrPageGeometryService $geometry = null)
-    {
+    private OmrQrRendererService $qrRenderer;
+
+    public function __construct(
+        ?QrCodeSigningService $signer = null,
+        ?OmrPageGeometryService $geometry = null,
+        ?OmrQrRendererService $qrRenderer = null,
+    ) {
         $this->signer = $signer ?? new QrCodeSigningService;
         $this->geometry = $geometry ?? new OmrPageGeometryService;
+        $this->qrRenderer = $qrRenderer ?? new OmrQrRendererService;
     }
 
     /**
@@ -200,36 +205,18 @@ class AnswerSheetGeneratorService
                 'oc' => $contract['oc'],
             ];
 
-            // Gabarito (índices visuais) — será CIFRADO em buildPayload (nunca texto puro).
-            if (in_array($scanMode, ['qr_embedded', 'hybrid'], true)) {
-                $gabarito = [];
-                foreach ($chunk->values() as $q) {
-                    $optMap = $copy->options_map[$q->id] ?? null;
-                    $correctOriginal = $q->content['correct_option'] ?? null;
-                    if ($optMap !== null && $correctOriginal !== null) {
-                        $shuffledIdx = array_search(
-                            (int) $correctOriginal,
-                            array_map('intval', array_values($optMap)),
-                            true
-                        );
-                        $gabarito[] = $shuffledIdx !== false ? $shuffledIdx : -1;
-                    } else {
-                        $gabarito[] = -1; // dissertativa/inválida
-                    }
-                }
-                $qrPayload['gab'] = $gabarito;
-            }
+            // O gabarito oficial já está fixado no snapshot da cópia. Novos cartões
+            // não o repetem no QR: isso reduz a densidade e melhora a leitura física.
+            // O signer continua aceitando gab_enc em cartões históricos.
 
-            // Cifra o gabarito (AES) + assina (HMAC) com a chave da organização.
             $qrPayload = $this->signer->buildPayload($qrPayload, $scanMode, $organizationId);
 
-            // Não use QR minúsculo nem margem zero: impressoras e câmeras perdem os
-            // módulos da borda. O SVG é escalado na blade para 26 mm e inclui quiet zone.
-            $qrSvg = QrCode::format('svg')
-                ->errorCorrection('M')
-                ->size(300)
-                ->margin(2)
-                ->generate(json_encode($qrPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+            $encodedPayload = json_encode(
+                $qrPayload,
+                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+            );
+            $renderedQr = $this->qrRenderer->renderWithProfile($encodedPayload);
+            $qrSvg = $renderedQr['svg'];
 
             $pagesData[] = [
                 'page' => $page,
@@ -239,6 +226,7 @@ class AnswerSheetGeneratorService
                 'questions' => $chunk->values(),
                 'qrBase64' => base64_encode($qrSvg),
                 'qrPayload' => $qrPayload,
+                'qrPrint' => $renderedQr['profile'],
                 'geometry' => $geometry,
             ];
         }

@@ -5,7 +5,8 @@ namespace App\Services;
 use App\Models\Organization;
 
 /**
- * Assina os metadados do QR com HMAC e cifra o gabarito com AES-256-GCM.
+ * Assina os metadados do QR com HMAC e preserva a leitura de gabaritos históricos
+ * cifrados com AES-256-GCM.
  *
  * O formato atual (v5) autentica todos os campos do payload, inclusive geometria,
  * limites de página e contagem de opções. QRs v3 emitidos anteriormente continuam
@@ -340,8 +341,9 @@ class QrCodeSigningService
     }
 
     /**
-     * Monta o QR final. O modo preloaded leva somente identificação; hybrid e
-     * qr_embedded levam o gabarito cifrado, nunca o vetor em texto claro.
+     * Monta o QR final. Novos emissores enviam somente identidade e geometria;
+     * quando um consumidor histórico fornecer `gab`, hybrid/qr_embedded ainda o
+     * cifram para manter compatibilidade, nunca expondo o vetor em texto claro.
      */
     public function buildPayload(array $basePayload, string $mode, ?int $organizationId): array
     {

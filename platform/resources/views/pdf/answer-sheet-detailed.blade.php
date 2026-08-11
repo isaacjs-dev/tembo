@@ -60,7 +60,7 @@
             border-left: 1.5px solid #000;
             background: #fafafa;
         }
-        .qr-cell img { width: 20mm; height: 20mm; }
+        .qr-cell img { width: 30mm; height: 30mm; }
         .version-badge {
             display: inline-block;
             background: #e5e7eb;
@@ -194,8 +194,8 @@
                             <span class="version-badge">#{{ $copy->copy_number }}</span>
                         </div>
                     </td>
-                    <td class="qr-cell">
-                        <img src="data:image/svg+xml;base64,{!! $pageData['qrBase64'] !!}" alt="QR">
+                    <td class="qr-cell" style="width: 34mm; padding: 2px;">
+                        <img src="data:image/svg+xml;base64,{!! $pageData['qrBase64'] !!}" alt="QR" style="width: {{ $pageData['qrPrint']['size_mm'] }}mm; height: {{ $pageData['qrPrint']['size_mm'] }}mm;">
                     </td>
                 </tr>
             </table>
@@ -210,8 +210,8 @@
                             <span class="version-badge">#{{ $copy->copy_number }}</span>
                         </div>
                     </td>
-                    <td class="qr-cell" style="width: 20mm; padding: 2px;">
-                        <img src="data:image/svg+xml;base64,{!! $pageData['qrBase64'] !!}" alt="QR" style="width: 16mm; height: 16mm;">
+                    <td class="qr-cell" style="width: 34mm; padding: 2px;">
+                        <img src="data:image/svg+xml;base64,{!! $pageData['qrBase64'] !!}" alt="QR" style="width: {{ $pageData['qrPrint']['size_mm'] }}mm; height: {{ $pageData['qrPrint']['size_mm'] }}mm;">
                     </td>
                 </tr>
             </table>

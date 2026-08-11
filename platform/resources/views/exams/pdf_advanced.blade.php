@@ -111,26 +111,24 @@
         <div class="omr-sheet">
             <div class="omr-title">CARTÃO RESPOSTA</div>
 
-            @if($cardPage['page'] === 1)
-                <table class="omr-header-box" style="left: 8mm; top: 11mm; width: 174mm;">
-                    <tr>
-                        <td>
+            <table class="omr-header-box" style="left: 8mm; top: 8mm; width: 174mm;">
+                <tr>
+                    <td>
+                        @if($cardPage['page'] === 1)
                             <div class="omr-inst">{{ $exam->organization?->name ?? 'DADOS DA INSTITUIÇÃO' }}</div>
                             <div class="omr-field"><strong>NOME:</strong> {{ $copy->student?->name ?? '' }} <span class="omr-dotted" style="width: {{ $copy->student ? '42mm' : '86mm' }};">&nbsp;</span> <strong style="margin-left:6px;">DATA:</strong> ____/____/______</div>
                             <div class="omr-field"><strong>MATRÍCULA / Nº:</strong> <span class="omr-dotted" style="width: 24mm;">&nbsp;</span> <strong style="margin-left:8px;">TURMA:</strong> <span class="omr-dotted" style="width: 18mm;">&nbsp;</span> <strong style="margin-left:8px;">VERSÃO:</strong> <span class="omr-badge">#{{ $copy->copy_number }}</span></div>
-                        </td>
-                        <td class="omr-qr-cell" style="width: 30mm;">
-                            <img src="data:image/svg+xml;base64,{!! $cardPage['qrBase64'] !!}" alt="QR" style="width: 24mm; height: 24mm;">
-                        </td>
-                    </tr>
-                </table>
-            @else
-                <div style="position: absolute; left: 8mm; top: 11mm; font-size: 11px;">
-                    <strong>NOME:</strong> <span class="omr-dotted" style="width: 80mm;">&nbsp;</span>
-                    <strong style="margin-left:8px;">VERSÃO:</strong> <span class="omr-badge">#{{ $copy->copy_number }}</span>
-                    — Folha {{ $cardPage['page'] }}/{{ $cardPage['totalPages'] }}
-                </div>
-            @endif
+                        @else
+                            <div class="omr-inst">{{ $exam->organization?->name ?? 'DADOS DA INSTITUIÇÃO' }}</div>
+                            <div class="omr-field"><strong>NOME:</strong> {{ $copy->student?->name ?? '' }} <span class="omr-dotted" style="width: {{ $copy->student ? '42mm' : '74mm' }};">&nbsp;</span></div>
+                            <div class="omr-field"><strong>VERSÃO:</strong> <span class="omr-badge">#{{ $copy->copy_number }}</span> <strong style="margin-left:12px;">FOLHA:</strong> {{ $cardPage['page'] }}/{{ $cardPage['totalPages'] }}</div>
+                        @endif
+                    </td>
+                    <td class="omr-qr-cell" style="width: 34mm; padding: 2px;">
+                        <img src="data:image/svg+xml;base64,{!! $cardPage['qrBase64'] !!}" alt="QR da folha {{ $cardPage['page'] }}" style="width: {{ $cardPage['qrPrint']['size_mm'] }}mm; height: {{ $cardPage['qrPrint']['size_mm'] }}mm;">
+                    </td>
+                </tr>
+            </table>
 
             <div class="omr-instructions" style="left: 8mm; top: {{ $fy - $half - 4 }}mm; width: 174mm;">Preencha a bolha completamente com caneta escura, sem amassar a folha.</div>
 

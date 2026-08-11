@@ -29,8 +29,8 @@ represented by optional fields without changing existing semantics.
 - `tpl_id` / `tpl_v`: exact OMR template and immutable version.
 - `g`: six integers, scaled by 10,000, describing page-local geometry.
 - `oc`: one digit per printed question: `0` essay, `2` true/false, `2..9` objective options.
-- `gab_enc`: optional AES-256-GCM ciphertext. Only the server decrypts it; it is
-  used as an integrity cross-check, not as authorization or a locally trusted key.
+- `gab_enc`: accepted historical AES-256-GCM ciphertext. Only the server decrypts
+  it; current cards omit it because the immutable copy snapshot is authoritative.
 - `chk`: tenant-derived HMAC-SHA-256 authenticator. Current v5 emission carries a
   128-bit tag encoded as 22 base64url characters. Historical accepted encodings
   remain in the schema.
@@ -54,6 +54,10 @@ the tenant HMAC/decryption key. They preserve the exact signed object. The serve
 The allowlist contains no name, registration number, CPF, e-mail or other PII.
 Plaintext `gab` is forbidden in every supported version.
 
+Current v5 emission deliberately carries identity, page geometry and option counts,
+but not `gab_enc`. Omitting this optional historical field reduces QR density while
+keeping server-side grading bound to the immutable copy snapshot.
+
 ## Cryptographic and schema references
 
 - JSON Schema Draft 2020-12: https://json-schema.org/draft/2020-12
@@ -61,5 +65,8 @@ Plaintext `gab` is forbidden in every supported version.
 - OWASP Cryptographic Storage Cheat Sheet (authenticated encryption/GCM):
   https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html
 
-Physical size, error correction, quiet zone, raster degradation and device/printer
-validation are deliberately tracked by `QR-002`, not by this wire-contract document.
+The QR-002 physical profile emits 30 mm black-on-white symbols with error correction
+M, a four-module quiet zone and at least 0.35 mm per module. Payloads that exceed that
+area fail before printing. Automated production-view PDF raster checks cover 150,
+200 and 300 dpi plus a 300-pixel capture envelope; real printer/device approval
+remains an explicit human validation.
