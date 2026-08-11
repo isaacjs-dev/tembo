@@ -1,0 +1,33 @@
+{
+  "profile_id": "omr-baseline-v1",
+  "frozen_at": "2026-08-11",
+  "frozen_before_holdout": true,
+  "classification": {
+    "mobile": {
+      "mark": 0.4,
+      "blank": 0.12,
+      "uncertain_low": 0.2,
+      "uncertain_high": 0.38
+    },
+    "web": {
+      "mark": 0.45,
+      "blank": 0.15,
+      "uncertain_low": 0.25,
+      "uncertain_high": 0.4
+    }
+  },
+  "decision": {
+    "auto_accept": 0.8,
+    "rescan_below": 0.45
+  },
+  "acceptance_gates": {
+    "auto_accept_accuracy_min": 0.999,
+    "confident_error_max": 0.001,
+    "question_accuracy_min": 0.995,
+    "ambiguity_referral_min": 0.99,
+    "qr_first_attempt_min": 0.99,
+    "qr_two_attempts_min": 0.999,
+    "silent_association_error_max": 0
+  },
+  "scope": "Web and Mobile classifier-component baseline; QR, association, physical capture and full-pipeline gates remain unverified."
+}

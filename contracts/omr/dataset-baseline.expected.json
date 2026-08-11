@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "baseline_id": "omr-synthetic-baseline-v1",
+  "threshold_profile_hash": "fe7f9fc74885f76df7cec9ddb69101d209a4a8abeaa1e54765228e922687277a",
+  "manifests": [
+    {
+      "id": "tembo-omr-synthetic-tuning-v1",
+      "split": "tuning",
+      "sha256": "bce004855c8e91c0b280c801660afd8324e7fd4757228985af92efa4025d4ac3"
+    },
+    {
+      "id": "tembo-omr-synthetic-holdout-v1",
+      "split": "holdout",
+      "sha256": "1ec127374f03a33d3c363ce81b0ed99dab20bd59be3f6581523b59fbe3525120"
+    }
+  ],
+  "metrics": [
+    {
+      "adapter": "mobile-classifier",
+      "split": "tuning",
+      "question_accuracy": 0.5,
+      "decision_accuracy": 0.16666666666666666,
+      "auto_accept_accuracy": 0.16666666666666666,
+      "auto_accept_coverage": 1,
+      "confident_error": 0.8333333333333334,
+      "ambiguity_referral": 0,
+      "gates": {
+        "question_accuracy": false,
+        "auto_accept_accuracy": false,
+        "confident_error": false,
+        "ambiguity_referral": false
+      }
+    },
+    {
+      "adapter": "mobile-classifier",
+      "split": "holdout",
+      "question_accuracy": 0.3333333333333333,
+      "decision_accuracy": 0.16666666666666666,
+      "auto_accept_accuracy": 0.16666666666666666,
+      "auto_accept_coverage": 1,
+      "confident_error": 0.8333333333333334,
+      "ambiguity_referral": 0,
+      "gates": {
+        "question_accuracy": false,
+        "auto_accept_accuracy": false,
+        "confident_error": false,
+        "ambiguity_referral": false
+      }
+    },
+    {
+      "adapter": "web-classifier",
+      "split": "tuning",
+      "question_accuracy": 1,
+      "decision_accuracy": 0.16666666666666666,
+      "auto_accept_accuracy": 0,
+      "auto_accept_coverage": 0,
+      "confident_error": 0,
+      "ambiguity_referral": 0.25,
+      "gates": {
+        "question_accuracy": true,
+        "auto_accept_accuracy": false,
+        "confident_error": false,
+        "ambiguity_referral": false
+      }
+    },
+    {
+      "adapter": "web-classifier",
+      "split": "holdout",
+      "question_accuracy": 1,
+      "decision_accuracy": 0.16666666666666666,
+      "auto_accept_accuracy": 0,
+      "auto_accept_coverage": 0,
+      "confident_error": 0,
+      "ambiguity_referral": 0.3333333333333333,
+      "gates": {
+        "question_accuracy": true,
+        "auto_accept_accuracy": false,
+        "confident_error": false,
+        "ambiguity_referral": false
+      }
+    }
+  ],
+  "parity_by_split": {
+    "tuning": {
+      "compared_questions": 6,
+      "exact_matches": 0,
+      "rate": 0
+    },
+    "holdout": {
+      "compared_questions": 6,
+      "exact_matches": 0,
+      "rate": 0
+    }
+  },
+  "unmeasured_gates": [
+    { "id": "qr_first_attempt", "target": 0.99, "status": "pending_physical_pipeline" },
+    { "id": "qr_two_attempts", "target": 0.999, "status": "pending_physical_pipeline" },
+    { "id": "silent_association_error", "target": 0, "status": "pending_full_pipeline" }
+  ]
+}

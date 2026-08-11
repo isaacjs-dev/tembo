@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tembo.local/contracts/omr/engine-result.schema.json",
+  "title": "Tembo normalized OMR engine result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "dataset_id", "sample_id", "engine", "outcome", "path", "qr", "association", "fiducials", "questions", "duration_ms"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "dataset_id": { "type": "string" },
+    "sample_id": { "type": "string" },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "version", "git_sha", "dependency_hash", "threshold_profile_hash"],
+      "properties": {
+        "adapter": { "enum": ["web-classifier", "mobile-classifier"] },
+        "version": { "type": "string" },
+        "git_sha": { "type": "string" },
+        "dependency_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "threshold_profile_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "outcome": { "enum": ["processed", "rejected", "error"] },
+    "path": { "enum": ["classifier_only", "homography", "legacy_fallback", "manual", "unavailable"] },
+    "qr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detected", "structurally_valid", "authenticated"],
+      "properties": {
+        "detected": { "type": "boolean" },
+        "structurally_valid": { "type": "boolean" },
+        "authenticated": { "type": ["boolean", "null"] }
+      }
+    },
+    "association": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "exam_id", "copy_id", "student_id", "page"],
+      "properties": {
+        "status": { "enum": ["matched", "mismatch", "unknown"] },
+        "exam_id": { "type": ["integer", "null"] },
+        "copy_id": { "type": ["integer", "null"] },
+        "student_id": { "type": ["integer", "null"] },
+        "page": { "type": ["integer", "null"] }
+      }
+    },
+    "fiducials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["found", "confidence"],
+      "properties": {
+        "found": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["position", "status", "selected_index", "marked_indices", "confidence", "fill_ratios", "action"],
+        "properties": {
+          "position": { "type": "integer", "minimum": 1 },
+          "status": { "enum": ["answered", "blank", "multiple_marks", "ambiguous", "error"] },
+          "selected_index": { "type": ["integer", "null"], "minimum": 0 },
+          "marked_indices": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "fill_ratios": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 } },
+          "action": { "enum": ["accept", "review", "rescan"] }
+        }
+      }
+    },
+    "duration_ms": { "type": "number", "minimum": 0 },
+    "error_code": { "type": ["string", "null"] }
+  }
+}

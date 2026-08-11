@@ -37,7 +37,7 @@ Fonte: `ai-docs/PRD.md`. Estados válidos: `pending`, `in_progress`, `done`, `bl
 | PREV-001 | Previews desktop/tablet/mobile/print | ASM-09, ASM-11, APP-07 | APP-002, ASM-002 | pending | Conteúdo/paginação equivalentes ao resultado final |
 | QR-001 | Contrato QR vNext e retrocompatibilidade | QR-01..03 | CARD-001, OMR-P0-001 | done | v3/v4/v5 preservados; schema, vetores cross-runtime e binding semântico publicados |
 | QR-002 | Regressão raster e homologação física QR | QR-04, APP-09 | QR-001, CARD-002 | done | 40/40 raster; perfil 30 mm/quiet zone 4; homologação em hardware registrada como pendência humana |
-| OMR-001 | Dataset anotado e baseline reproduzível | OMR-01..06, §9 | CARD-002, QR-002 | pending | Limiares congelados; ground truth e holdout separados |
+| OMR-001 | Dataset anotado e baseline reproduzível | OMR-01..06, §9 | CARD-002, QR-002 | done | Tuning/holdout isolados; baseline sintético congelado; físico registrado como pendência humana |
 | OMR-002 | Pipeline real de câmera, geometria e confiança | OMR-02..04, OMR-10, OMR-11 | OMR-001, OMR-P0-003 | pending | Sem métricas simuladas/ajustes normais; ambiguidades revisadas |
 | OMR-003 | Sessão multipágina e associação inequívoca | OMR-05..09 | OMR-002, IAM-004 | pending | Todas as páginas consolidam uma vez |
 | OMR-004 | Pacote compartilhado e paridade Web/Mobile | OMR-01, OMR-06 | OMR-003 | pending | Golden tests iguais e motores mortos removidos |
