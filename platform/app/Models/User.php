@@ -208,6 +208,16 @@ class User extends Authenticatable implements MustVerifyEmailContract
         return $this->belongsToMany(SchoolClass::class, 'class_student', 'user_id', 'school_class_id');
     }
 
+    public function lessonProgress()
+    {
+        return $this->hasMany(LessonProgress::class, 'student_id');
+    }
+
+    public function activityAttempts()
+    {
+        return $this->hasMany(ActivityAttempt::class, 'student_id');
+    }
+
     public function taughtClasses()
     {
         return $this->belongsToMany(SchoolClass::class, 'class_teacher', 'user_id', 'school_class_id')

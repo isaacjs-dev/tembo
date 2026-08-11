@@ -3,7 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Activity;
+use App\Models\ActivityAttempt;
+use App\Models\ActivityResponse;
+use App\Models\AuditLog;
 use App\Models\Discipline;
+use App\Models\User;
 use App\Services\PedagogicalAccessService;
 use App\Services\QuestionLibraryService;
 use App\Services\RevisionBuilderService;
@@ -11,6 +15,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class ActivityController extends Controller
@@ -47,7 +52,86 @@ class ActivityController extends Controller
     {
         abort_unless($access->canView($request->user(), $activity->organization_id), 403);
 
-        return view('activities.show', ['activity' => $activity->load(['author', 'discipline', 'schoolClasses', 'questions'])]);
+        return view('activities.show', [
+            'activity' => $activity->load(['author', 'discipline', 'schoolClasses', 'questions']),
+            'canReport' => $access->canManage($request->user(), $activity->organization_id, $activity->author_id)
+                || $access->canReview($request->user(), $activity->organization_id),
+        ]);
+    }
+
+    public function report(Request $request, Activity $activity, PedagogicalAccessService $access): View
+    {
+        $this->authorizeReport($request, $activity, $access);
+        $classIds = $activity->schoolClasses()->pluck('school_classes.id');
+        $students = User::withTrashed()->where(function ($query) use ($activity, $classIds): void {
+            $query->where(function ($active) use ($activity, $classIds): void {
+                $active->memberOfOrganization($activity->organization_id, 'student')
+                    ->whereHas('schoolClasses', fn ($classes) => $classes->whereIn('school_classes.id', $classIds));
+            })->orWhereHas('activityAttempts', fn ($attempts) => $attempts
+                ->where('organization_id', $activity->organization_id)->where('activity_id', $activity->id));
+        })
+            ->orderBy('name')->paginate(50, ['users.id', 'users.name', 'users.email']);
+        $attempts = ActivityAttempt::query()->where('activity_id', $activity->id)
+            ->whereIn('student_id', $students->getCollection()->pluck('id'))->with(['student:id,name,email', 'responses'])
+            ->orderByDesc('attempt_number')->get()->groupBy('student_id');
+
+        return view('activities.report', compact('activity', 'students', 'attempts'));
+    }
+
+    public function grade(Request $request, Activity $activity, ActivityAttempt $attempt, PedagogicalAccessService $access): RedirectResponse
+    {
+        $this->authorizeReport($request, $activity, $access);
+        abort_unless((int) $attempt->activity_id === (int) $activity->id
+            && (int) $attempt->organization_id === (int) $activity->organization_id, 404);
+        $data = $request->validate([
+            'scores' => ['nullable', 'array'], 'scores.*' => ['required', 'numeric', 'min:0'],
+            'feedback' => ['nullable', 'array'], 'feedback.*' => ['nullable', 'string', 'max:5000'],
+            'overall_score' => ['nullable', 'numeric', 'min:0'],
+        ]);
+        DB::transaction(function () use ($attempt, $data, $request): void {
+            $locked = ActivityAttempt::query()->lockForUpdate()->findOrFail($attempt->id);
+            abort_unless(in_array($locked->status, ['submitted', 'graded'], true), 409);
+            $questions = collect($locked->content_snapshot['questions'] ?? [])->keyBy(fn ($question) => (int) $question['key']);
+            $manualOverall = $questions->isEmpty() || data_get($locked->content_snapshot, 'activity.modality') === 'paper';
+            if ($manualOverall) {
+                $overall = $data['overall_score'] ?? null;
+                if (! is_numeric($overall) || (float) $overall > (float) $locked->total_points) {
+                    throw ValidationException::withMessages(['overall_score' => 'Informe uma pontuação válida para a atividade.']);
+                }
+                $locked->update([
+                    'status' => 'graded', 'score' => (float) $overall,
+                    'graded_at' => now(), 'graded_by' => $request->user()->id,
+                ]);
+                $this->auditGrade($locked);
+
+                return;
+            }
+            $essayKeys = $questions->filter(fn ($question) => ($question['type'] ?? null) === 'essay')
+                ->keys()->map(fn ($key) => (int) $key)->sort()->values();
+            $scoreKeys = collect(array_keys($data['scores'] ?? []))->map(fn ($key) => (int) $key)->sort()->values();
+            if ($essayKeys->all() !== $scoreKeys->all()) {
+                throw ValidationException::withMessages(['scores' => 'Corrija todas as questões discursivas antes de finalizar.']);
+            }
+            foreach (($data['scores'] ?? []) as $key => $score) {
+                $question = $questions->get((int) $key);
+                if (! $question || ($question['type'] ?? null) !== 'essay' || (float) $score > (float) ($question['points'] ?? 0)) {
+                    throw ValidationException::withMessages(["scores.$key" => 'Pontuação inválida para esta questão.']);
+                }
+                ActivityResponse::query()->updateOrCreate([
+                    'activity_attempt_id' => $locked->id, 'snapshot_question_key' => (int) $key,
+                ], [
+                    'question_id' => $question['question_id'] ?? null, 'points_awarded' => (float) $score,
+                    'feedback' => $data['feedback'][$key] ?? null, 'answered_at' => now(),
+                ]);
+            }
+            $locked->update([
+                'status' => 'graded', 'score' => (float) $locked->responses()->sum('points_awarded'),
+                'graded_at' => now(), 'graded_by' => $request->user()->id,
+            ]);
+            $this->auditGrade($locked);
+        }, 3);
+
+        return back()->with('status', 'Tentativa corrigida.');
     }
 
     public function store(Request $request, PedagogicalAccessService $access, RevisionBuilderService $builder): RedirectResponse
@@ -94,7 +178,15 @@ class ActivityController extends Controller
     public function destroy(Request $request, Activity $activity, PedagogicalAccessService $access): RedirectResponse
     {
         abort_unless($access->canManage($request->user(), $activity->organization_id, $activity->author_id), 403);
-        $activity->delete();
+        DB::transaction(function () use ($activity): void {
+            $locked = Activity::query()->lockForUpdate()->findOrFail($activity->id);
+            if ($locked->attempts()->exists()) {
+                throw ValidationException::withMessages([
+                    'activity' => 'Esta atividade possui tentativas e não pode ser excluída. Arquive-a para preservar o histórico.',
+                ]);
+            }
+            $locked->delete();
+        }, 3);
 
         return redirect()->route('activities.index')->with('status', 'Atividade removida.');
     }
@@ -125,5 +217,19 @@ class ActivityController extends Controller
             ->pluck('id');
         abort_unless($allowed->count() === count(array_unique($questionIds)), 403);
         $activity->questions()->sync($allowed->mapWithKeys(fn ($id, $order) => [$id => ['order' => $order, 'points' => 1]])->all());
+    }
+
+    private function authorizeReport(Request $request, Activity $activity, PedagogicalAccessService $access): void
+    {
+        abort_unless($access->canManage($request->user(), $activity->organization_id, $activity->author_id)
+            || $access->canReview($request->user(), $activity->organization_id), 403);
+    }
+
+    private function auditGrade(ActivityAttempt $attempt): void
+    {
+        AuditLog::log('activity_attempt_graded', ActivityAttempt::class, $attempt->id, [
+            'organization_id' => $attempt->organization_id, 'activity_id' => $attempt->activity_id,
+            'student_id' => $attempt->student_id,
+        ]);
     }
 }

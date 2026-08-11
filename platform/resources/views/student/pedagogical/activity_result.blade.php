@@ -1,0 +1,7 @@
+<x-app-layout>
+    <x-slot name="header"><div><a class="text-sm font-bold text-primary" href="{{ route('student.pedagogical.activities.show',$activity) }}">← Atividade</a><h1 class="mt-2 text-3xl font-black text-duo-heading">Resultado · tentativa {{ $attempt->attempt_number }}</h1></div></x-slot>
+    <div class="mx-auto max-w-3xl space-y-5 rounded-2xl border-2 border-duo-border bg-white p-6">
+        @if($attempt->status==='submitted')<p class="rounded-xl bg-amber-50 p-4 font-bold text-amber-900">Enviada. As respostas discursivas aguardam correção.</p>@else<p class="text-2xl font-black">{{ number_format((float)$attempt->score,1,',','.') }} / {{ number_format((float)$attempt->total_points,1,',','.') }} pontos</p>@endif
+        <dl class="space-y-3">@foreach(collect($attempt->content_snapshot['questions'] ?? []) as $index=>$question) @php($response=$attempt->responses->firstWhere('snapshot_question_key',$question['key']))<div class="rounded-xl border p-4"><dt class="font-extrabold">Questão {{ $index+1 }}</dt><dd class="mt-1 text-gray-700">Resposta: {{ data_get($response?->answer,'value','Em branco') }}</dd>@if($attempt->status==='graded')<dd class="mt-1 font-bold">Pontos: {{ number_format((float)($response?->points_awarded ?? 0),1,',','.') }} / {{ number_format((float)$question['points'],1,',','.') }}</dd>@endif @if($response?->feedback)<dd class="mt-2 text-sm text-gray-700">{{ $response->feedback }}</dd>@endif</div>@endforeach</dl>
+    </div>
+</x-app-layout>

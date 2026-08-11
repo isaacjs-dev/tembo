@@ -37,6 +37,7 @@ use App\Http\Controllers\Settings\PrintPreferencesController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\StudentLearningController;
 use App\Http\Controllers\StudentPortalController;
+use App\Http\Controllers\StudentPedagogicalController;
 use App\Http\Controllers\StudentRevisionController;
 use App\Http\Controllers\TaxonomyController;
 use App\Http\Controllers\TeacherController;
@@ -75,6 +76,23 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
         Route::post('/learning/{learningMaterial}/complete', [StudentLearningController::class, 'complete'])
             ->middleware('throttle:20,1')
             ->name('learning.complete');
+        Route::get('/pedagogical', [StudentPedagogicalController::class, 'index'])->name('pedagogical.index');
+        Route::get('/lessons/{lesson}', [StudentPedagogicalController::class, 'lesson'])->name('pedagogical.lessons.show');
+        Route::post('/lessons/{lesson}/complete', [StudentPedagogicalController::class, 'completeLesson'])
+            ->middleware('throttle:20,1')->name('pedagogical.lessons.complete');
+        Route::get('/activities/{activity}', [StudentPedagogicalController::class, 'activity'])->name('pedagogical.activities.show');
+        Route::post('/activities/{activity}/start', [StudentPedagogicalController::class, 'startActivity'])
+            ->middleware('throttle:30,1')->name('pedagogical.activities.start');
+        Route::get('/activities/{activity}/attempts/{attempt}', [StudentPedagogicalController::class, 'executeActivity'])
+            ->name('pedagogical.activities.execute');
+        Route::post('/activities/{activity}/attempts/{attempt}/save', [StudentPedagogicalController::class, 'saveActivity'])
+            ->middleware('throttle:120,1')->name('pedagogical.activities.save');
+        Route::post('/activities/{activity}/attempts/{attempt}/submit', [StudentPedagogicalController::class, 'submitActivity'])
+            ->middleware('throttle:30,1')->name('pedagogical.activities.submit');
+        Route::get('/activities/{activity}/attempts/{attempt}/result', [StudentPedagogicalController::class, 'activityResult'])
+            ->name('pedagogical.activities.result');
+        Route::get('/activities/{activity}/attempts/{attempt}/questions/{question}/resources/{version}', [StudentPedagogicalController::class, 'activityResource'])
+            ->name('pedagogical.activities.resource');
         Route::post('/join', [StudentPortalController::class, 'joinByCode'])
             ->middleware('throttle:10,1')
             ->name('joinByCode');
@@ -246,6 +264,10 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
     });
 
     Route::middleware('inst_perm:view_pedagogical_content')->group(function () {
+        Route::get('lessons/{lesson}/report', [LessonController::class, 'report'])->name('lessons.report');
+        Route::get('activities/{activity}/report', [ActivityController::class, 'report'])->name('activities.report');
+        Route::post('activities/{activity}/attempts/{attempt}/grade', [ActivityController::class, 'grade'])
+            ->name('activities.attempts.grade');
         Route::resource('lessons', LessonController::class);
         Route::resource('activities', ActivityController::class);
         Route::post('revisions/{revision}/items', [RevisionController::class, 'storeItem'])->name('revisions.items.store');

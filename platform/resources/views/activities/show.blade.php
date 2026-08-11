@@ -1,5 +1,6 @@
 <x-app-layout>
     <x-slot name="header"><div><p class="text-sm font-bold text-primary-dark">Atividade · somente leitura</p><h1 class="text-3xl font-black text-duo-heading">{{ $activity->title }}</h1></div></x-slot>
+    @if($canReport)<div class="mx-auto mb-4 flex max-w-5xl justify-end"><a class="duo-button-secondary rounded-xl px-5 py-3 font-bold" href="{{ route('activities.report',$activity) }}">Ver relatório</a></div>@endif
     <article class="mx-auto max-w-5xl space-y-5 rounded-2xl border-2 border-duo-border bg-white p-6">
         <div class="grid gap-4 sm:grid-cols-3"><div><p class="text-xs font-bold text-gray-500">AUTOR</p><p class="font-bold">{{ $activity->author?->name }}</p></div><div><p class="text-xs font-bold text-gray-500">DISCIPLINA</p><p class="font-bold">{{ $activity->discipline?->name ?: 'Geral' }}</p></div><div><p class="text-xs font-bold text-gray-500">MODALIDADE</p><p class="font-bold">{{ ucfirst($activity->modality) }}</p></div></div>
         <div><h2 class="font-extrabold">Instruções</h2><p class="mt-2 whitespace-pre-wrap text-gray-700">{{ $activity->instructions ?: 'Não informadas.' }}</p></div>

@@ -46,4 +46,9 @@ class Activity extends Model
     {
         return $this->morphMany(RevisionSource::class, 'source');
     }
+
+    public function attempts()
+    {
+        return $this->hasMany(ActivityAttempt::class);
+    }
 }
