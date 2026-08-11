@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\PublicCatalogReport;
+use App\Models\PublicCatalogRewardRule;
 use App\Models\PublicCatalogSubmission;
+use App\Services\PublicCatalogRewardScheduleService;
 use App\Services\PublicCatalogService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -15,8 +18,13 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PublicCatalogModerationController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request, PublicCatalogRewardScheduleService $rewardSchedule): View
     {
+        DB::transaction(function () use ($rewardSchedule): void {
+            foreach (PublicCatalogService::TARGET_TYPES as $kind) {
+                $rewardSchedule->lockAndNormalize($kind);
+            }
+        }, 3);
         $status = $request->string('status')->toString() ?: 'pending';
         $submissions = PublicCatalogSubmission::query()
             ->with(['submitter:id,name,email', 'submittable', 'entry'])
@@ -30,8 +38,10 @@ class PublicCatalogModerationController extends Controller
             ->oldest()
             ->paginate(20, ['*'], 'reports_page')
             ->withQueryString();
+        $rewardRules = PublicCatalogRewardRule::query()
+            ->withCount('awards')->latest()->paginate(10, ['*'], 'reward_rules_page')->withQueryString();
 
-        return view('admin.public-catalog.index', compact('submissions', 'reports', 'status'));
+        return view('admin.public-catalog.index', compact('submissions', 'reports', 'rewardRules', 'status'));
     }
 
     public function show(PublicCatalogSubmission $submission): View

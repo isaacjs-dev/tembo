@@ -28,6 +28,8 @@ class PublicCatalogService
 
     public const REPORT_REASONS = ['copyright', 'incorrect', 'inappropriate', 'duplicate', 'privacy', 'spam', 'other'];
 
+    public function __construct(private readonly PublicCatalogRewardService $rewards) {}
+
     public function resolveOwnedTarget(User $user, string $type, int $id): Question|QuestionResource
     {
         return match ($type) {
@@ -272,6 +274,8 @@ class PublicCatalogService
             ]);
             if ($decision === 'rejected') {
                 $this->recordReputation($locked->submitter_id, 'submission_rejected', $locked, "catalog:rejected:{$locked->id}");
+            } else {
+                $this->rewards->grantForApproval($locked, $moderator);
             }
 
             return $locked->fresh(['entry', 'events']);

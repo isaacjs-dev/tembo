@@ -30,7 +30,8 @@ class MonthlyUsageService
         $this->assertResource($resourceKey);
         $organization ??= $user->organization;
         $period = $this->ensurePeriod($user, $resourceKey, null, $organization);
-        $limit = $this->entitlements->monthlyAllowance($user, $resourceKey, $organization);
+        $baseLimit = $this->entitlements->monthlyAllowance($user, $resourceKey, $organization);
+        $limit = $baseLimit === null ? null : $baseLimit + (int) $period->bonus_credits;
 
         if ($period->allowance !== $limit) {
             $period->update(['allowance' => $limit]);
@@ -72,7 +73,8 @@ class MonthlyUsageService
             if ($this->isReplayOrFail($idempotencyKey, $user, $resourceKey, $amount, $organization)) {
                 return;
             }
-            $limit = $this->entitlements->monthlyAllowance($user, $resourceKey, $organization);
+            $baseLimit = $this->entitlements->monthlyAllowance($user, $resourceKey, $organization);
+            $limit = $baseLimit === null ? null : $baseLimit + (int) $period->bonus_credits;
             $remaining = $limit === null ? null : max(0, $limit - (int) $period->consumed);
 
             if ($remaining !== null && $remaining < $amount) {
@@ -103,6 +105,63 @@ class MonthlyUsageService
         });
 
         return $this->snapshot($user->fresh(), $resourceKey, $organization);
+    }
+
+    public function credit(
+        User $user,
+        string $resourceKey,
+        int $amount,
+        string $idempotencyKey,
+        ?Model $context = null,
+        ?User $actor = null,
+        array $metadata = [],
+        ?Organization $organization = null,
+    ): UsageEvent {
+        $this->assertResource($resourceKey);
+        if ($amount < 1) {
+            throw new \InvalidArgumentException('O crédito precisa ser maior que zero.');
+        }
+
+        $organization ??= $user->organization;
+
+        return DB::transaction(function () use ($user, $resourceKey, $amount, $idempotencyKey, $context, $actor, $metadata, $organization): UsageEvent {
+            $existing = $this->creditReplayOrFail($idempotencyKey, $user, $resourceKey, $amount, $organization);
+            if ($existing) {
+                return $existing;
+            }
+
+            $period = UsagePeriod::query()->lockForUpdate()->findOrFail(
+                $this->ensurePeriod($user, $resourceKey, null, $organization)->id
+            );
+            $existing = $this->creditReplayOrFail($idempotencyKey, $user, $resourceKey, $amount, $organization);
+            if ($existing) {
+                return $existing;
+            }
+
+            $bonus = (int) $period->bonus_credits + $amount;
+            $base = $this->entitlements->monthlyAllowance($user, $resourceKey, $organization);
+            $period->update([
+                'bonus_credits' => $bonus,
+                'allowance' => $base === null ? null : $base + $bonus,
+            ]);
+
+            return UsageEvent::query()->create([
+                'usage_period_id' => $period->id,
+                'user_id' => $user->id,
+                'organization_id' => $organization?->id,
+                'scope_key' => $period->scope_key,
+                'membership_id' => $period->membership_id,
+                'actor_id' => $actor?->id,
+                'resource_key' => $resourceKey,
+                'event_type' => 'credit',
+                'amount' => $amount,
+                'idempotency_key' => $idempotencyKey,
+                'context_type' => $context ? $context::class : null,
+                'context_id' => $context?->getKey(),
+                'metadata' => $metadata,
+                'occurred_at' => now(),
+            ]);
+        });
     }
 
     public function reset(
@@ -177,6 +236,7 @@ class MonthlyUsageService
                 'membership_id' => $membershipId,
                 'period_end' => $end,
                 'allowance' => $this->entitlements->monthlyAllowance($user, $resourceKey, $organization),
+                'bonus_credits' => 0,
                 'consumed' => 0,
             ],
         );
@@ -237,5 +297,31 @@ class MonthlyUsageService
         }
 
         return true;
+    }
+
+    private function creditReplayOrFail(
+        string $idempotencyKey,
+        User $user,
+        string $resourceKey,
+        int $amount,
+        ?Organization $organization,
+    ): ?UsageEvent {
+        $existing = UsageEvent::query()->where('idempotency_key', $idempotencyKey)->first();
+        if (! $existing) {
+            return null;
+        }
+
+        $scopeKey = $organization ? 'organization:'.$organization->id : 'user:'.$user->id;
+        if ((int) $existing->user_id !== (int) $user->id
+            || $existing->scope_key !== $scopeKey
+            || $existing->resource_key !== $resourceKey
+            || $existing->event_type !== 'credit'
+            || (int) $existing->amount !== $amount) {
+            throw ValidationException::withMessages([
+                'idempotency_key' => 'A chave de idempotência já pertence a outra operação de crédito.',
+            ]);
+        }
+
+        return $existing;
     }
 }

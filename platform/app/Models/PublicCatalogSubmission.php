@@ -77,6 +77,11 @@ class PublicCatalogSubmission extends Model
         return $this->hasOne(PublicCatalogEntry::class, 'submission_id');
     }
 
+    public function rewardAward()
+    {
+        return $this->hasOne(PublicCatalogRewardAward::class, 'public_catalog_submission_id');
+    }
+
     public function previousSubmission(): BelongsTo
     {
         return $this->belongsTo(self::class, 'previous_submission_id');
