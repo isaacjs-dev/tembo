@@ -41,7 +41,15 @@ class ExamCopyVersioningTest extends TestCase
         $this->assertSame(1, $firstBatch->first()->exam_version);
         $this->assertEquals(2.0, $firstBatch->first()->question_snapshot[0]['points']);
         $this->assertSame(0, data_get($firstBatch->first()->question_snapshot, '0.content.correct_option'));
-        $this->assertSame($templateSnapshot, $firstBatch->first()->template_snapshot);
+        $storedTemplateSnapshot = $firstBatch->first()->template_snapshot;
+        $this->assertSame(2, $storedTemplateSnapshot['schema_version']);
+        $this->assertSame($templateSnapshot, $storedTemplateSnapshot['answer_sheet_card']);
+        $this->assertSame($templateSnapshot['id'], $storedTemplateSnapshot['id']);
+        $this->assertSame($templateSnapshot['version'], $storedTemplateSnapshot['version']);
+        $this->assertSame($templateSnapshot['layout_config'], $storedTemplateSnapshot['layout_config']);
+        $this->assertArrayHasKey('assessment_layout', $storedTemplateSnapshot);
+        $this->assertArrayHasKey('assessment_header', $storedTemplateSnapshot);
+        $this->assertArrayHasKey('answer_sheet_header', $storedTemplateSnapshot);
 
         Sanctum::actingAs($exam->author);
         $this->withoutMiddleware(CheckOmrApiAccess::class)

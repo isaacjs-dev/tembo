@@ -2,13 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Exam;
-use App\Models\ExamCopy;
 use App\Models\OmrTemplate;
 use App\Models\OmrTemplateQuestion;
-use App\Models\OmrTemplateVersion;
 use App\Models\User;
+use App\Services\OmrTemplateVersionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class OmrTemplateController extends Controller
@@ -30,7 +29,7 @@ class OmrTemplateController extends Controller
         return view('omr.templates.editor', ['template' => null]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, OmrTemplateVersionService $versions)
     {
         $data = $this->validateTemplate($request);
         $user = auth()->user();
@@ -38,33 +37,30 @@ class OmrTemplateController extends Controller
         $header = $this->buildHeaderConfig($request);
         $logoPath = $this->saveLogo($request);
 
-        $template = OmrTemplate::create(array_merge(
-            $this->commonColumns($layout),
-            [
-                'name' => $data['name'],
-                'slug' => Str::slug($data['name']).'-'.Str::random(5),
-                'organization_id' => $user->organization_id,
-                'created_by' => $user->id,
-                'owner_type' => User::class,
-                'owner_id' => $user->id,
-                'visibility_scope' => $request->input('visibility_scope', 'org_public'),
-                'is_system' => false,
-                'is_default' => false,
-                'is_active' => true,
-                'layout_config' => $layout,
-                'header_config' => $header,
-                'logo_path' => $logoPath,
-                'current_version' => 1,
-            ]
-        ));
+        $template = DB::transaction(function () use ($request, $versions, $data, $user, $layout, $header, $logoPath): OmrTemplate {
+            $template = OmrTemplate::create(array_merge(
+                $this->commonColumns($layout),
+                [
+                    'name' => $data['name'],
+                    'slug' => Str::slug($data['name']).'-'.Str::random(5),
+                    'organization_id' => $user->organization_id,
+                    'created_by' => $user->id,
+                    'owner_type' => User::class,
+                    'owner_id' => $user->id,
+                    'visibility_scope' => $request->input('visibility_scope', 'org_public'),
+                    'is_system' => false,
+                    'is_default' => false,
+                    'is_active' => true,
+                    'layout_config' => $layout,
+                    'header_config' => $header,
+                    'logo_path' => $logoPath,
+                    'current_version' => 1,
+                ]
+            ));
+            $versions->append($template, $user);
 
-        OmrTemplateVersion::create([
-            'omr_template_id' => $template->id,
-            'version' => 1,
-            'layout_config' => $layout,
-            'header_config' => $header,
-            'logo_path' => $logoPath,
-        ]);
+            return $template;
+        }, 3);
 
         return redirect()->route('institution.omr.templates.edit', $template->id)
             ->with('status', 'Template criado com sucesso.');
@@ -77,7 +73,7 @@ class OmrTemplateController extends Controller
         return view('omr.templates.editor', compact('template'));
     }
 
-    public function update(Request $request, OmrTemplate $template)
+    public function update(Request $request, OmrTemplate $template, OmrTemplateVersionService $versions)
     {
         $this->authorizeEdit($template);
         $data = $this->validateTemplate($request);
@@ -86,27 +82,21 @@ class OmrTemplateController extends Controller
         $logoPath = $this->saveLogo($request) ?? $template->logo_path;
 
         // Nova versão a cada edição → provas antigas continuam lendo com a versão delas.
-        $newVersion = (int) ($template->current_version ?? 1) + 1;
+        $newVersion = DB::transaction(function () use ($request, $versions, $template, $data, $layout, $header, $logoPath): int {
+            $locked = OmrTemplate::query()->lockForUpdate()->findOrFail($template->id);
+            $locked->update(array_merge(
+                $this->commonColumns($layout),
+                [
+                    'name' => $data['name'],
+                    'visibility_scope' => $request->input('visibility_scope', $locked->visibility_scope),
+                    'layout_config' => $layout,
+                    'header_config' => $header,
+                    'logo_path' => $logoPath,
+                ]
+            ));
 
-        $template->update(array_merge(
-            $this->commonColumns($layout),
-            [
-                'name' => $data['name'],
-                'visibility_scope' => $request->input('visibility_scope', $template->visibility_scope),
-                'layout_config' => $layout,
-                'header_config' => $header,
-                'logo_path' => $logoPath,
-                'current_version' => $newVersion,
-            ]
-        ));
-
-        OmrTemplateVersion::create([
-            'omr_template_id' => $template->id,
-            'version' => $newVersion,
-            'layout_config' => $layout,
-            'header_config' => $header,
-            'logo_path' => $logoPath,
-        ]);
+            return $versions->append($locked, $request->user())->version;
+        }, 3);
 
         return redirect()->route('institution.omr.templates.edit', $template->id)
             ->with('status', "Template atualizado (versão {$newVersion}).");
@@ -115,21 +105,16 @@ class OmrTemplateController extends Controller
     public function destroy(OmrTemplate $template)
     {
         $this->authorizeEdit($template);
-        if ($template->is_default || $template->is_system) {
-            return back()->withErrors('O template padrão do sistema não pode ser excluído.');
-        }
-        $hasHistoricalUse = ExamCopy::query()->where('card_template_id', $template->id)->exists()
-            || Exam::withoutGlobalScopes()->where('card_template_id', $template->id)->exists()
-            || $template->scans()->exists();
-        if ($hasHistoricalUse) {
-            return back()->withErrors(
-                'Este template já foi usado em uma cópia histórica e não pode ser excluído. Desative-o para impedir novos usos.'
-            );
-        }
-        $template->delete();
+        DB::transaction(function () use ($template): void {
+            OmrTemplate::query()->lockForUpdate()->findOrFail($template->id)->update([
+                'is_active' => false,
+                'is_default' => false,
+                'archived_at' => now(),
+            ]);
+        }, 3);
 
         return redirect()->route('institution.omr.templates.index')
-            ->with('status', 'Template excluído.');
+            ->with('status', 'Template arquivado. Documentos históricos continuam preservados.');
     }
 
     /* ───────────────────────── Helpers ───────────────────────── */
@@ -258,7 +243,7 @@ class OmrTemplateController extends Controller
         return response()->json($template->toEngineJson());
     }
 
-    public function generateRois(Request $request, OmrTemplate $template)
+    public function generateRois(Request $request, OmrTemplate $template, OmrTemplateVersionService $versions)
     {
         $this->authorizeEdit($template);
         $request->validate([
@@ -284,40 +269,47 @@ class OmrTemplateController extends Controller
         $bw = (float) $request->bubble_w;
         $bh = (float) $request->bubble_h;
         $optSpacing = (float) $request->option_spacing;
+        $optionsPerQuestion = $request->input('options_per_question', []);
 
-        $template->questions()->delete();
+        $qNum = DB::transaction(function () use ($request, $versions, $template, $cols, $rowsPerCol, $maxOpts, $totalQ, $startX, $startY, $colSpacing, $rowSpacing, $bw, $bh, $optSpacing, $optionsPerQuestion): int {
+            $locked = OmrTemplate::query()->lockForUpdate()->findOrFail($template->id);
+            $locked->questions()->delete();
 
-        $qNum = 1;
-        $letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+            $qNum = 1;
+            $letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
 
-        for ($col = 0; $col < $cols && $qNum <= $totalQ; $col++) {
-            for ($row = 0; $row < $rowsPerCol && $qNum <= $totalQ; $row++) {
-                $numOpts = $request->options_per_question[$qNum] ?? $maxOpts;
-                $optionLabels = array_slice($letters, 0, $numOpts);
+            for ($col = 0; $col < $cols && $qNum <= $totalQ; $col++) {
+                for ($row = 0; $row < $rowsPerCol && $qNum <= $totalQ; $row++) {
+                    $numOpts = $optionsPerQuestion[$qNum] ?? $maxOpts;
+                    $optionLabels = array_slice($letters, 0, $numOpts);
+                    $rois = [];
+                    $baseX = $startX + ($col * $colSpacing);
+                    $baseY = $startY + ($row * $rowSpacing);
 
-                $rois = [];
-                $baseX = $startX + ($col * $colSpacing);
-                $baseY = $startY + ($row * $rowSpacing);
+                    foreach ($optionLabels as $i => $label) {
+                        $rois[$label] = [
+                            'x' => round($baseX + ($i * $optSpacing), 1),
+                            'y' => round($baseY, 1),
+                            'w' => round($bw, 1),
+                            'h' => round($bh, 1),
+                        ];
+                    }
 
-                foreach ($optionLabels as $i => $label) {
-                    $rois[$label] = [
-                        'x' => round($baseX + ($i * $optSpacing), 1),
-                        'y' => round($baseY, 1),
-                        'w' => round($bw, 1),
-                        'h' => round($bh, 1),
-                    ];
+                    OmrTemplateQuestion::create([
+                        'omr_template_id' => $locked->id,
+                        'question_number' => $qNum,
+                        'option_labels_json' => $optionLabels,
+                        'rois_json' => $rois,
+                    ]);
+
+                    $qNum++;
                 }
-
-                OmrTemplateQuestion::create([
-                    'omr_template_id' => $template->id,
-                    'question_number' => $qNum,
-                    'option_labels_json' => $optionLabels,
-                    'rois_json' => $rois,
-                ]);
-
-                $qNum++;
             }
-        }
+
+            $versions->append($locked, $request->user());
+
+            return $qNum;
+        }, 3);
 
         return redirect()->route('institution.omr.templates.edit', $template->id)
             ->with('status', ($qNum - 1).' questões/ROIs geradas automaticamente.');

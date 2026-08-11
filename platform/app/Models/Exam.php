@@ -28,6 +28,9 @@ class Exam extends Model
         'version',
         'card_template_id',
         'card_template_version',
+        'assessment_layout_version_id',
+        'assessment_header_version_id',
+        'answer_sheet_header_version_id',
     ];
 
     protected function casts(): array
@@ -42,6 +45,21 @@ class Exam extends Model
     public function cardTemplate()
     {
         return $this->belongsTo(OmrTemplate::class, 'card_template_id');
+    }
+
+    public function assessmentLayoutVersion()
+    {
+        return $this->belongsTo(AppearanceTemplateVersion::class, 'assessment_layout_version_id');
+    }
+
+    public function assessmentHeaderVersion()
+    {
+        return $this->belongsTo(AppearanceTemplateVersion::class, 'assessment_header_version_id');
+    }
+
+    public function answerSheetHeaderVersion()
+    {
+        return $this->belongsTo(AppearanceTemplateVersion::class, 'answer_sheet_header_version_id');
     }
 
     public function organization()

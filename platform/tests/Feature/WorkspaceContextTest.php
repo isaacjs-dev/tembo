@@ -211,7 +211,7 @@ class WorkspaceContextTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_omr_template_used_by_historical_copy_cannot_be_hard_deleted(): void
+    public function test_omr_template_used_by_historical_copy_is_archived_without_hard_delete(): void
     {
         $workspace = $this->workspace('Histórico OMR');
         $teacher = $this->user($workspace, 'teacher');
@@ -239,9 +239,14 @@ class WorkspaceContextTest extends TestCase
             ->from(route('institution.omr.templates.index'))
             ->delete(route('institution.omr.templates.destroy', $template))
             ->assertRedirect(route('institution.omr.templates.index'))
-            ->assertSessionHasErrors();
+            ->assertSessionHas('status');
 
-        $this->assertDatabaseHas('omr_templates', ['id' => $template->id]);
+        $this->assertDatabaseHas('omr_templates', [
+            'id' => $template->id,
+            'is_active' => false,
+        ]);
+        $this->assertNotNull($template->fresh()->archived_at);
+        $this->assertDatabaseHas('exam_copies', ['card_template_id' => $template->id]);
     }
 
     public function test_independent_teacher_can_open_personal_class_creation_but_institution_teacher_cannot(): void
