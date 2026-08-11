@@ -145,7 +145,10 @@ class ExamController extends Controller
         $wizardState = $wizard->state($exam);
         $wizardSteps = ExamWizardService::STEPS;
         $applicationModes = $applicationModes->options();
-        $appearanceCatalog = $appearances->catalogFor(auth()->user(), $exam->organization);
+        $appearanceCatalog = $appearances->catalogFor(auth()->user(), $exam->organization, [
+            $exam->assessment_layout_version_id,
+            $exam->assessment_header_version_id,
+        ]);
         $assessmentLayouts = $appearanceCatalog['assessment_layout'];
         $assessmentHeaders = $appearanceCatalog['assessment_header'];
         $appearanceSnapshot = $appearances->snapshotForExam($exam);

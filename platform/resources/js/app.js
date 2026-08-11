@@ -6,6 +6,7 @@ import Alpine from 'alpinejs';
 import jsQR from 'jsqr';
 import Sortable from 'sortablejs';
 import { OmrBrowserEngine, OmrEngine } from './omr-core/index';
+import { appearanceEditor } from './appearance-editor';
 
 let chartPromise;
 let konvaPromise;
@@ -47,5 +48,6 @@ window.jsQR = jsQR;
 window.Sortable = Sortable;
 window.OmrEngine = OmrEngine;
 window.OmrBrowserEngine = OmrBrowserEngine;
+window.appearanceEditor = appearanceEditor;
 
 Alpine.start();

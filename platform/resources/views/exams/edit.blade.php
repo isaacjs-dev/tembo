@@ -212,6 +212,7 @@
                                                         class="mt-1 size-5 border-gray-300 text-primary focus:ring-primary" required>
                                                     <span class="min-w-0">
                                                         <span class="block text-sm font-extrabold text-gray-800">{{ $template->name }}</span>
+                                                        @if($template->archived_at)<span class="badge badge-neutral mt-1">Arquivado · seleção histórica v{{ $version->version }}</span>@elseif($template->selected_historical)<span class="badge badge-neutral mt-1">Versão histórica v{{ $version->version }} selecionada</span>@endif
                                                         <span class="mt-1 block text-xs text-gray-500">{{ $orientation }} · {{ $columns }} {{ $columns === 1 ? 'coluna' : 'colunas' }} · {{ $separator }}</span>
                                                     </span>
                                                 </span>
@@ -238,6 +239,7 @@
                                                         class="mt-1 size-5 border-gray-300 text-secondary focus:ring-secondary" required>
                                                     <span class="min-w-0">
                                                         <span class="block text-sm font-extrabold text-gray-800">{{ $template->name }}</span>
+                                                        @if($template->archived_at)<span class="badge badge-neutral mt-1">Arquivado · seleção histórica v{{ $version->version }}</span>@elseif($template->selected_historical)<span class="badge badge-neutral mt-1">Versão histórica v{{ $version->version }} selecionada</span>@endif
                                                         <span class="mt-1 block text-xs text-gray-500">{{ number_format((float) data_get($definition, 'height_mm'), 0) }} mm · {{ $fieldCount }} {{ $fieldCount === 1 ? 'campo variável' : 'campos variáveis' }}</span>
                                                     </span>
                                                 </span>

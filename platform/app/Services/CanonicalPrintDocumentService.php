@@ -14,6 +14,7 @@ class CanonicalPrintDocumentService
         private readonly AppearanceTemplateService $appearances,
         private readonly AppearanceDefinitionSchema $appearanceSchema,
         private readonly AppearanceTokenResolver $tokens,
+        private readonly AppearanceAssetService $appearanceAssets,
         private readonly ExamQuestionSnapshotService $questionSnapshots,
         private readonly AssessmentPrintContextService $printContexts,
     ) {}
@@ -127,14 +128,61 @@ class CanonicalPrintDocumentService
             'header' => [
                 'template_id' => data_get($appearance, 'assessment_header.template_id'),
                 'version' => data_get($appearance, 'assessment_header.version'),
-                'elements' => $this->tokens->elements($headerDefinition, $context),
+                'mode' => ($headerDefinition['mode'] ?? null) === 'canvas' ? 'canvas' : 'flow',
+                'elements' => $this->headerElements(
+                    $headerDefinition,
+                    $context,
+                    data_get($appearance, 'assessment_header.assets', []),
+                ),
                 'height_mm' => (float) $headerDefinition['height_mm'],
+                'canvas_height' => (int) data_get($headerDefinition, 'canvas.height_units', 0),
             ],
             'context' => $context,
             'questions' => $questions,
             'total_points' => array_sum(array_column($questions, 'points')),
             'appearance_snapshot' => $appearance,
         ];
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function headerElements(array $definition, array $context, mixed $assets): array
+    {
+        if (($definition['mode'] ?? null) !== 'canvas') {
+            return $this->tokens->elements($definition, $context);
+        }
+        $assets = is_array($assets) ? $assets : [];
+
+        return collect($definition['elements'])->map(function (array $element) use ($context, $assets): array {
+            $type = $element['type'];
+            $resolved = $element;
+            if (in_array($type, ['text', 'field'], true)) {
+                $resolved['value'] = isset($element['token'])
+                    ? $this->tokens->token($element['token'], $context)
+                    : $this->tokens->inline($element['text'], $context);
+                if ($type === 'field') {
+                    $resolved['value'] = $this->tokens->label($element['token']).': '.$resolved['value'];
+                }
+                $fontSize = (float) $element['font_size'];
+                $length = max(1, mb_strlen($resolved['value']));
+                while ($fontSize > 7) {
+                    $charactersPerLine = max(4, (int) floor((float) $element['width'] / ($fontSize * 0.8)));
+                    $lines = max(1, (int) floor((float) $element['height'] / ($fontSize * 1.45)));
+                    if ($length <= $charactersPerLine * $lines) {
+                        break;
+                    }
+                    $fontSize--;
+                }
+                $resolved['render_font_size'] = $fontSize;
+            } elseif ($type === 'image') {
+                $asset = $assets[$element['asset_key']] ?? null;
+                if (! is_array($asset)) {
+                    throw new RuntimeException('O cabeçalho referencia uma imagem ausente do snapshot.');
+                }
+                $resolved['src'] = $this->appearanceAssets->dataUri($asset);
+            }
+
+            return $resolved;
+        })->all();
     }
 
     /** @return array<string, mixed> */

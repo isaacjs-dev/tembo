@@ -94,4 +94,13 @@ class AppearanceTokenResolver
 
         return str_repeat('_', in_array($token, ['student.name', 'institution.name', 'assessment.title'], true) ? 34 : 16);
     }
+
+    public function label(string $token): string
+    {
+        if (! in_array($token, self::TOKENS, true)) {
+            throw new DomainException("Token de aparÃªncia nÃ£o autorizado: {$token}.");
+        }
+
+        return self::LABELS[$token] ?? 'Campo';
+    }
 }

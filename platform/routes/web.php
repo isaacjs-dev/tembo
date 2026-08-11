@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\PublicCatalogModerationController;
 use App\Http\Controllers\Admin\PublicCatalogRewardRuleController;
 use App\Http\Controllers\Admin\UsageAdminController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\AppearanceTemplateController;
 use App\Http\Controllers\BNCcController;
 use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\CustomSkillController;
@@ -265,6 +266,18 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
     });
 
     Route::middleware('inst_perm:view_pedagogical_content')->group(function () {
+        Route::prefix('appearance-templates')->name('appearance-templates.')->group(function () {
+            Route::get('/', [AppearanceTemplateController::class, 'index'])->name('index');
+            Route::get('/create', [AppearanceTemplateController::class, 'create'])->name('create');
+            Route::post('/', [AppearanceTemplateController::class, 'store'])->name('store');
+            Route::post('/{appearanceTemplate}/duplicate', [AppearanceTemplateController::class, 'duplicate'])->name('duplicate');
+            Route::get('/{appearanceTemplate}/edit', [AppearanceTemplateController::class, 'edit'])->name('edit');
+            Route::put('/{appearanceTemplate}', [AppearanceTemplateController::class, 'update'])->name('update');
+            Route::post('/{appearanceTemplate}/default', [AppearanceTemplateController::class, 'setDefault'])->name('default');
+            Route::post('/{appearanceTemplate}/archive', [AppearanceTemplateController::class, 'archive'])->name('archive');
+            Route::get('/{appearanceTemplate}/versions/{version}/assets/{key}', [AppearanceTemplateController::class, 'asset'])
+                ->where('key', '[a-z][a-z0-9_-]{0,39}')->name('asset');
+        });
         Route::get('lessons/{lesson}/report', [LessonController::class, 'report'])->name('lessons.report');
         Route::get('activities/{activity}/report', [ActivityController::class, 'report'])->name('activities.report');
         Route::post('activities/{activity}/attempts/{attempt}/grade', [ActivityController::class, 'grade'])

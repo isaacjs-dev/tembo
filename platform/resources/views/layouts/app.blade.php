@@ -247,6 +247,10 @@
                                 href="{{ route('exams.index') }}">
                                 <span class="material-symbols-outlined text-[20px]">assignment</span> Avaliações
                             </a>
+                            <a class="sidebar-link {{ request()->routeIs('appearance-templates.*') ? 'active' : '' }}"
+                                href="{{ route('appearance-templates.index') }}">
+                                <span class="material-symbols-outlined text-[20px]">palette</span> Aparência
+                            </a>
                             <a class="sidebar-link {{ request()->routeIs('learning-materials.*') ? 'active' : '' }}"
                                 href="{{ route('learning-materials.index') }}">
                                 <span class="material-symbols-outlined text-[20px]" aria-hidden="true">auto_stories</span>
