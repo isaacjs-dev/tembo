@@ -4,12 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Models\Discipline;
 use App\Models\Lesson;
+use App\Models\LessonProgress;
+use App\Models\User;
 use App\Services\PedagogicalAccessService;
 use App\Services\RevisionBuilderService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class LessonController extends Controller
@@ -68,7 +71,30 @@ class LessonController extends Controller
     {
         abort_unless($access->canView($request->user(), $lesson->organization_id), 403);
 
-        return view('lessons.show', ['lesson' => $lesson->load(['author', 'discipline', 'schoolClasses'])]);
+        return view('lessons.show', [
+            'lesson' => $lesson->load(['author', 'discipline', 'schoolClasses']),
+            'canReport' => $access->canManage($request->user(), $lesson->organization_id, $lesson->author_id)
+                || $access->canReview($request->user(), $lesson->organization_id),
+        ]);
+    }
+
+    public function report(Request $request, Lesson $lesson, PedagogicalAccessService $access): View
+    {
+        abort_unless($access->canManage($request->user(), $lesson->organization_id, $lesson->author_id)
+            || $access->canReview($request->user(), $lesson->organization_id), 403);
+        $classIds = $lesson->schoolClasses()->pluck('school_classes.id');
+        $students = User::withTrashed()->where(function ($query) use ($lesson, $classIds): void {
+            $query->where(function ($active) use ($lesson, $classIds): void {
+                $active->memberOfOrganization($lesson->organization_id, 'student')
+                    ->whereHas('schoolClasses', fn ($classes) => $classes->whereIn('school_classes.id', $classIds));
+            })->orWhereHas('lessonProgress', fn ($progress) => $progress
+                ->where('organization_id', $lesson->organization_id)->where('lesson_id', $lesson->id));
+        })
+            ->orderBy('name')->paginate(50, ['users.id', 'users.name', 'users.email']);
+        $progress = LessonProgress::query()->where('lesson_id', $lesson->id)
+            ->whereIn('student_id', $students->getCollection()->pluck('id'))->get()->keyBy('student_id');
+
+        return view('lessons.report', compact('lesson', 'students', 'progress'));
     }
 
     public function update(Request $request, Lesson $lesson, PedagogicalAccessService $access, RevisionBuilderService $builder): RedirectResponse
@@ -94,7 +120,15 @@ class LessonController extends Controller
     public function destroy(Request $request, Lesson $lesson, PedagogicalAccessService $access): RedirectResponse
     {
         abort_unless($access->canManage($request->user(), $lesson->organization_id, $lesson->author_id), 403);
-        $lesson->delete();
+        DB::transaction(function () use ($lesson): void {
+            $locked = Lesson::query()->lockForUpdate()->findOrFail($lesson->id);
+            if ($locked->progress()->exists()) {
+                throw ValidationException::withMessages([
+                    'lesson' => 'Esta aula possui progresso de alunos e não pode ser excluída. Arquive-a para preservar o histórico.',
+                ]);
+            }
+            $locked->delete();
+        }, 3);
 
         return redirect()->route('lessons.index')->with('status', 'Aula removida.');
     }

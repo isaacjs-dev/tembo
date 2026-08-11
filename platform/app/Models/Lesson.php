@@ -41,4 +41,9 @@ class Lesson extends Model
     {
         return $this->morphMany(RevisionSource::class, 'source');
     }
+
+    public function progress()
+    {
+        return $this->hasMany(LessonProgress::class);
+    }
 }

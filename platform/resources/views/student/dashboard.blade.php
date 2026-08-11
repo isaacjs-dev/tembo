@@ -8,6 +8,11 @@
                 </p>
             </div>
 
+            <a href="{{ route('student.pedagogical.index') }}"
+                class="duo-button-secondary rounded-xl px-5 py-3 text-center text-sm font-extrabold">
+                Aulas e atividades
+            </a>
+
             <form action="{{ route('student.joinByCode') }}" method="POST"
                 class="flex flex-col sm:flex-row sm:items-end gap-2 w-full lg:w-auto">
                 @csrf

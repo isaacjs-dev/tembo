@@ -156,6 +156,26 @@ test('aluno acompanha avaliação e resultado sem overflow', async ({ page }) =>
     expect(errors).toEqual([]);
 });
 
+test('aluno recebe aulas e atividades com progresso responsivo', async ({ page }) => {
+    const errors = await login(page, 'student@email.com');
+    await page.goto('/student/pedagogical');
+    await expect(page.getByRole('heading', { name: 'Aulas e atividades', exact: true })).toBeVisible();
+    const lesson = page.locator('article').filter({ hasText: 'Sistema decimal' });
+    await expect(lesson).toBeVisible();
+    await lesson.getByRole('link').click();
+    await expect(page.getByRole('heading', { name: /Sistema decimal/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Marcar aula como concluída' })).toBeVisible();
+    await expectResponsive(page);
+
+    await page.goto('/student/pedagogical');
+    const activity = page.locator('article').filter({ hasText: 'Desafio colaborativo' });
+    await expect(activity).toBeVisible();
+    await activity.getByRole('link').click();
+    await expect(page.getByRole('button', { name: 'Iniciar tentativa' })).toBeVisible();
+    await expectResponsive(page);
+    expect(errors).toEqual([]);
+});
+
 test('superadministrador acessa consumo e cortesias sem dados de outro painel', async ({ page }) => {
     const errors = await login(page, 'admin@admin.com');
     await page.goto('/admin/usage');

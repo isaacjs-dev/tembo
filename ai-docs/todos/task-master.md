@@ -21,7 +21,7 @@ Fonte: `ai-docs/PRD.md`. Estados válidos: `pending`, `in_progress`, `done`, `bl
 | ASM-003 | Modalidades, outputs e cópias versionadas | ASM-01, ASM-05..07, ASM-10..11 | ASM-002 | done | Digital/Avaliação/cartão/ambos/gabarito autorizados |
 | ASM-004 | Introdução e jornada completas do aluno | ASM-08, ASM-09 | ASM-003 | done | Dados, estados, tentativas e resultado responsivos |
 | PED-001 | Estabilizar revisões, aulas e atividades existentes | PED-01 | IAM-004 | done | Snapshots, autoria, permissões e idempotência cobertos por regressão |
-| PED-002 | Entrega e execução de aulas/atividades pelo aluno | PED-02 | PED-001 | pending | Progresso, conclusão e relatório persistentes |
+| PED-002 | Entrega e execução de aulas/atividades pelo aluno | PED-02 | PED-001 | done | Publicação, progresso, conclusão, tentativas e relatórios persistentes |
 | LIB-001 | Recurso de Questão versionado e pivot N:M | LIB-01..03 | IAM-004 | done | Reuso sem duplicação e visibilidade compatível |
 | LIB-002 | Biblioteca pessoal/específica/institucional/pública | LIB-01, LIB-04 | LIB-001 | done | Filtros, busca, paginação e policies |
 | LIB-003 | Moderação, denúncia, deduplicação e reputação | LIB-05, LIB-06 | LIB-002 | done | Publicação exige aprovação e trilha completa |
