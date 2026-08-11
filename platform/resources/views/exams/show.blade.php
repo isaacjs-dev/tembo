@@ -80,16 +80,53 @@
                 @csrf
                 <div class="flex-1 min-w-[220px]">
                     <label class="input-label">Template do cartão</label>
-                    @php $selectedTpl = $exam->card_template_id ?? optional($cardTemplates->firstWhere('is_default', true))->id; @endphp
-                    <select name="card_template_id" class="input-field">
-                        @forelse($cardTemplates as $tpl)
-                            <option value="{{ $tpl->id }}" {{ $selectedTpl == $tpl->id ? 'selected' : '' }}>
-                                {{ $tpl->name }}@if($tpl->is_default) (padrão)@endif — até {{ $tpl->max_questions ?? '∞' }} questões
-                            </option>
-                        @empty
+                    @php
+                        $preferredTpl = $exam->card_template_id ?? optional($cardTemplates->firstWhere('is_default', true))->id;
+                        $selectedTpl = $preferredTpl && !($cardTemplateCompatibility[$preferredTpl] ?? null)
+                            ? $preferredTpl
+                            : optional($cardTemplates->first(fn ($tpl) => !($cardTemplateCompatibility[$tpl->id] ?? null)))->id;
+                        $hasCompatibleTemplate = (bool) $selectedTpl;
+                    @endphp
+                    <select name="card_template_id" class="input-field" {{ $hasCompatibleTemplate ? '' : 'disabled' }}>
+                        @php
+                            $templateGroups = [
+                                'Sistema' => $cardTemplates->where('is_system', true),
+                                'Meus modelos' => $cardTemplates->where('is_system', false)->where('created_by', auth()->id()),
+                                'Instituição' => $cardTemplates->where('is_system', false)->where('created_by', '!=', auth()->id()),
+                            ];
+                        @endphp
+                        @foreach($templateGroups as $groupLabel => $groupTemplates)
+                            @if($groupTemplates->isNotEmpty())
+                                <optgroup label="{{ $groupLabel }}">
+                                    @foreach($groupTemplates as $tpl)
+                                        @php $incompatibility = $cardTemplateCompatibility[$tpl->id] ?? null; @endphp
+                                        <option value="{{ $tpl->id }}" {{ $selectedTpl == $tpl->id ? 'selected' : '' }} {{ $incompatibility ? 'disabled' : '' }}>
+                                            {{ $tpl->name }}@if($tpl->is_default) (padrão)@endif — {{ $tpl->columns }}×{{ $tpl->rows_per_column }}, {{ $tpl->max_options }} alternativas, até {{ $tpl->max_questions ?? '∞' }} questões{{ $incompatibility ? ' — incompatível' : '' }}
+                                        </option>
+                                    @endforeach
+                                </optgroup>
+                            @endif
+                        @endforeach
+                        @if($cardTemplates->isEmpty())
                             <option value="">Nenhum template disponível</option>
-                        @endforelse
+                        @endif
                     </select>
+                    @php $incompatibleTemplates = $cardTemplates->filter(fn ($tpl) => (bool) ($cardTemplateCompatibility[$tpl->id] ?? null)); @endphp
+                    @if($incompatibleTemplates->isNotEmpty())
+                        <details class="mt-2 text-xs text-gray-500">
+                            <summary class="cursor-pointer">Por que alguns modelos estão indisponíveis?</summary>
+                            <ul class="mt-1 list-disc pl-5 space-y-1">
+                                @foreach($incompatibleTemplates as $tpl)
+                                    <li><strong>{{ $tpl->name }}:</strong> {{ $cardTemplateCompatibility[$tpl->id] }}</li>
+                                @endforeach
+                            </ul>
+                        </details>
+                    @endif
+                    @if(!$hasCompatibleTemplate)
+                        <p class="mt-2 text-sm font-bold text-red-600" role="alert">
+                            Nenhum modelo ativo comporta as questões e alternativas desta Avaliação.
+                        </p>
+                    @endif
                 </div>
                 <div class="w-32">
                     <label class="input-label">Quantidade</label>
@@ -103,7 +140,8 @@
                     <input type="checkbox" name="individualize" value="1" class="rounded border-gray-300">
                     Uma por aluno do público
                 </label>
-                <button type="submit" class="btn-primary btn-sm flex items-center gap-1">
+                <button type="submit" class="btn-primary btn-sm flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    {{ $hasCompatibleTemplate ? '' : 'disabled' }}>
                     <span class="material-symbols-outlined text-[18px]">print</span> Gerar Cartão-Resposta (PDF)
                 </button>
             </form>

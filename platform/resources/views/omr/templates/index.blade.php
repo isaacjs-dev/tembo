@@ -47,6 +47,10 @@
                             <td>
                                 <p class="font-bold text-duo-heading">{{ $tpl->name }}</p>
                                 <p class="text-xs text-gray-400 font-mono">{{ $tpl->slug }}</p>
+                                @php $purpose = $catalogPurposes[$tpl->slug] ?? data_get($tpl->header_config, 'purpose'); @endphp
+                                @if($purpose)
+                                    <p class="text-xs text-gray-500 mt-1">{{ $purpose }}</p>
+                                @endif
                             </td>
                             <td class="text-sm">{{ $tpl->paper_size }}
                                 {{ $tpl->orientation === 'portrait' ? 'Retrato' : 'Paisagem' }}</td>
@@ -60,7 +64,7 @@
                                     <span class="badge badge-neutral">Inativo</span>
                                 @endif
                                 @if(!$tpl->organization_id)
-                                    <span class="badge badge-info ml-1">Global</span>
+                                    <span class="badge badge-info ml-1">Sistema</span>
                                 @endif
                             </td>
                             <td class="text-xs text-gray-500">{{ $tpl->updated_at->format('d/m/Y H:i') }}</td>
@@ -70,16 +74,16 @@
                                         title="Exportar JSON" target="_blank">
                                         <span aria-hidden="true" class="material-symbols-outlined text-[18px]">download</span>
                                     </a>
-                                    <a href="{{ route('institution.omr.templates.edit', $tpl->id) }}" class="btn-icon"
-                                        title="Editar">
-                                        <span aria-hidden="true" class="material-symbols-outlined text-[18px]">edit</span>
-                                    </a>
-                                    @if($tpl->organization_id)
+                                    @if(!$tpl->is_system)
+                                        <a href="{{ route('institution.omr.templates.edit', $tpl->id) }}" class="btn-icon"
+                                            title="Editar">
+                                            <span aria-hidden="true" class="material-symbols-outlined text-[18px]">edit</span>
+                                        </a>
                                         <form action="{{ route('institution.omr.templates.destroy', $tpl->id) }}" method="POST"
-                                            onsubmit="return confirm('Excluir template \'{{ $tpl->name }}\'? Esta ação não pode ser desfeita.')">
+                                            onsubmit="return confirm('Arquivar template \'{{ $tpl->name }}\'? Documentos históricos serão preservados.')">
                                             @csrf @method('DELETE')
-                                            <button class="btn-icon text-red-500" title="Excluir">
-                                                <span aria-hidden="true" class="material-symbols-outlined text-[18px]">delete</span>
+                                            <button class="btn-icon text-red-500" title="Arquivar">
+                                                <span aria-hidden="true" class="material-symbols-outlined text-[18px]">archive</span>
                                             </button>
                                         </form>
                                     @endif

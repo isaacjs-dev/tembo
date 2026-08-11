@@ -252,6 +252,77 @@ class AnswerSheetGeneratorService
     }
 
     /**
+     * Validates a template against the live exam without persisting a binding or copy.
+     * The same canonical geometry service used by PDF generation performs the check.
+     */
+    public function assertCompatible(
+        Exam $exam,
+        OmrTemplate $template,
+        ?array $layoutOverride = null,
+        ?int $templateVersion = null,
+    ): void {
+        $exam->loadMissing('questions');
+        $templateVersion ??= (int) ($template->current_version ?: 1);
+        $resolvedLayout = $template->layoutForVersion($templateVersion);
+        if ($resolvedLayout === []) {
+            throw new \RuntimeException('O template OMR não possui uma geometria válida.');
+        }
+        $placementOverride = $layoutOverride
+            ? array_intersect_key($layoutOverride, array_flip(['frame_left_mm', 'frame_top_mm', 'frame_width_mm']))
+            : [];
+        $layout = array_replace($resolvedLayout, $placementOverride);
+        $questions = $exam->questions->values();
+        $maxQuestions = (int) ($layout['max_questions'] ?? $template->max_questions ?? 0);
+        $rows = max(1, (int) ($layout['rows_per_column'] ?? 20));
+        $maxColumns = max(1, (int) ($layout['columns'] ?? $template->max_columns ?? 2));
+        $maxOptions = min(9, max(2, (int) ($layout['max_options'] ?? $template->max_options ?? 5)));
+
+        if ($questions->isEmpty()) {
+            throw new \RuntimeException('Não é possível gerar um cartão-resposta sem questões.');
+        }
+        if ($maxQuestions > 0 && $questions->count() > $maxQuestions) {
+            throw new \RuntimeException("O modelo aceita até {$maxQuestions} questões.");
+        }
+
+        $descriptors = $questions->map(function ($question) use ($maxOptions): array {
+            if (! in_array($question->type, ['multiple_choice', 'true_false', 'essay'], true)) {
+                throw new \RuntimeException("Tipo de questão não suportado pelo cartão OMR: {$question->type}.");
+            }
+            $optionCount = $question->type === 'true_false'
+                ? 2
+                : ($question->type === 'essay' ? 0 : count($question->content['options'] ?? []));
+            if ($question->type !== 'essay' && ($optionCount < 2 || $optionCount > $maxOptions)) {
+                throw new \RuntimeException("O modelo aceita no máximo {$maxOptions} alternativas por questão.");
+            }
+
+            if ($question->type !== 'essay') {
+                $correctOption = $question->content['correct_option'] ?? null;
+                if (
+                    ! is_numeric($correctOption)
+                    || (int) $correctOption < 0
+                    || (int) $correctOption >= $optionCount
+                ) {
+                    throw new \RuntimeException("A questão objetiva {$question->id} não possui gabarito válido.");
+                }
+            }
+
+            return ['type' => $question->type, 'option_count' => $optionCount];
+        });
+
+        $effectiveColumns = max(1, min($maxColumns, (int) ceil($questions->count() / $rows)));
+        $pageLayout = array_merge($layout, ['columns' => $effectiveColumns, 'rows_per_column' => $rows]);
+        foreach ($descriptors->chunk($rows * $effectiveColumns) as $pageIndex => $pageQuestions) {
+            $this->geometry->build(
+                $pageLayout,
+                $pageQuestions->values(),
+                ($pageIndex * $rows * $effectiveColumns) + 1,
+                (int) $template->id,
+                $templateVersion,
+            );
+        }
+    }
+
+    /**
      * @return array{0: array, 1: int}
      */
     private function resolveTemplateLayout(Exam $exam, OmrTemplate $template, ?ExamCopy $copy = null): array

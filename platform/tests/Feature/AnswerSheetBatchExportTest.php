@@ -67,12 +67,15 @@ class AnswerSheetBatchExportTest extends TestCase
 
         $fakePdf = new class
         {
-            public function stream(string $filename)
+            public function output(): string
             {
-                return response($filename, 200, ['Content-Type' => 'application/pdf']);
+                return '%PDF-fake-batch';
             }
         };
         $generator = Mockery::mock(AnswerSheetGeneratorService::class);
+        $generator->shouldReceive('assertCompatible')
+            ->once()
+            ->withArgs(fn (Exam $receivedExam, OmrTemplate $receivedTemplate): bool => $receivedExam->is($exam) && $receivedTemplate->is($template));
         $generator->shouldReceive('generate')
             ->once()
             ->withArgs(function (Exam $receivedExam, $receivedCopies, OmrTemplate $receivedTemplate, string $mode) use ($exam, $template): bool {
@@ -96,6 +99,8 @@ class AnswerSheetBatchExportTest extends TestCase
         ]);
 
         $response->assertOk();
-        $response->assertSee('Cartoes_Resposta_'.$exam->id.'_3_copias.pdf');
+        $response->assertHeader('Content-Type', 'application/pdf');
+        $response->assertHeader('Content-Disposition', 'inline; filename="Cartoes_Resposta_'.$exam->id.'_3_copias.pdf"');
+        $response->assertContent('%PDF-fake-batch');
     }
 }

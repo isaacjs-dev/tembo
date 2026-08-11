@@ -84,7 +84,7 @@ class ExamController extends Controller
             ->with('status', 'Avaliação criada como rascunho. Adicione questões e revise as regras antes de publicar.');
     }
 
-    public function show(string $id, ExamAudienceService $audiences)
+    public function show(string $id, ExamAudienceService $audiences, AnswerSheetGeneratorService $answerSheets)
     {
         $exam = Exam::where('organization_id', auth()->user()->organization_id)
             ->where('author_id', auth()->id())
@@ -115,8 +115,17 @@ class ExamController extends Controller
             ->orderByDesc('is_default')
             ->orderBy('name')
             ->get();
+        $cardTemplateCompatibility = $cardTemplates->mapWithKeys(function (OmrTemplate $template) use ($answerSheets, $exam): array {
+            try {
+                $answerSheets->assertCompatible($exam, $template);
 
-        return view('exams.show', compact('exam', 'audienceStudents', 'submissions', 'printSettings', 'cardTemplates'));
+                return [$template->id => null];
+            } catch (\RuntimeException $exception) {
+                return [$template->id => $exception->getMessage()];
+            }
+        });
+
+        return view('exams.show', compact('exam', 'audienceStudents', 'submissions', 'printSettings', 'cardTemplates', 'cardTemplateCompatibility'));
     }
 
     public function edit(
@@ -830,6 +839,7 @@ class ExamController extends Controller
         string $id,
         ExamAudienceService $audiences,
         CanonicalPrintDocumentService $documents,
+        AnswerSheetGeneratorService $answerSheets,
     ) {
         if (! auth()->user()->hasFeature('export_pdf')) {
             return back()->withErrors(['O plano atual da sua instituição não permite exportação de PDFs.']);
@@ -929,12 +939,35 @@ class ExamController extends Controller
         $template = null;
         if ($needsAnswerSheet) {
             $numQ = $exam->questions->count();
-            $template = $exam->cardTemplate;
-            if (! $template || ! $template->is_active) {
-                // Escolhe o menor template do sistema que comporte a prova.
-                $template = OmrTemplate::where('is_system', true)->where('is_active', true)
-                    ->where('max_questions', '>=', $numQ)->orderBy('max_questions')->first()
-                    ?? OmrTemplate::where('is_default', true)->where('is_active', true)->first();
+            $templateVersion = null;
+            if ($exam->card_template_id) {
+                $template = OmrTemplate::visible($request->user())
+                    ->whereKey($exam->card_template_id)
+                    ->where('is_active', true)
+                    ->first();
+                $templateVersion = $template
+                    ? (int) ($exam->card_template_version ?: $template->current_version)
+                    : null;
+            }
+
+            if (! $template) {
+                // Escolhe o menor modelo do sistema que comporte e valide a Avaliação.
+                foreach (OmrTemplate::visible($request->user())
+                    ->where('is_system', true)
+                    ->where('is_active', true)
+                    ->where('max_questions', '>=', $numQ)
+                    ->orderBy('max_questions')
+                    ->orderBy('id')
+                    ->get() as $candidate) {
+                    try {
+                        $answerSheets->assertCompatible($exam, $candidate, null, (int) $candidate->current_version);
+                        $template = $candidate;
+                        $templateVersion = (int) $candidate->current_version;
+                        break;
+                    } catch (\RuntimeException) {
+                        // Continua até encontrar o primeiro contrato realmente compatível.
+                    }
+                }
             }
 
             if (! $template) {
@@ -943,9 +976,7 @@ class ExamController extends Controller
                 ]);
             }
 
-            $templateVersion = (int) ($exam->card_template_id === $template->id && $exam->card_template_version
-                ? $exam->card_template_version
-                : $template->current_version);
+            $templateVersion ??= (int) $template->current_version;
             $options['card_template_id'] = $template->id;
             $options['card_template_version'] = $templateVersion;
             $printOverrides = [
@@ -954,6 +985,16 @@ class ExamController extends Controller
                 'frame_width_mm' => 174.0,
             ];
             $printLayout = array_merge($template->layoutForVersion($templateVersion), $printOverrides);
+            try {
+                $answerSheets->assertCompatible(
+                    $exam,
+                    $template,
+                    $printOverrides,
+                    $templateVersion,
+                );
+            } catch (\RuntimeException $exception) {
+                throw ValidationException::withMessages(['card_template_id' => $exception->getMessage()]);
+            }
             $options['template_snapshot'] = $template->snapshotForVersion($templateVersion);
             $options['template_snapshot']['layout_config'] = $printLayout;
             $options['template_snapshot']['print_overrides'] = $printOverrides;
@@ -1218,35 +1259,61 @@ class ExamController extends Controller
             return back()->withErrors('Nenhum template de cartão-resposta disponível. Execute o seeder do template padrão.');
         }
 
+        $templateVersion = (int) $template->current_version;
+        try {
+            $generatorService->assertCompatible($exam, $template, null, $templateVersion);
+        } catch (\RuntimeException $exception) {
+            throw ValidationException::withMessages(['card_template_id' => $exception->getMessage()]);
+        }
+
         // Modo de leitura (gabarito embutido/híbrido) continua via config; padrão híbrido.
         $scanMode = $configResolver->resolveWithTrace($organizationId, $userId, 'scan_mode')['effective_value'] ?? 'hybrid';
 
-        // Registra o vínculo prova↔template (id + versão usada na geração).
-        if ($exam->card_template_id !== $template->id || $exam->card_template_version !== $template->current_version) {
-            $exam->forceFill([
-                'card_template_id' => $template->id,
-                'card_template_version' => $template->current_version,
-            ])->save();
-        }
-
-        $templateVersion = (int) $exam->card_template_version;
         $options['card_template_id'] = $template->id;
         $options['card_template_version'] = $templateVersion;
         $options['template_snapshot'] = $template->snapshotForVersion($templateVersion);
 
-        // Gera as cópias (embaralhamento) e inclui todas elas no mesmo PDF.
-        $copies = $printService->generateCopies($exam, $quantity, $options, $schoolClassId, $studentIds);
-        if ($copies->isEmpty()) {
-            return back()->withErrors('Não foi possível gerar as cópias da prova.');
-        }
-
         try {
-            $result = $generatorService->generate($exam, $copies, $template, $scanMode);
+            [$pdfBytes, $copyCount] = DB::transaction(function () use (
+                $exam,
+                $template,
+                $templateVersion,
+                $options,
+                $printService,
+                $quantity,
+                $schoolClassId,
+                $studentIds,
+                $generatorService,
+                $scanMode,
+            ): array {
+                // O vínculo, as cópias e o PDF formam uma única operação: qualquer falha
+                // posterior ao preflight desfaz as escritas e preserva o estado anterior.
+                $exam->forceFill([
+                    'card_template_id' => $template->id,
+                    'card_template_version' => $templateVersion,
+                ])->save();
+
+                $copies = $printService->generateCopies($exam, $quantity, $options, $schoolClassId, $studentIds);
+                if ($copies->isEmpty()) {
+                    throw new \RuntimeException('Não foi possível gerar as cópias da Avaliação.');
+                }
+
+                $result = $generatorService->generate($exam, $copies, $template, $scanMode);
+
+                // Dompdf renderiza de forma lazy. Materializar os bytes aqui garante
+                // rollback também para falhas reais de layout/renderização.
+                return [$result['pdf']->output(), $copies->count()];
+            });
         } catch (\RuntimeException $e) {
             return back()->withErrors($e->getMessage());
         }
 
-        return $result['pdf']->stream("Cartoes_Resposta_{$exam->id}_{$copies->count()}_copias.pdf");
+        $filename = "Cartoes_Resposta_{$exam->id}_{$copyCount}_copias.pdf";
+
+        return response($pdfBytes, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
+        ]);
     }
 
     /**

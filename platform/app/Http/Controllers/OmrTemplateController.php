@@ -6,6 +6,7 @@ use App\Models\OmrTemplate;
 use App\Models\OmrTemplateQuestion;
 use App\Models\User;
 use App\Services\OmrTemplateVersionService;
+use App\Support\OmrSystemTemplateCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -20,8 +21,10 @@ class OmrTemplateController extends Controller
             ->orderByDesc('is_default')
             ->orderByDesc('updated_at')
             ->paginate(20);
+        $catalogPurposes = collect(OmrSystemTemplateCatalog::definitions())
+            ->mapWithKeys(fn (array $definition): array => [$definition['slug'] => $definition['purpose']]);
 
-        return view('omr.templates.index', compact('templates'));
+        return view('omr.templates.index', compact('templates', 'catalogPurposes'));
     }
 
     public function create()
