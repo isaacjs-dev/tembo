@@ -6,13 +6,14 @@ use App\Models\Revision;
 use App\Models\RevisionImport;
 use App\Models\RevisionItem;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use JsonException;
 
 class RevisionImportService
 {
+    public function __construct(private readonly RevisionWorkflowService $workflow) {}
+
     public function import(Revision $revision, User $user, string $json, string $mode = 'append'): RevisionImport
     {
         try {
@@ -60,7 +61,7 @@ class RevisionImportService
             throw new ValidationException($validator);
         }
 
-        return DB::transaction(function () use ($revision, $user, $payload, $mode): RevisionImport {
+        return $this->workflow->mutate($revision, function (Revision $revision) use ($user, $payload, $mode): RevisionImport {
             if ($mode === 'replace') {
                 $revision->items()->delete();
             }

@@ -245,9 +245,9 @@ Route::middleware(['auth', 'workspace_context', 'active_account', 'verified_acco
         });
     });
 
-    Route::middleware('workspace_role:admin,institution_admin,teacher,global_admin')->group(function () {
-        Route::resource('lessons', LessonController::class)->except('show');
-        Route::resource('activities', ActivityController::class)->except('show');
+    Route::middleware('inst_perm:view_pedagogical_content')->group(function () {
+        Route::resource('lessons', LessonController::class);
+        Route::resource('activities', ActivityController::class);
         Route::post('revisions/{revision}/items', [RevisionController::class, 'storeItem'])->name('revisions.items.store');
         Route::put('revisions/{revision}/items/{item}', [RevisionController::class, 'updateItem'])->name('revisions.items.update');
         Route::delete('revisions/{revision}/items/{item}', [RevisionController::class, 'destroyItem'])->name('revisions.items.destroy');

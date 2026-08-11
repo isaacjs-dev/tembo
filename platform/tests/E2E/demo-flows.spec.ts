@@ -35,8 +35,8 @@ test('professor consulta créditos e gerencia aulas, atividades e revisões', as
     const mission = page.locator('article').filter({ hasText: 'Missão: dominar números e gráficos' });
     await mission.getByRole('link', { name: 'Editar' }).click();
     await expect(page.getByRole('heading', { name: 'Editar revisão' })).toBeVisible();
-    await page.getByRole('link', { name: 'Gerar prompt para IA' }).click();
-    await expect(page.getByText('Cole somente o JSON retornado')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Versão histórica protegida' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Gerar prompt para IA' })).toHaveCount(0);
     expect(errors).toEqual([]);
 });
 

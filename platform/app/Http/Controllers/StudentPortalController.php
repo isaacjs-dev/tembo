@@ -798,6 +798,7 @@ class StudentPortalController extends Controller
             ->where('timing', 'before')
             ->where('block_exam', true)
             ->where(fn ($query) => $query->whereNull('available_at')->orWhere('available_at', '<=', now()))
+            ->where(fn ($query) => $query->whereNull('due_at')->orWhere('due_at', '>=', now()))
             ->whereHas('sources', fn ($query) => $query
                 ->where('source_type', $exam->getMorphClass())
                 ->where('source_id', $exam->id))

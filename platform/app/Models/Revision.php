@@ -10,11 +10,11 @@ class Revision extends Model
 {
     use Auditable, SoftDeletes;
 
-    protected $fillable = ['organization_id', 'author_id', 'discipline_id', 'title', 'description', 'status', 'is_required', 'timing', 'block_exam', 'available_at', 'due_at', 'max_attempts', 'feedback_mode', 'gamification_enabled', 'published_at', 'reviewed_by', 'review_notes'];
+    protected $fillable = ['organization_id', 'author_id', 'discipline_id', 'title', 'description', 'status', 'is_required', 'timing', 'block_exam', 'available_at', 'due_at', 'max_attempts', 'feedback_mode', 'gamification_enabled', 'published_at', 'reviewed_by', 'review_notes', 'approved_content_hash', 'approved_at'];
 
     protected function casts(): array
     {
-        return ['is_required' => 'boolean', 'block_exam' => 'boolean', 'available_at' => 'datetime', 'due_at' => 'datetime', 'max_attempts' => 'integer', 'gamification_enabled' => 'boolean', 'published_at' => 'datetime'];
+        return ['is_required' => 'boolean', 'block_exam' => 'boolean', 'available_at' => 'datetime', 'due_at' => 'datetime', 'max_attempts' => 'integer', 'gamification_enabled' => 'boolean', 'published_at' => 'datetime', 'approved_at' => 'datetime'];
     }
 
     public function organization()

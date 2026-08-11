@@ -15,17 +15,17 @@ class InstitutionPermissionService
             'view_teachers', 'manage_teachers', 'view_students', 'manage_students',
             'view_classes', 'manage_classes', 'view_questions', 'manage_questions',
             'view_exams', 'manage_exams', 'view_reports', 'view_invites', 'manage_invites',
-            'view_omr', 'manage_omr', 'review_revisions',
+            'view_omr', 'manage_omr', 'view_pedagogical_content', 'manage_pedagogical_content', 'review_revisions',
         ],
         'coordinator' => [
             'view_teachers', 'manage_teachers', 'view_students', 'manage_students',
             'view_classes', 'manage_classes', 'view_questions', 'manage_questions',
             'view_exams', 'manage_exams', 'view_reports', 'view_invites', 'manage_invites',
-            'view_omr', 'manage_omr', 'review_revisions',
+            'view_omr', 'manage_omr', 'view_pedagogical_content', 'manage_pedagogical_content', 'review_revisions',
         ],
         'pedagogue' => [
             'view_teachers', 'view_students', 'view_classes', 'view_questions',
-            'view_exams', 'view_reports', 'view_invites', 'view_omr', 'review_revisions',
+            'view_exams', 'view_reports', 'view_invites', 'view_omr', 'view_pedagogical_content', 'review_revisions',
         ],
     ];
 
@@ -67,7 +67,7 @@ class InstitutionPermissionService
 
         $teacherPermissions = [
             'view_questions', 'manage_questions', 'view_exams', 'manage_exams',
-            'view_reports', 'view_omr', 'manage_omr',
+            'view_reports', 'view_omr', 'manage_omr', 'view_pedagogical_content', 'manage_pedagogical_content',
         ];
         $organization = Organization::query()->find($organizationId);
         if ($organization?->isPersonalWorkspace()) {

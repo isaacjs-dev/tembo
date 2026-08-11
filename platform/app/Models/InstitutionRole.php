@@ -96,6 +96,8 @@ class InstitutionRole extends Model
             'manage_invites' => 'Gerenciar convites',
             'view_omr' => 'Visualizar OMR',
             'manage_omr' => 'Gerenciar OMR',
+            'view_pedagogical_content' => 'Visualizar conteudo pedagogico',
+            'manage_pedagogical_content' => 'Gerenciar conteudo pedagogico',
             'review_revisions' => 'Revisar e publicar revisões pedagógicas',
         ];
     }
